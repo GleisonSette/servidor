@@ -1,0 +1,143 @@
+# Histórico de execução
+
+metadata:
+  canon_id: canon-historico-execucao
+  source_path: memory/canon/historico-execucao.md
+  generated_from: auditorias e implementações autorizadas no laboratório
+  updated_at: 2026-08-15
+  status: canonical
+
+## Regra de registro
+
+O histórico é append-only. Correção de uma entrada cria nova seção referenciando
+a anterior; não apagar uma evidência operacional já registrada. Nunca incluir
+segredo, payload sensível, conteúdo de chave ou senha.
+
+## 2026-08-15 - Auditoria inicial
+
+Resultado: concluído.
+
+- Acesso SSH por identidade permanente e host key estrita validado.
+- Host, rede, portas, serviços, recursos, K3s, PostgreSQL, backups e Prometheus
+  inspecionados sem alteração.
+- Somente `apiwpp` estava implantado; Deployment 1/1 Ready e smoke registrado
+  como aprovado.
+- Dois pods antigos estavam em `ContainerStatusUnknown`.
+- Do PC administrativo, somente 22 e 6443 responderam entre as portas testadas.
+- Backups local/R2, WAL e três targets Prometheus estavam saudáveis.
+- Atualizações de sistema e ausência de receptor externo de alertas foram
+  registradas como pendências.
+- Concluiu-se que o host suporta três projetos para validação funcional com uma
+  réplica e limites, mas não representa HA ou capacidade de produção.
+
+## 2026-08-15 - Autorização das Fases 0 a 2
+
+Resultado: em execução.
+
+- O usuário aprovou a arquitetura proposta.
+- O usuário pediu registro RAG para continuidade com baixo consumo de contexto.
+- O usuário autorizou criar a base declarativa e estabilizar o servidor.
+- Alterações externas que exijam escolha de receptor ou credencial continuam
+  dependentes de decisão explícita; nenhum destino será presumido.
+
+## 2026-08-15 - Memória RAG local
+
+Resultado: concluído.
+
+- Criados canons separados para estado, arquitetura, plano, decisões e
+  histórico append-only.
+- Criados índice BM25, manifestos de fontes e scripts de reconstrução, busca e
+  verificação sem serviço externo.
+- A consulta `qual e o proximo passo` retornou o plano de implementação como
+  primeira fonte.
+- `AGENTS.md` tornou obrigatória a consulta seletiva e a atualização da memória
+  após mudança operacional.
+
+## 2026-08-15 - Backup e restauração antes da manutenção
+
+Resultado: concluído.
+
+- Restore do repo2/R2 executado em data directory, socket e porta isolados.
+- Foram restaurados 23,5 GB em aproximadamente 542 segundos; banco
+  `clone_wpp`, checksums e 18 migrations foram confirmados.
+- Backups incrementais repo1/local e repo2/R2 foram forçados e terminaram com
+  `Result=success`.
+- K3s foi parado por janela curta; datastore e configuração foram copiados para
+  `/var/backups/shared-lab/20260815T113334Z` com permissão root-only e checksum
+  SHA-256 aprovado.
+
+## 2026-08-15 - Base compartilhada e auditoria K3s
+
+Resultado: concluído.
+
+- Criados e aplicados os namespaces vazios `cia-pixel-lab` e `saferwpp-lab`.
+- Aplicados Pod Security `restricted` v1.36, ServiceAccount padrão sem token,
+  cotas, limites, default deny e DNS explícito.
+- ValidatingAdmissionPolicy aplicada; um NodePort em dry-run server-side foi
+  recusado como esperado.
+- Audit log de metadados ativado com rotação 14 dias/5 arquivos/50 MiB, sem
+  corpos de Secret nos eventos amostrados.
+- `apiwpp` permaneceu Ready durante a validação pós-restart.
+
+## 2026-08-15 - Limpeza e verificação do apiwpp
+
+Resultado: concluído.
+
+- Removidos somente os pods órfãos `apiwpp-5c745897b7-jrp7v` e
+  `apiwpp-5c745897b7-kjg6g`, ambos não Ready e pertencentes a ReplicaSet.
+- O verificador passou a selecionar a única réplica Running e Ready antes de
+  aguardar a condição do pod.
+- Rollout, uma réplica, 18 migrations, health, ready, autenticação de métricas e
+  smoke test passaram.
+
+## 2026-08-15 - Atualização e correção dos dependentes
+
+Resultado: concluído após correção.
+
+- Atualizados 15 pacotes sem remoções: PostgreSQL 18.6, libpq, pgBackRest 2.59,
+  linux-firmware, Kerberos e Apport entre eles.
+- A primeira validação pós-update detectou PostgreSQL Exporter e gateway
+  privado inativos. A causa foi `Requires` propagar a parada sem propagar a
+  partida.
+- O exporter 0.15 também consultava `stat_bgwriter` incompatível com PostgreSQL
+  18. Apenas esse coletor foi desabilitado; os demais permaneceram ativos.
+- Adicionado `PartOf` nas fontes declarativas e partida explícita na rotina de
+  manutenção. Três targets Prometheus ficaram `up`, sem novo erro do coletor.
+- Gateway voltou a escutar somente em `10.203.0.2:8443` e `apiwpp` passou
+  novamente no smoke test.
+- Verificação final confirmou K3s v1.36.2, PostgreSQL 18.6, pgBackRest 2.59,
+  zero pacote pendente, sem reboot requerido e nenhuma unit systemd falha.
+- Pela LAN, somente TCP 22 e 6443 responderam; todas as portas de app, banco,
+  gateway privado, métricas e NodePort testadas permaneceram fechadas.
+
+## 2026-08-15 - Encerramento das Fases 0 a 2
+
+Resultado: concluído.
+
+- Todos os critérios verificáveis das Fases 0, 1 e 2 passaram.
+- D005, receptor externo de alertas, continua pendente porque exige escolha e
+  credencial do usuário; nenhum destino fictício foi configurado.
+- Próximo passo canônico definido como Fase 3.1, preparação do SaferWPP lab.
+
+## 2026-08-15 - Preparação do repositório Git
+
+Resultado: preparado, commit não autorizado.
+
+- `C:\github\servidor` foi inicializado na branch `main`.
+- Os 36 arquivos foram staged e passaram em `git diff --cached --check`, na
+  verificação da RAG e na varredura por padrões conhecidos de segredo.
+- Nenhum commit foi criado porque a política global exige pedido específico.
+- As mudanças localizadas no `apiwpp` não foram staged nem commitadas para não
+  misturar o trabalho já existente do usuário.
+
+## 2026-08-15 - Autorização de commit e publicação
+
+Resultado: concluído.
+
+- O usuário autorizou explicitamente commit e push do repositório
+  `C:\github\servidor`.
+- Criado o remoto público `https://github.com/GleisonSette/servidor`.
+- Adicionada licença MIT, copyright 2026 Gleison Sette.
+- O commit e o push abrangem somente este repositório; as mudanças no
+  `apiwpp` permanecem separadas porque seu working tree já continha trabalho do
+  usuário.

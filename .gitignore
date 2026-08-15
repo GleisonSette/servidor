@@ -1,0 +1,24 @@
+# Segredos e identidades
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*kubeconfig*
+known_hosts
+
+# Artefatos operacionais locais
+backups/
+tmp/
+*.log
+*.tar
+*.tar.gz
+*.zip
+
+# Editores e sistema
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

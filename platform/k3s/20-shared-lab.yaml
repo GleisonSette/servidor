@@ -1,0 +1,8 @@
+# Fragmento para /etc/rancher/k3s/config.yaml.d/20-shared-lab.yaml.
+# Os argumentos são exclusivamente de auditoria e não alteram exposição de rede.
+kube-apiserver-arg:
+  - audit-policy-file=/var/lib/rancher/k3s/server/audit.yaml
+  - audit-log-path=/var/lib/rancher/k3s/server/logs/audit.log
+  - audit-log-maxage=14
+  - audit-log-maxbackup=5
+  - audit-log-maxsize=50
