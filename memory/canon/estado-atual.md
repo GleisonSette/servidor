@@ -33,6 +33,9 @@ metadata:
   responderam pela LAN.
 - AppArmor e atualizações automáticas estão habilitados.
 - A API Kubernetes não está publicada na internet.
+- `apiwpp-deployctl` e `apiwpp-backupctl` estão instalados como controladores
+  restritos. `pixel-deployctl` e `saferwpp-deployctl` ainda estão ausentes; por
+  isso Pixel e SaferWPP não possuem caminho autorizado de alteração no host.
 
 ## K3s e workloads
 
@@ -94,9 +97,14 @@ metadata:
 - `C:\github\servidor` usa a branch `main` e o remoto público
   `https://github.com/GleisonSette/servidor`.
 - O conteúdo é publicado sob licença MIT, titular Gleison Sette, ano 2026.
-- `C:\github\saferdock\saferwpp` estava limpo no commit `e8a0427`.
+- `C:\github\saferdock\saferwpp` mantém a base de código `e8a0427`; o commit
+  documental `d8fce28` adicionou somente `AGENTS.md`, `README.md` e
+  `README-SERVIDOR-LOCAL.md`.
 - `C:\github\cia` possuía alterações e artefatos Pixel ainda não commitados.
 - `C:\github\cintia\apiwpp` possuía várias alterações locais não commitadas.
+- Os guias foram commitados isoladamente como `31e9637` no apiwpp e `608a3de4`
+  no CIA/Pixel, sem incluir, reverter ou assumir autoria das demais mudanças já
+  existentes nesses repositórios.
 - A estabilização alterou de forma localizada no `apiwpp` o verificador de
   deploy, a configuração/instalador do PostgreSQL Exporter e o unit do gateway
   privado. Essas alterações permanecem no working tree existente para não

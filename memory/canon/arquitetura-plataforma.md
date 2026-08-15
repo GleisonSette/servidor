@@ -26,6 +26,20 @@ partes mutuamente hostis.
 SSH identifica o operador. O isolamento entre projetos é feito por assinatura
 de artefato, namespaces, RBAC, ServiceAccounts, NetworkPolicy, dados e limites.
 
+Estado dos controladores em 2026-08-15:
+
+- `apiwpp-deployctl` e `apiwpp-backupctl` estão instalados, root-owned e são os
+  únicos caminhos sem senha do apiwpp;
+- `pixel-deployctl` e `saferwpp-deployctl` ainda não existem;
+- até a instalação de cada controlador, o respectivo Codex de aplicação pode
+  preparar artefatos e confirmar o acesso, mas não alterar o servidor;
+- a capacidade administrativa com senha do usuário humano não é uma interface
+  de automação e não pode ser usada para contornar um controlador ausente.
+
+Cada repositório de aplicação possui `README-SERVIDOR-LOCAL.md` e uma referência
+obrigatória em `AGENTS.md`. O guia define ownership, comandos permitidos,
+proibições, verificação e escalonamento para a plataforma.
+
 ## Topologia lógica
 
 ```text
@@ -102,6 +116,8 @@ redirecionamento de porta para o servidor.
 - Imagem OCI imutável por digest, SBOM e scan de vulnerabilidade/segredo.
 - Manifesto de release assinado por chave exclusiva do projeto.
 - Controlador root-owned valida assinatura, digest, escopo e lock.
+- O controlador aceita uma interface fechada; não recebe comando shell,
+  caminho arbitrário, kubeconfig root ou manifesto fora do contrato.
 - Migration é bloqueante e usa papel separado.
 - Rollout, smoke test e rollback preservam a versão anterior.
 - Alteração manual no cluster deve ser evitada e posteriormente reconciliada no

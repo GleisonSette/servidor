@@ -35,8 +35,12 @@ corpus por padrão.
 - PostgreSQL 18.6, pgBackRest 2.59 e K3s v1.36.2 estão saudáveis; audit log do
   Kubernetes está ativo e há backup consistente do cluster com checksum.
 - Somente `apiwpp` está implantado; Pixel e SaferWPP ainda não estão no cluster.
-- O próximo passo é a Fase 3.1: preparar o perfil `lab` do SaferWPP no
-  repositório limpo `C:\github\saferdock\saferwpp`.
+- Os três repositórios de aplicação possuem `README-SERVIDOR-LOCAL.md`
+  obrigatório. Somente o apiwpp tem controladores instalados; Pixel e SaferWPP
+  falham fechados para alterações até receberem controladores próprios.
+- A Fase 3.1 está em andamento. A próxima ação é concluir o perfil `lab`, riscos,
+  aceite, rollback e diff previsto do SaferWPP. A base de código continua em
+  `e8a0427`, acrescida somente do commit documental `d8fce28`.
 - O receptor externo de alertas permanece como decisão D005 e não bloqueia a
   preparação interna do SaferWPP.
 

@@ -6,7 +6,7 @@
     "source_scope":  "Host, K3s, tres projetos, operacao, seguranca e continuidade.",
     "layers":  {
                    "canon":  6,
-                   "index_chunks":  47
+                   "index_chunks":  50
                },
     "topics":  [
                    "indice-canonico",

@@ -79,20 +79,36 @@ Aceite:
 
 ## Fase 3 - SaferWPP lab
 
-Status: próximo passo.
+Status: Fase 3.1 em andamento; auditoria inicial concluída parcialmente e
+nenhuma mudança feita no servidor.
+
+Controle transversal concluído em 2026-08-15: os três repositórios de aplicação
+possuem guia obrigatório de acesso segregado. O apiwpp já usa controladores
+restritos; o SaferWPP e o Pixel não podem alterar o host até seus controladores
+próprios serem implementados nas respectivas fases. Isso não muda a ordem: a
+Fase 3.1 continua sendo a próxima ação canônica.
 
 Este é o próximo projeto depois das Fases 0 a 2.
 
-Próxima ação exata, Fase 3.1:
+Já confirmado na Fase 3.1:
 
-- ler as instruções do repositório `C:\github\saferdock\saferwpp` e confirmar
-  que o commit `e8a0427` continua limpo;
-- inventariar chart Helm, Dockerfiles, migrations, dependências e gates sem
-  alterar o servidor;
-- definir o perfil `lab` para K3s 1.36, namespace `saferwpp-lab`, uma réplica,
+- base de código `e8a0427` limpa, seguida apenas pelo commit documental
+  `d8fce28`;
+- chart limitado a Kubernetes 1.34, enquanto o laboratório usa K3s 1.36.2;
+- schema sem ambiente `lab` e quatro imagens/workloads separados;
+- dependências reais de dados, mensageria, identidade e armazenamento;
+- observabilidade padrão do chart precisa ser adaptada ao stack instalado.
+
+Próxima ação exata para concluir a Fase 3.1:
+
+- terminar o inventário de migrations, contratos de startup e gates sem alterar
+  o servidor;
+- fechar o perfil `lab` para K3s 1.36, namespace `saferwpp-lab`, uma réplica,
   Services ClusterIP e acesso inicial por port-forward;
-- apresentar o plano/diff previsto e somente então iniciar a implementação do
-  SaferWPP quando o usuário pedir o próximo passo.
+- definir dependências, sequência, capacidade, riscos, critérios de aceite,
+  rollback e o contrato mínimo do futuro `saferwpp-deployctl`;
+- apresentar o diff previsto e somente então iniciar a Fase 3.2 quando o
+  usuário pedir o próximo passo.
 
 Objetivos:
 

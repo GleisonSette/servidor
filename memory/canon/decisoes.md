@@ -70,3 +70,13 @@ O repositório de infraestrutura compartilhada é público em
 `https://github.com/GleisonSette/servidor` e usa licença MIT, copyright 2026
 Gleison Sette. Os repositórios `apiwpp`, Pixel/CIA e SaferWPP permanecem fora
 desse commit e conservam seus próprios históricos e licenças.
+
+## Resolvida D011 - Operação segregada por repositório
+
+Cada Codex de aplicação deve ler o `README-SERVIDOR-LOCAL.md` do próprio
+repositório antes de acessar o host. O apiwpp opera somente pelos controladores
+restritos já instalados. Pixel e SaferWPP permanecem sem permissão de alteração
+até receberem controladores root-owned próprios, com releases assinadas e
+escopo fechado nos respectivos namespaces e dados. A senha administrativa,
+`sudo` genérico, kubeconfig root e o controlador de outro projeto não são
+atalhos válidos.

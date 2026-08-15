@@ -141,3 +141,42 @@ Resultado: concluído.
 - O commit e o push abrangem somente este repositório; as mudanças no
   `apiwpp` permanecem separadas porque seu working tree já continha trabalho do
   usuário.
+
+## 2026-08-15 - Guias de acesso segregado dos três projetos
+
+Resultado: documentação concluída; nenhuma mudança operacional no servidor.
+
+- Confirmados por SSH estrito o hostname `apiwpp` e o escopo de `sudo` do
+  usuário administrativo, sem ler segredo.
+- `apiwpp-deployctl` e `apiwpp-backupctl` estavam presentes; os controladores
+  Pixel e SaferWPP estavam ausentes.
+- Criado `README-SERVIDOR-LOCAL.md` nos repositórios `apiwpp`, Pixel/CIA e
+  SaferWPP, com ownership, acesso, operações permitidas, proibições e
+  encerramento.
+- Os `AGENTS.md` passaram a exigir o guia antes do acesso ao host.
+- Commits isolados criados: `31e9637` no apiwpp, `608a3de4` no CIA/Pixel e
+  `d8fce28` no SaferWPP. Nenhuma alteração anterior do usuário foi incluída.
+- Pixel e SaferWPP permanecem bloqueados para alterações até a plataforma
+  instalar controladores próprios. Nenhum workload, namespace, banco, serviço,
+  Secret, porta ou configuração do servidor foi alterado.
+
+## 2026-08-15 - Progresso parcial da Fase 3.1
+
+Resultado: auditoria iniciada e pausada para priorizar os guias de acesso.
+
+- A base SaferWPP foi confirmada limpa em `e8a0427` antes das mudanças
+  documentais desta tarefa.
+- Foram lidos `AGENTS.md`, política RAG, arquitetura, invariantes e decisões do
+  produto; chart, Dockerfiles, migrations, dependências e configurações foram
+  inventariados em modo somente leitura.
+- O chart declara `kubeVersion >=1.34.9-0 <1.35.0-0`, incompatível com o K3s
+  1.36.2 do laboratório. O schema aceita `development`, `test`, `staging` e
+  `production`, mas não `lab`.
+- O chart implanta quatro workloads e pressupõe PostgreSQL/PgBouncer, NATS,
+  Keycloak/Control Plane e ClamAV em namespaces separados. UAZAPI e R2 reais
+  continuam gates externos.
+- PrometheusRule e dashboard vêm habilitados por padrão; o perfil lab precisa
+  compatibilizar isso com a observabilidade realmente instalada.
+- Nenhuma imagem foi construída, nenhum controlador SaferWPP foi instalado e
+  nenhuma mudança ocorreu no servidor. A próxima ação é concluir o perfil lab,
+  riscos, aceite, rollback e diff previsto da Fase 3.1.
