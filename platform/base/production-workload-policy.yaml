@@ -1,0 +1,59 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: managed-production-workload-baseline
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - pods
+          - pods/ephemeralcontainers
+        scope: Namespaced
+  validations:
+    - expression: "has(namespaceObject.metadata.labels) && namespaceObject.metadata.labels['platform.servidor.local/deployment-gate'] == 'passed'"
+      message: "O namespace de produção permanece bloqueado até o gate externo ser atestado."
+    - expression: "!has(object.spec.hostNetwork) || object.spec.hostNetwork == false"
+      message: "hostNetwork é proibido em produção gerenciada."
+    - expression: "!has(object.spec.hostPID) || object.spec.hostPID == false"
+      message: "hostPID é proibido em produção gerenciada."
+    - expression: "!has(object.spec.hostIPC) || object.spec.hostIPC == false"
+      message: "hostIPC é proibido em produção gerenciada."
+    - expression: "has(object.spec.automountServiceAccountToken) && object.spec.automountServiceAccountToken == false"
+      message: "O token da ServiceAccount deve ser desabilitado explicitamente."
+    - expression: "object.spec.containers.all(c, c.image.matches('^[^@]+@sha256:[0-9a-f]{64}$'))"
+      message: "Toda imagem de produção deve ser imutável e fixada por digest SHA-256."
+    - expression: "!has(object.spec.initContainers) || object.spec.initContainers.all(c, c.image.matches('^[^@]+@sha256:[0-9a-f]{64}$'))"
+      message: "Toda imagem de init container deve ser fixada por digest SHA-256."
+    - expression: "!has(object.spec.ephemeralContainers) || object.spec.ephemeralContainers.all(c, c.image.matches('^[^@]+@sha256:[0-9a-f]{64}$'))"
+      message: "Toda imagem de container efêmero deve ser fixada por digest SHA-256."
+    - expression: "object.spec.containers.all(c, has(c.resources) && has(c.resources.requests) && has(c.resources.limits) && 'cpu' in c.resources.requests && 'memory' in c.resources.requests && 'cpu' in c.resources.limits && 'memory' in c.resources.limits)"
+      message: "Todo container deve declarar requests e limits de CPU e memória."
+    - expression: "object.spec.containers.all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false && has(c.securityContext.readOnlyRootFilesystem) && c.securityContext.readOnlyRootFilesystem == true && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && 'ALL' in c.securityContext.capabilities.drop)"
+      message: "Todo container deve negar privilege escalation, usar raiz somente leitura e remover capabilities."
+    - expression: "!has(object.spec.initContainers) || object.spec.initContainers.all(c, has(c.resources) && has(c.resources.requests) && has(c.resources.limits) && 'cpu' in c.resources.requests && 'memory' in c.resources.requests && 'cpu' in c.resources.limits && 'memory' in c.resources.limits)"
+      message: "Todo init container deve declarar requests e limits de CPU e memória."
+    - expression: "!has(object.spec.initContainers) || object.spec.initContainers.all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false && has(c.securityContext.readOnlyRootFilesystem) && c.securityContext.readOnlyRootFilesystem == true && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && 'ALL' in c.securityContext.capabilities.drop)"
+      message: "Todo init container deve negar privilege escalation, usar raiz somente leitura e remover capabilities."
+    - expression: "!has(object.spec.ephemeralContainers) || object.spec.ephemeralContainers.all(c, has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation == false && has(c.securityContext.readOnlyRootFilesystem) && c.securityContext.readOnlyRootFilesystem == true && has(c.securityContext.capabilities) && has(c.securityContext.capabilities.drop) && 'ALL' in c.securityContext.capabilities.drop)"
+      message: "Todo container efêmero deve negar privilege escalation, usar raiz somente leitura e remover capabilities."
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: managed-production-workload-baseline
+spec:
+  policyName: managed-production-workload-baseline
+  validationActions:
+    - Deny
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        platform.servidor.local/environment: production

@@ -1,0 +1,100 @@
+apiVersion: security.servidor.local/v1alpha1
+kind: NetworkContainmentPolicy
+metadata:
+  name: blindou-physical-edge
+  annotations:
+    security.servidor.local/status: prepared-not-enforced
+    security.servidor.local/owner: platform
+spec:
+  threatModel:
+    assumePhysicalHostCompromise: true
+    protectHomeAndAdministrativeNetworks: true
+    preventAllDataExfiltration: false
+    rationale: >-
+      O Blindou precisa chamar provedores externos. A barreira reduz movimento
+      lateral e limita saída, mas nenhum controle promete conter toda forma de
+      exfiltração depois de comprometimento total do host.
+  observedTopology:
+    ont:
+      manufacturer: Huawei
+      model: HG8145V5
+      configurationProfile: OI2
+      managementAddress: 192.168.100.1
+    physicalServer:
+      hostname: apiwpp
+      currentAddress: 192.168.100.59
+      currentInterface: enp2s0
+      spareInterface: eno1
+    administrativeWorkstation:
+      address: 192.168.100.57
+    currentIsolation: absent
+  targetTopology:
+    internetEdge: huawei-ont-only
+    enforcementPoint: dedicated-external-firewall
+    cloudflareConnectorPlacement: external-edge-zone
+    blindouServerZone: dedicated-dmz
+    homeZone: physically-or-vlan-separated
+  invariants:
+    wanIngressToServer: deny
+    dmzToHome: deny-and-log
+    dmzToOntManagement: deny-and-log
+    dmzToOtherProjects: deny-and-log
+    dmzToInternetDefault: deny-and-log
+    internetToDmz: deny
+    serverCloudflareConnector: forbidden
+    serverAsFirewall: forbidden
+    universalPlugAndPlay: disabled
+    ontDmzHostFeature: disabled
+    portForwardingToServer: forbidden
+  permittedFlows:
+    - id: administration-ssh
+      source: administrative-workstation
+      destination: blindou-server
+      protocol: tcp
+      ports: [22]
+      conditions: [explicit-firewall-rule, key-authentication, rate-limited]
+    - id: administration-kubernetes
+      source: administrative-workstation
+      destination: blindou-server
+      protocol: tcp
+      ports: [6443]
+      conditions: [explicit-firewall-rule, mutual-authentication]
+    - id: edge-to-origin
+      source: external-edge-zone
+      destination: blindou-origin-gateway
+      protocol: tcp
+      ports: [8443]
+      conditions: [mutual-tls, source-restricted, rate-limited]
+    - id: server-dns
+      source: blindou-server
+      destination: firewall-dns-proxy
+      protocol: [udp, tcp]
+      ports: [53]
+      conditions: [no-direct-external-dns, logged]
+    - id: server-time
+      source: blindou-server
+      destination: firewall-time-service
+      protocol: udp
+      ports: [123]
+      conditions: [no-direct-external-ntp, logged]
+    - id: blindou-provider-egress
+      source: blindou-server
+      destination: firewall-egress-proxy
+      protocol: tcp
+      ports: [443]
+      conditions:
+        - authenticated-workload
+        - hostname-allowlist
+        - request-and-rate-limits
+        - logged
+  activationGates:
+    - external-firewall-installed
+    - server-moved-out-of-home-subnet
+    - cloudflare-connector-absent-from-server
+    - no-wan-port-forward-to-server
+    - dmz-cannot-reach-home-or-ont-management
+    - arbitrary-public-https-denied
+    - required-provider-allowlist-verified
+    - remote-alerting-independent-from-server
+    - rollback-and-kill-switch-tested
+    - namespace-gate-attested-passed-by-platform-controller

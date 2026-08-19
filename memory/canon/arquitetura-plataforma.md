@@ -3,16 +3,17 @@
 metadata:
   canon_id: canon-arquitetura-plataforma
   source_path: memory/canon/arquitetura-plataforma.md
-  generated_from: decisão do usuário, auditoria e requisitos dos três projetos
-  updated_at: 2026-08-15
+  generated_from: decisão do usuário, auditoria e requisitos dos quatro projetos
+  updated_at: 2026-08-19
   status: canonical
 
 ## Objetivo e limite
 
-O servidor hospeda somente três projetos do mesmo administrador: `apiwpp`,
-Pixel/CIA e SaferWPP. Não há acesso de clientes ao host ou ao Kubernetes. O
-cluster fornece isolamento lógico para laboratório, não isolamento forte entre
-partes mutuamente hostis.
+O servidor hospeda somente quatro projetos do mesmo administrador: `apiwpp`,
+Pixel/CIA, SaferWPP e Blindou. Não há acesso de clientes ao host ou ao
+Kubernetes. O cluster fornece isolamento lógico, não isolamento forte contra
+comprometimento do kernel/root. O Blindou só recebe tráfego comercial depois
+de uma fronteira externa comprovada.
 
 ## Identidades
 
@@ -30,7 +31,7 @@ Estado dos controladores em 2026-08-15:
 
 - `apiwpp-deployctl` e `apiwpp-backupctl` estão instalados, root-owned e são os
   únicos caminhos sem senha do apiwpp;
-- `pixel-deployctl` e `saferwpp-deployctl` ainda não existem;
+- `pixel-deployctl`, `saferwpp-deployctl` e `blindou-deployctl` ainda não existem;
 - até a instalação de cada controlador, o respectivo Codex de aplicação pode
   preparar artefatos e confirmar o acesso, mas não alterar o servidor;
 - a capacidade administrativa com senha do usuário humano não é uma interface
@@ -40,22 +41,27 @@ Cada repositório de aplicação possui `README-SERVIDOR-LOCAL.md` e uma referê
 obrigatória em `AGENTS.md`. O guia define ownership, comandos permitidos,
 proibições, verificação e escalonamento para a plataforma.
 
-## Topologia lógica
+## Topologia física de contenção
 
 ```text
-PC administrativo 192.168.100.57
-             |
-             +-- SSH 22
-             +-- Kubernetes API 6443
-                         |
-                 Ubuntu + K3s
-                         |
-        +----------------+----------------+
-        |                |                |
-     apiwpp        cia-pixel-lab     saferwpp-lab
-        |                |                |
-        +------ infraestrutura compartilhada ------+
+Internet -> Huawei HG8145V5 (ONT)
+                    |
+           firewall externo dedicado
+        +-----------+-----------+
+        |           |           |
+      HOME        EDGE      BLINDOU-DMZ
+  PC admin      cloudflared   Ubuntu + K3s
+     |          proxy saída        |
+     +-- 22/6443 autorizados       +-- blindou-production
+                                  +-- projetos locais existentes
 ```
+
+O firewall externo nega BLINDOU-DMZ para HOME, gerência da ONT, outros
+projetos e Internet. Apenas DNS/NTP controlados e providers explicitamente
+habilitados passam por proxy/allowlist. A zona EDGE inicia uma conexão privada
+e autenticada até a origem; não recebe acesso a SSH, Kubernetes ou banco.
+UFW, AppArmor e políticas do Kubernetes continuam, mas não são aceitos como
+prova de contenção se o próprio host for comprometido.
 
 Namespaces de infraestrutura não contam como novos projetos. Eles só serão
 criados quando uma dependência compartilhada realmente for implantada.
@@ -84,6 +90,12 @@ Baseline aplicado em 2026-08-15:
 As cotas são orçamento inicial, não promessa de capacidade. Serão revistas com
 métricas durante a implantação real.
 
+`blindou-production` é criado pela plataforma somente como namespace vazio,
+com Pod Security `restricted` e admissão adicional para imagens por digest,
+recursos explícitos, raiz somente leitura, capabilities removidas e token de
+ServiceAccount desabilitado. Quotas, contas de workload, PVCs e políticas
+específicas continuam pertencendo ao repositório Blindou.
+
 ## Dados compartilhados no laboratório
 
 Para reduzir I/O e operação no host atual, um único processo PostgreSQL pode
@@ -106,8 +118,9 @@ O primeiro acesso usa ClusterIP e port-forward administrativo. Um ingress
 interno poderá ser adicionado depois, limitado ao PC administrativo e sem abrir
 80/443 para a rede residencial.
 
-Webhook UAZAPI ou collector Pixel público exigem borda externa separada com
-TLS, WAF/rate limit e túnel WireGuard ou mTLS. O roteador residencial não recebe
+O Blindou usa Pages e Tunnel, mas o conector fica na EDGE externa e alcança uma
+origem privada com mTLS. Webhook UAZAPI ou collector Pixel público também
+exigem borda externa separada. A ONT residencial não recebe DMZ host, UPnP ou
 redirecionamento de porta para o servidor.
 
 ## Deploy e rollback

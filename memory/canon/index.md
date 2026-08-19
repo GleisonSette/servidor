@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-indice-canonico
   source_path: memory/canon/index.md
   generated_from: decisão do usuário e auditoria do servidor em 2026-08-15
-  updated_at: 2026-08-15
+  updated_at: 2026-08-19
   status: canonical
 
 ## Regra de entrada
@@ -35,12 +35,16 @@ corpus por padrão.
 - PostgreSQL 18.6, pgBackRest 2.59 e K3s v1.36.2 estão saudáveis; audit log do
   Kubernetes está ativo e há backup consistente do cluster com checksum.
 - Somente `apiwpp` está implantado; Pixel e SaferWPP ainda não estão no cluster.
-- Os três repositórios de aplicação possuem `README-SERVIDOR-LOCAL.md`
-  obrigatório. Somente o apiwpp tem controladores instalados; Pixel e SaferWPP
-  falham fechados para alterações até receberem controladores próprios.
-- A Fase 3.1 está em andamento. A próxima ação é concluir o perfil `lab`, riscos,
-  aceite, rollback e diff previsto do SaferWPP. A base de código continua em
-  `e8a0427`, acrescida somente do commit documental `d8fce28`.
+- Os quatro repositórios de aplicação possuem guia obrigatório de acesso ao
+  servidor. Somente o apiwpp tem controladores instalados; Pixel, SaferWPP e
+  Blindou falham fechados para alterações até receberem controladores próprios.
+- O Blindou foi priorizado como quarto projeto. Sua preparação declarativa de
+  contenção está concluída, mas a implantação está bloqueada porque o servidor
+  ainda compartilha a LAN residencial com a ONT Huawei HG8145V5.
+- A próxima ação é escolher/instalar um firewall externo com zonas HOME, EDGE e
+  BLINDOU-DMZ e passar o gate de isolamento. Nenhum workload Blindou foi
+  aplicado e `blindou-deployctl` ainda não existe.
+- A Fase 3.1 do SaferWPP permanece pausada, sem perder a auditoria já registrada.
 - O receptor externo de alertas permanece como decisão D005 e não bloqueia a
   preparação interna do SaferWPP.
 

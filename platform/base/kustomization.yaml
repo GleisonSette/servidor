@@ -4,3 +4,4 @@ resources:
   - namespaces.yaml
   - project-spaces.yaml
   - service-exposure-policy.yaml
+  - production-workload-policy.yaml

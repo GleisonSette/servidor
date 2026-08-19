@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-historico-execucao
   source_path: memory/canon/historico-execucao.md
   generated_from: auditorias e implementações autorizadas no laboratório
-  updated_at: 2026-08-15
+  updated_at: 2026-08-19
   status: canonical
 
 ## Regra de registro
@@ -180,3 +180,28 @@ Resultado: auditoria iniciada e pausada para priorizar os guias de acesso.
 - Nenhuma imagem foi construída, nenhum controlador SaferWPP foi instalado e
   nenhuma mudança ocorreu no servidor. A próxima ação é concluir o perfil lab,
   riscos, aceite, rollback e diff previsto da Fase 3.1.
+
+## 2026-08-19 - Auditoria de contenção do Blindou
+
+Resultado: preparação declarativa concluída; isolamento físico pendente.
+
+- O usuário autorizou reclassificar o uso do servidor para receber o Blindou e
+  alterar este repositório em commit separado da aplicação.
+- A ONT foi identificada sem autenticação como Huawei HG8145V5, perfil `OI2`,
+  em `192.168.100.1`; somente 80/443 responderam entre as portas administrativas
+  verificadas. Nenhuma configuração do equipamento foi alterada.
+- SSH estrito confirmou `apiwpp`, Ubuntu 24.04.4, kernel 6.8.0-137, K3s,
+  PostgreSQL, AppArmor e atualizações automáticas ativos. O servidor continuava
+  em `192.168.100.59/24`, com rota direta para a ONT; `eno1` estava inativa.
+- Concluiu-se que a topologia atual não contém comprometimento do host em
+  relação à rede residencial. Uma segunda NIC no mesmo host não corrige essa
+  fronteira.
+- Foi definida barreira externa com zonas HOME, EDGE e BLINDOU-DMZ, negação por
+  padrão, `cloudflared` fora do servidor, allowlist de providers e kill switch
+  externo. A função DMZ host da ONT, UPnP e port forwarding foram proibidos.
+- Foram preparados namespace vazio, admissão de produção, contrato de rede,
+  verificador fail-closed e runbook. Nada foi aplicado ao host, K3s, ONT,
+  Cloudflare ou rede.
+- A conferência final somente leitura manteve a rota direta já registrada e
+  confirmou AppArmor/atualizações automáticas ativos, sem processo ou unit
+  `cloudflared` no host.

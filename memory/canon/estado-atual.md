@@ -1,10 +1,10 @@
-# Estado atual do laboratório
+# Estado atual da plataforma local
 
 metadata:
   canon_id: canon-estado-atual
   source_path: memory/canon/estado-atual.md
   generated_from: auditoria SSH, runtime K3s, Prometheus e repositórios locais
-  updated_at: 2026-08-15
+  updated_at: 2026-08-19
   status: canonical
 
 ## Host verificado
@@ -19,11 +19,20 @@ metadata:
   297 GB disponíveis.
 - Temperatura observada por métrica: 45 graus Celsius; SMART saudável.
 - Interface ativa: `enp2s0`, Fast Ethernet de 100 Mb/s.
+- Segunda interface física `eno1` observada inativa; ela não é uma barreira de
+  segurança porque pertence ao mesmo host.
 - IPv4 reservado por DHCP: `192.168.100.59/24`.
 - PC administrativo: `192.168.100.57`.
 - WireGuard `wg-apiwpp`: `10.203.0.2/30`.
 
 ## Segurança e exposição
+
+- Gateway/ONT observado em `192.168.100.1`: Huawei HG8145V5, perfil `OI2`.
+- O servidor e a estação administrativa ainda compartilham
+  `192.168.100.0/24`; a rota padrão do host aponta diretamente para a ONT.
+- Não existe firewall externo entre servidor e residência. Portanto, o gate de
+  contenção do Blindou está reprovado por topologia e nenhum deploy comercial
+  do Blindou é autorizado no estado atual.
 
 - SSH utiliza chave pública permanente, usuário `apiadmin` e identidade de host
   validada. O acesso é limitado ao PC administrativo.
@@ -36,6 +45,11 @@ metadata:
 - `apiwpp-deployctl` e `apiwpp-backupctl` estão instalados como controladores
   restritos. `pixel-deployctl` e `saferwpp-deployctl` ainda estão ausentes; por
   isso Pixel e SaferWPP não possuem caminho autorizado de alteração no host.
+- `blindou-deployctl` também está ausente. Os artefatos do Blindou ainda não
+  foram aplicados e o namespace `blindou-production` ainda não foi verificado
+  no runtime.
+- Não havia processo nem unit systemd `cloudflared` no host na conferência
+  final de 2026-08-19.
 
 ## K3s e workloads
 

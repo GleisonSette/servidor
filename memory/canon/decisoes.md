@@ -4,14 +4,16 @@ metadata:
   canon_id: canon-decisoes
   source_path: memory/canon/decisoes.md
   generated_from: decisões do usuário e limites observados do laboratório
-  updated_at: 2026-08-15
+  updated_at: 2026-08-19
   status: canonical
 
-## Resolvida D001 - Três projetos no mesmo K3s
+## Resolvida D001 - Quatro projetos sob a mesma plataforma
 
-O servidor será limitado a `apiwpp`, Pixel/CIA e SaferWPP. Como o único operador
-é o usuário e não haverá clientes com acesso, um cluster K3s compartilhado com
-isolamento por namespace é adequado ao laboratório.
+O servidor é limitado a `apiwpp`, Pixel/CIA, SaferWPP e Blindou. Como o único
+operador do host é o usuário, um cluster K3s compartilhado com isolamento por
+namespace é adequado aos laboratórios. O Blindou possui uso operacional
+condicionado à barreira externa descrita em D012; namespace no mesmo nó não
+protege os demais projetos se o host inteiro for comprometido.
 
 ## Resolvida D002 - Identidade administrativa
 
@@ -21,15 +23,18 @@ ServiceAccounts, Secrets, banco e permissões próprios.
 
 ## Resolvida D003 - Ordem de implantação
 
-Primeiro vêm memória/base declarativa e estabilização. Depois será implantado o
-SaferWPP, porque já possui Dockerfiles e chart Helm. Pixel vem em seguida porque
-o runtime atual é orientado a systemd/VM e ainda exige KMS, banco, NATS e
-Control Plane reais.
+Memória/base declarativa e estabilização foram concluídas. A preparação do
+SaferWPP foi interrompida por decisão posterior do usuário para priorizar o
+Blindou. Nenhum projeto pode usar essa prioridade para contornar seu próprio
+controlador, isolamento ou gate de segurança.
 
-## Resolvida D004 - Classificação do ambiente
+## Resolvida D004 - Classificação por projeto
 
-O servidor é `lab`/`development`. Namespace separado no mesmo nó não será
-chamado de staging e não satisfaz as exigências de produção dos projetos.
+`apiwpp`, Pixel/CIA e SaferWPP conservam a classificação `lab`/`development`
+registrada. O Blindou poderá ser o primeiro uso operacional limitado do host,
+sem alegação de alta disponibilidade, somente depois que um firewall externo o
+retirar da LAN residencial e todos os gates de D012 passarem. Antes disso, o
+servidor inteiro continua inadequado para a publicação do Blindou.
 
 ## Pendente D005 - Destino externo de alertas
 
@@ -38,11 +43,12 @@ WhatsApp monitorado. A escolha afeta credencial, custo, privacidade, entrega e
 runbook. Até a decisão, Alertmanager pode ser preparado e validado localmente,
 mas a Fase 2 registra o gate como pendente.
 
-## Pendente D006 - Borda pública futura
+## Resolvida parcialmente D006 - Borda pública
 
-Webhook UAZAPI e collector Pixel poderão exigir entrada pública. A decisão entre
-Cloudflare e VM pública com WireGuard/mTLS será tomada somente na Fase 5. Não
-abrir portas no roteador residencial.
+Para o Blindou, Cloudflare Pages e Cloudflare Tunnel foram escolhidos. O
+conector do túnel deve ficar em uma zona EDGE externa ao servidor físico, e a
+origem deve ser privada e autenticada. Webhook/collector dos demais projetos
+continuam sem borda decidida. Nenhum projeto abre portas na ONT residencial.
 
 ## Resolvida D007 - Baseline privado dos novos namespaces
 
@@ -68,15 +74,31 @@ listeners. Isso evita que `Requires` derrube o dependente sem trazê-lo de volta
 
 O repositório de infraestrutura compartilhada é público em
 `https://github.com/GleisonSette/servidor` e usa licença MIT, copyright 2026
-Gleison Sette. Os repositórios `apiwpp`, Pixel/CIA e SaferWPP permanecem fora
-desse commit e conservam seus próprios históricos e licenças.
+Gleison Sette. Os repositórios `apiwpp`, Pixel/CIA, SaferWPP e Blindou
+permanecem fora desse commit e conservam seus próprios históricos e licenças.
 
 ## Resolvida D011 - Operação segregada por repositório
 
-Cada Codex de aplicação deve ler o `README-SERVIDOR-LOCAL.md` do próprio
-repositório antes de acessar o host. O apiwpp opera somente pelos controladores
-restritos já instalados. Pixel e SaferWPP permanecem sem permissão de alteração
-até receberem controladores root-owned próprios, com releases assinadas e
-escopo fechado nos respectivos namespaces e dados. A senha administrativa,
-`sudo` genérico, kubeconfig root e o controlador de outro projeto não são
-atalhos válidos.
+Cada Codex de aplicação deve ler o guia do servidor do próprio repositório antes
+de acessar o host. O apiwpp opera somente pelos controladores restritos já
+instalados. Pixel, SaferWPP e Blindou permanecem sem permissão de alteração até
+receberem controladores root-owned próprios, com releases assinadas e escopo
+fechado nos respectivos namespaces e dados. A senha administrativa, `sudo`
+genérico, kubeconfig root e o controlador de outro projeto não são atalhos
+válidos.
+
+## Resolvida D012 - Contenção externa obrigatória do Blindou
+
+O gateway observado é uma ONT Huawei HG8145V5 com perfil Oi `OI2`. Ela não é a
+fronteira de segurança do Blindou e sua função residencial “DMZ host” é
+proibida. Um firewall dedicado, fisicamente externo ao servidor, deve separar
+HOME, EDGE e BLINDOU-DMZ, negar DMZ para HOME/gerência da ONT/Internet por
+padrão e registrar as exceções.
+
+O `cloudflared` fica na EDGE externa. O servidor não pode atuar como seu próprio
+firewall nem manter um conector que permita criar saída arbitrária por túnel.
+Publicação permanece bloqueada até testes negativos, allowlist de providers,
+alerta externo e kill switch independente do host passarem. Esse desenho reduz
+movimento lateral e saída, mas não promete impedir toda exploração ou
+exfiltração após comprometimento total: o produto possui integrações externas
+necessárias e todos os projetos/dados do mesmo host compartilham o risco de root.

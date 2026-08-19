@@ -2,10 +2,10 @@
 
 ## Escopo
 
-- Este repositório governa somente o servidor físico de laboratório
-  `192.168.100.59`, o cluster K3s local e a infraestrutura compartilhada.
-- Código e manifests exclusivos de `apiwpp`, Pixel/CIA e SaferWPP permanecem
-  nos respectivos repositórios. Não duplicar código de aplicação aqui.
+- Este repositório governa o servidor físico `192.168.100.59`, o cluster K3s
+  local, a futura borda externa de contenção e a infraestrutura compartilhada.
+- Código e manifests exclusivos de `apiwpp`, Pixel/CIA, SaferWPP e Blindou
+  permanecem nos respectivos repositórios. Não duplicar código de aplicação aqui.
 - Segredos, kubeconfigs, chaves privadas, certificados privados, senhas e
   conteúdo de arquivos `.env` nunca entram neste repositório, memória, índice,
   log ou resposta.
@@ -54,5 +54,10 @@ Depois de qualquer mudança operacional ou decisão:
   quotas, banco/papéis e ciclo de deploy próprios.
 - SSH identifica o administrador; não é o mecanismo de isolamento entre
   projetos.
-- O servidor é laboratório, não staging nem produção. Um único nó, HDD,
-  Fast Ethernet e energia residencial permanecem pontos únicos de falha.
+- `apiwpp`, Pixel/CIA e SaferWPP conservam a classificação registrada em seus
+  próprios canons. O Blindou só pode se tornar operacional depois de passar o
+  gate de isolamento externo; enquanto estiver ligado diretamente à LAN
+  residencial, seu deploy permanece proibido.
+- Um único nó, HDD, Fast Ethernet e energia residencial permanecem pontos
+  únicos de falha. Isolamento externo reduz movimento lateral, mas não cria
+  alta disponibilidade nem torna impossível explorar uma vulnerabilidade.

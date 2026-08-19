@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-plano-implementacao
   source_path: memory/canon/plano-implementacao.md
   generated_from: plano aprovado pelo usuário em 2026-08-15
-  updated_at: 2026-08-15
+  updated_at: 2026-08-19
   status: canonical
 
 ## Regra de continuidade
@@ -77,16 +77,49 @@ Aceite:
 - nenhuma nova porta exposta;
 - destino externo de alerta registrado como pendente se não houver escolha.
 
+## Fase 2B - Contenção externa do Blindou
+
+Status: preparação declarativa concluída em 2026-08-19; implantação física
+pendente e bloqueante para o Blindou.
+
+Concluído sem alterar o runtime:
+
+- identificar a ONT Huawei HG8145V5 e confirmar que o servidor ainda está
+  diretamente conectado à LAN residencial;
+- registrar HOME, EDGE e BLINDOU-DMZ como zonas distintas;
+- declarar negação por padrão, conector Cloudflare externo, allowlist de saída,
+  kill switch e testes negativos;
+- preparar namespace vazio, baseline de admissão, verificador e rollback.
+
+Próxima ação exata:
+
+- escolher o equipamento de firewall dedicado e definir suas interfaces;
+- revisar o plano de endereçamento sem reutilizar `192.168.100.0/24` na DMZ;
+- após autorização operacional separada, instalar a barreira, mover o servidor
+  e executar `operations/remote/verify-blindou-isolation.sh`;
+- somente com resultado `passed`, preparar `blindou-deployctl` e o gateway de
+  origem privado.
+
+Aceite pendente:
+
+- servidor fora da sub-rede residencial;
+- nenhuma entrada WAN, DMZ host, UPnP ou port forward para o servidor;
+- DMZ sem acesso à HOME, gerência da ONT ou HTTPS arbitrário;
+- `cloudflared` ausente do servidor e presente somente na EDGE;
+- providers exigidos acessíveis apenas pela allowlist;
+- logs, alerta e kill switch independentes do host comprometido.
+
 ## Fase 3 - SaferWPP lab
 
-Status: Fase 3.1 em andamento; auditoria inicial concluída parcialmente e
-nenhuma mudança feita no servidor.
+Status: Fase 3.1 pausada enquanto o usuário prioriza Blindou; auditoria inicial
+concluída parcialmente e nenhuma mudança feita no servidor.
 
-Controle transversal concluído em 2026-08-15: os três repositórios de aplicação
+Controle transversal concluído em 2026-08-15: os três repositórios então existentes
 possuem guia obrigatório de acesso segregado. O apiwpp já usa controladores
 restritos; o SaferWPP e o Pixel não podem alterar o host até seus controladores
 próprios serem implementados nas respectivas fases. Isso não muda a ordem: a
-Fase 3.1 continua sendo a próxima ação canônica.
+Fase 3.1 volta a ser a próxima ação somente depois da prioridade Blindou ou por
+nova decisão explícita do usuário.
 
 Este é o próximo projeto depois das Fases 0 a 2.
 
