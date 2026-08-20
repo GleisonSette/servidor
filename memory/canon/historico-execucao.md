@@ -205,3 +205,30 @@ Resultado: preparação declarativa concluída; isolamento físico pendente.
 - A conferência final somente leitura manteve a rota direta já registrada e
   confirmou AppArmor/atualizações automáticas ativos, sem processo ou unit
   `cloudflared` no host.
+
+## 2026-08-19 - Preparação da contenção temporária do Blindou
+
+Resultado: artefatos validados offline; aplicação root pendente.
+
+- O usuário decidiu adiar o firewall externo, preservar somente o serviço
+  `apiwpp` existente e reservar toda a capacidade restante ao Blindou. Nenhum
+  workload Pixel/CIA ou SaferWPP será adicionado ao host.
+- Foi preparado `blindou-hostctl`, controlador root-owned de interface fechada,
+  com backup, aplicação idempotente, detecção de estado parcial, verificação e
+  rollback seletivo.
+- As regras propostas negam destinos privados tanto para processos do host
+  quanto para tráfego encaminhado dos Pods, negam entrada da LAN exceto
+  22/6443 do PC administrativo e preservam DNS/DHCP.
+- O rollback não depende da saúde do K3s ou do `apiwpp` e restaura os valores
+  IPv6 capturados antes da aplicação.
+- Foram preparados `blindou-edge`, Pod Security, quota, default deny e o
+  contrato temporário com risco de `root` e expiração no cutover Vultr.
+- Sintaxe Bash, YAML, contrato, ausência de segredo e coerência dos artefatos
+  passaram no verificador offline. Nenhuma regra, sysctl, namespace, Secret,
+  credencial, workload ou configuração Cloudflare foi aplicada ao runtime.
+- O RAG da plataforma ganhou a suíte obrigatória de recuperação e passou em
+  6/6 consultas canônicas depois da reconstrução e verificação do índice.
+- A política `blindou-hostctl.sudoers` foi copiada para diretório temporário do
+  usuário, aprovada pelo `visudo` real do Ubuntu e comparada por SHA-256 com a
+  fonte local. O arquivo e o diretório temporários foram removidos; nada foi
+  instalado em `/etc/sudoers.d`.

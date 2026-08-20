@@ -1,119 +1,134 @@
-# Contenção externa do Blindou
+# Contenção temporária do Blindou no servidor físico
 
-## Objetivo
+## Decisão e limite
 
-Impedir que o comprometimento do servidor físico permita movimento lateral
-para a residência, administração da ONT ou outros projetos. O controle decisivo
-fica em equipamento externo ao servidor; UFW, AppArmor, Pod Security e
-NetworkPolicy continuam como defesa em profundidade.
+O usuário decidiu não comprar firewall neste momento. Até o cutover para a
+Vultr, o host físico usa contenção local e Cloudflare Tunnel como única entrada.
+Essa decisão substitui temporariamente a topologia HOME/EDGE/BLINDOU-DMZ.
 
-Não existe promessa séria de proteção absoluta contra qualquer zero-day. O
-Blindou precisa acessar UAZAPI, e-mail e marketplaces; um invasor que controle
-o host pode tentar abusar dessas rotas permitidas. Por isso, a borda usa negação
-por padrão, allowlist, limites e logs independentes, e o servidor nunca atua
-como seu próprio firewall.
+O controle reduz o impacto de comprometimento de aplicação ou container. Ele
+**não contém um invasor com `root` no host**, porque `root` pode alterar UFW,
+sysctl, K3s e o conector. A migração Vultr é a solução definitiva.
+
+O serviço `apiwpp` já existente permanece intacto. Nenhum workload Pixel/CIA
+ou SaferWPP será implantado; toda a capacidade restante é reservada ao Blindou.
+O Blindou usa UAZAPI e não reativa o provider APIWPP.
 
 ## Estado observado em 2026-08-19
 
 - ONT/gateway: Huawei HG8145V5, perfil `OI2`, `192.168.100.1`;
+- switch: KNUP KP-SW105 não gerenciável, sem VLAN/ACL;
 - servidor: `apiwpp`, `enp2s0` em `192.168.100.59/24`;
+- IPv6 público observado em um `/64` compartilhado na `enp2s0`;
 - estação administrativa: `192.168.100.57`;
-- `eno1` existe e está inativa;
-- a rota padrão do servidor aponta diretamente para a ONT;
-- portanto, a contenção externa ainda não existe e o deploy comercial do
-  Blindou está bloqueado.
+- K3s, UFW, AppArmor, PostgreSQL e `apiwpp` ativos;
+- `cloudflared` ausente;
+- somente TCP 22 e 6443 respondem pela LAN entre as portas verificadas;
+- a contenção descrita abaixo ainda não foi aplicada.
 
-A função “DMZ host” da ONT residencial não cria uma zona de segurança: ela
-encaminha portas para um host. Não ativá-la. Não criar port forwarding, UPnP ou
-exposição direta do servidor.
-
-## Topologia-alvo
+## Topologia temporária
 
 ```text
-Internet
-   |
-Huawei HG8145V5 (somente ONT/acesso)
-   |
-firewall dedicado e externo
-   +-- HOME: Wi-Fi, computadores e administração
-   +-- EDGE: conector Cloudflare e proxy de integrações
-   +-- BLINDOU-DMZ: servidor físico, sem acesso direto à HOME/Internet
+Internet -> Huawei, sem DMZ host/UPnP/port forward
+                    |
+              KNUP KP-SW105
+                    |
+          Ubuntu + UFW + K3s
+            |             |
+        apiwpp atual    Blindou
+                          +-- blindou-edge: cloudflared
+                          +-- blindou-production: aplicação
 ```
 
-O conector Cloudflare roda na zona EDGE, não no K3s e não no host físico. Ele
-alcança um gateway de origem privado e autenticado; o contrato exato desse
-gateway será fechado junto com o equipamento escolhido. Até isso existir, os
-manifests da aplicação não podem ser aplicados.
+O conector usa um Tunnel remotamente gerenciado e inicia somente TCP/7844 para
+o Cloudflare em HTTP/2. Não há listener público no host. `blindou-edge` acessa
+somente os Services `ClusterIP` da API e do redirector. O token fica em Secret
+exclusivo desse namespace.
 
-## Política obrigatória
+## Controles locais
 
-1. `WAN -> servidor`: negar tudo; não existe redirecionamento de porta.
-2. `BLINDOU-DMZ -> HOME/gerência da ONT/outros projetos`: negar e registrar.
-3. `BLINDOU-DMZ -> Internet`: negar por padrão.
-4. DNS e NTP do servidor usam serviços controlados do firewall.
-5. HTTPS externo passa por gateway/proxy com hostnames permitidos, limite de
-   requisições e log remoto. Um `0.0.0.0/0:443` direto não é aceitável.
-6. `HOME -> BLINDOU-DMZ`: somente a estação administrativa, SSH 22 e API K3s
-   6443, com autenticação atual preservada e rate limit.
-7. `EDGE -> origem Blindou`: somente a porta privada definida, com mTLS e fonte
-   restrita. O edge não recebe SSH, banco ou Kubernetes.
-8. O kill switch desabilita a regra EDGE/origem e a saída do Blindou no
-   firewall, sem depender do servidor comprometido.
+O controlador root-owned `blindou-hostctl` possui interface fechada e:
 
-O contrato versionado está em
-`platform/security/blindou-edge-policy.yaml`.
+1. confirma hostname, endereço, gateway, UFW, K3s e gateway `apiwpp`;
+2. cria backup root-only de `/etc/ufw` antes da primeira mudança;
+3. preserva DNS/DHCP para a ONT e 22/6443 para o PC administrativo;
+4. nega pela `enp2s0` a LAN, RFC1918, CGNAT e link-local tanto para processos
+   do host quanto para tráfego encaminhado dos Pods;
+5. nega entrada da LAN e recoloca acima dela somente 22/6443 da estação
+   administrativa conhecida;
+6. desabilita IPv6 somente na interface física para fechar o `/64` local;
+7. valida DNS, HTTPS pública, bloqueio da ONT, K3s e `apiwpp`;
+8. remove somente as regras marcadas pelo Blindou no rollback e restaura os
+   valores IPv6 capturados antes da aplicação.
 
-## Sequência de implantação futura
+Saída pública permanece disponível para Cloudflare, UAZAPI, e-mail,
+marketplaces e atualizações. UFW não é uma allowlist FQDN confiável; o K3s
+exclui redes privadas e a aplicação valida SSRF. Essa é uma limitação aceita da
+fase temporária.
 
-1. Escolher um firewall que suporte ao menos três zonas independentes, regras
-   stateful, deny log, DNS controlado, backup de configuração e restauração.
-2. Exportar e guardar a configuração atual da ONT; desativar UPnP e confirmar
-   que não há port forwards para o servidor.
-3. Criar HOME, EDGE e BLINDOU-DMZ em sub-redes diferentes. Não reutilizar
-   `192.168.100.0/24` na DMZ.
-4. Mover fisicamente o servidor para a BLINDOU-DMZ e reservar seu endereço.
-5. Aplicar primeiro as negações, depois somente os fluxos permitidos.
-6. Instalar o conector Cloudflare na EDGE com identidade própria e sem acesso à
-   HOME. Não copiar o token para o servidor.
-7. Configurar o gateway/proxy de saída com os domínios realmente habilitados no
-   arquivo de produção do Blindou.
-8. Aplicar somente o namespace vazio e os controles de admissão. A label
-   `platform.servidor.local/deployment-gate` nasce ausente, o que faz a
-   admissão negar qualquer Pod.
-9. Executar o verificador abaixo. Só o controlador restrito da plataforma pode
-   mudar a label para `passed`; depois disso ainda é necessária autorização
-   específica para o primeiro deploy.
+## Bootstrap humano obrigatório
 
-## Gate de aceite
-
-Como root no servidor, depois de substituir os valores de rede e informar os
-providers ativados:
+O Codex não lê senha nem usa `sudo` genérico. Uma única sessão humana root deve
+instalar o controlador versionado:
 
 ```bash
-/opt/servidor/operations/remote/verify-blindou-isolation.sh \
-  --expected-hostname apiwpp \
-  --server-interface <interface-da-dmz> \
-  --server-cidr <ipv4/cidr-da-dmz> \
-  --default-gateway <ipv4-do-firewall-na-dmz> \
-  --home-cidr 192.168.100.0/24 \
-  --ont-ip 192.168.100.1 \
-  --admin-ip 192.168.100.57 \
-  --firewall-dns <ipv4-do-firewall-na-dmz> \
-  --allow-host api.resend.com \
-  --allow-host <hostname-real-da-uazapi>
+cd /home/apiadmin/<inbox-validado>/operations/remote
+sudo ./bootstrap-blindou-hostctl.sh
 ```
 
-O resultado precisa ser `passed`. Além dele, de uma máquina na HOME deve ser
-comprovado que apenas 22/6443 autorizados alcançam o servidor; de uma máquina
-de teste na BLINDOU-DMZ devem falhar acesso à HOME, ONT e HTTPS arbitrário. Os
-logs de negação precisam chegar a um destino fora do servidor.
+Antes do comando, o operador confere que o diretório é o inbox informado pelo
+Codex e que contém somente `blindou-hostctl`, `blindou-hostctl.sudoers`, o
+bootstrap e o verificador versionados. Depois:
+
+```bash
+sudo -n /usr/local/sbin/blindou-hostctl status
+sudo -n /usr/local/sbin/blindou-hostctl \
+  apply-firewall blindou-temporary-host-containment
+sudo -n /usr/local/sbin/blindou-hostctl verify
+```
+
+O bootstrap não instala workload, Cloudflare, Secret, banco ou migration.
+
+## Gate antes do primeiro deploy
+
+- `blindou-hostctl verify` retorna sucesso;
+- `apiwpp-deployctl verify` continua aprovado;
+- do PC administrativo, somente 22/6443 e portas explicitamente já aprovadas
+  respondem; 80/443/5432/NodePort permanecem fechadas;
+- ONT não possui DMZ host, UPnP nem port forward para o servidor;
+- namespaces `blindou-edge` e `blindou-production` possuem Pod Security,
+  default deny, quota e gate `passed` atestado pelo controlador da plataforma;
+- imagem `cloudflared` usa digest, token está somente no Secret da EDGE e
+  NetworkPolicy permite apenas DNS, TCP/7844 e origem ClusterIP;
+- rotas públicas, WAF e Access/mTLS foram validados fora do host;
+- backup, receptor de alerta, domínios, Secrets e imagens da release existem.
+
+Sem todos os itens, o primeiro deploy continua bloqueado.
+
+## mTLS
+
+- cliente ou integração para Cloudflare: Access/mTLS pode autenticar endpoints
+  administrativos e máquina-a-máquina;
+- público final: login, assinatura da aplicação, WAF e rate limit; não exigir
+  certificado de cliente de compradores;
+- Cloudflare para origem: o Tunnel autentica o conector pelo token. Authenticated
+  Origin Pulls não se aplica a Tunnel;
+- dependências internas PostgreSQL/NATS conservam TLS/mTLS próprios.
 
 ## Rollback
 
-- Antes da mudança, exportar configuração do firewall/ONT e registrar cabeamento
-  e endereços.
-- Se o acesso administrativo for perdido, desconectar a DMZ da Internet, ligar
-  localmente por console e restaurar apenas a configuração externa anterior.
-- Não contornar a falha ligando novamente o servidor à LAN residencial com os
-  workloads Blindou ativos.
-- Reabilitar tráfego somente depois de repetir integralmente o gate.
+Se a rede ou o `apiwpp` degradar, usar console local ou a sessão SSH preservada:
+
+```bash
+sudo /usr/local/sbin/blindou-hostctl \
+  rollback-firewall blindou-temporary-host-containment
+```
+
+O rollback remove somente regras com comentários `blindou-*`, remove o sysctl
+temporário e restaura os valores IPv6 capturados antes da aplicação. Ele não
+é liberado sem senha para automação e não restaura banco, workloads, K3s ou
+configuração Cloudflare.
+
+Para incidente da aplicação, primeiro desabilitar as rotas/Tunnel no
+Cloudflare e escalar `blindou-cloudflared` a zero pelo controlador autorizado.
+Preservar logs e evidências. Nunca abrir porta na ONT como atalho.

@@ -7,13 +7,12 @@ metadata:
   updated_at: 2026-08-19
   status: canonical
 
-## Resolvida D001 - Quatro projetos sob a mesma plataforma
+## Resolvida D001 - Projetos admitidos pela plataforma
 
-O servidor é limitado a `apiwpp`, Pixel/CIA, SaferWPP e Blindou. Como o único
-operador do host é o usuário, um cluster K3s compartilhado com isolamento por
-namespace é adequado aos laboratórios. O Blindou possui uso operacional
-condicionado à barreira externa descrita em D012; namespace no mesmo nó não
-protege os demais projetos se o host inteiro for comprometido.
+O servidor preserva o `apiwpp` existente e reserva toda a capacidade restante
+ao Blindou. Os namespaces vazios Pixel/CIA e SaferWPP podem permanecer como
+histórico declarativo, mas não recebem workload. Namespace no mesmo nó não
+protege um projeto se o host inteiro for comprometido.
 
 ## Resolvida D002 - Identidade administrativa
 
@@ -30,25 +29,24 @@ controlador, isolamento ou gate de segurança.
 
 ## Resolvida D004 - Classificação por projeto
 
-`apiwpp`, Pixel/CIA e SaferWPP conservam a classificação `lab`/`development`
-registrada. O Blindou poderá ser o primeiro uso operacional limitado do host,
-sem alegação de alta disponibilidade, somente depois que um firewall externo o
-retirar da LAN residencial e todos os gates de D012 passarem. Antes disso, o
-servidor inteiro continua inadequado para a publicação do Blindou.
+`apiwpp` conserva a classificação atual. Pixel/CIA e SaferWPP ficam sem novos
+workloads. O Blindou poderá ser o primeiro uso operacional limitado do host,
+sem alegação de alta disponibilidade, somente depois que os gates temporários
+de D013 passarem.
 
 ## Pendente D005 - Destino externo de alertas
 
 É necessário escolher um receptor autenticado independente do servidor e do
 WhatsApp monitorado. A escolha afeta credencial, custo, privacidade, entrega e
 runbook. Até a decisão, Alertmanager pode ser preparado e validado localmente,
-mas a Fase 2 registra o gate como pendente.
+mas a Fase 2 registra o gate como pendente e a primeira release operacional do
+Blindou permanece bloqueada.
 
 ## Resolvida parcialmente D006 - Borda pública
 
-Para o Blindou, Cloudflare Pages e Cloudflare Tunnel foram escolhidos. O
-conector do túnel deve ficar em uma zona EDGE externa ao servidor físico, e a
-origem deve ser privada e autenticada. Webhook/collector dos demais projetos
-continuam sem borda decidida. Nenhum projeto abre portas na ONT residencial.
+Para o Blindou, Cloudflare Pages e Cloudflare Tunnel foram escolhidos. Durante
+a exceção D013, o conector fica no namespace `blindou-edge` e alcança apenas
+Services ClusterIP. Nenhum projeto abre portas na ONT residencial.
 
 ## Resolvida D007 - Baseline privado dos novos namespaces
 
@@ -102,3 +100,24 @@ alerta externo e kill switch independente do host passarem. Esse desenho reduz
 movimento lateral e saída, mas não promete impedir toda exploração ou
 exfiltração após comprometimento total: o produto possui integrações externas
 necessárias e todos os projetos/dados do mesmo host compartilham o risco de root.
+
+Esta decisão foi substituída temporariamente por D013 em 2026-08-19. Ela
+permanece como referência da proteção que seria obtida com equipamento externo.
+
+## Resolvida D013 - Contenção local temporária e host reservado ao Blindou
+
+O usuário decidiu não comprar firewall neste momento e autorizou UFW, sysctl,
+Pod Security, NetworkPolicy e Cloudflare Tunnel no próprio servidor até a
+migração para a Vultr. O conector roda somente em `blindou-edge`, com Secret
+separado; ONT continua sem DMZ host, UPnP ou port forward.
+
+A interface `enp2s0` nega destinos privados para processos do host e tráfego
+encaminhado dos Pods, nega entrada da LAN exceto administração 22/6443 de
+`192.168.100.57`, preserva DNS/DHCP e tem IPv6 desabilitado para fechar o `/64`
+compartilhado. Saída pública permanece disponível. Esses controles reduzem
+comprometimento de aplicação/container, mas **não contêm root no host**. Vultr
+encerra a exceção.
+
+O serviço `apiwpp` existente é preservado; toda a capacidade restante fica
+reservada ao Blindou. Pixel/CIA e SaferWPP não recebem workloads. O Blindou
+continua usando UAZAPI e não reativa seu código `api-wpp`.

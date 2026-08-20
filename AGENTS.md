@@ -3,7 +3,7 @@
 ## Escopo
 
 - Este repositório governa o servidor físico `192.168.100.59`, o cluster K3s
-  local, a futura borda externa de contenção e a infraestrutura compartilhada.
+  local, a contenção temporária do Blindou e a infraestrutura compartilhada.
 - Código e manifests exclusivos de `apiwpp`, Pixel/CIA, SaferWPP e Blindou
   permanecem nos respectivos repositórios. Não duplicar código de aplicação aqui.
 - Segredos, kubeconfigs, chaves privadas, certificados privados, senhas e
@@ -42,7 +42,8 @@ Depois de qualquer mudança operacional ou decisão:
 3. atualizar o status em `memory/canon/plano-implementacao.md`;
 4. executar `memory/tools/rebuild-index.ps1`;
 5. executar `memory/tools/verify-index.ps1`;
-6. revisar o diff completo.
+6. executar `memory/tools/test-retrieval.ps1`;
+7. revisar o diff completo.
 
 ## Padrão operacional
 
@@ -54,10 +55,11 @@ Depois de qualquer mudança operacional ou decisão:
   quotas, banco/papéis e ciclo de deploy próprios.
 - SSH identifica o administrador; não é o mecanismo de isolamento entre
   projetos.
-- `apiwpp`, Pixel/CIA e SaferWPP conservam a classificação registrada em seus
-  próprios canons. O Blindou só pode se tornar operacional depois de passar o
-  gate de isolamento externo; enquanto estiver ligado diretamente à LAN
-  residencial, seu deploy permanece proibido.
+- O host preserva somente o serviço `apiwpp` existente e reserva toda a
+  capacidade restante ao Blindou. Pixel/CIA e SaferWPP não recebem novos
+  workloads. O Blindou só pode se tornar operacional depois de passar o gate
+  temporário de UFW/IPv6/Kubernetes/Cloudflare. Esse gate não contém `root` e
+  termina obrigatoriamente na migração para Vultr.
 - Um único nó, HDD, Fast Ethernet e energia residencial permanecem pontos
   únicos de falha. Isolamento externo reduz movimento lateral, mas não cria
   alta disponibilidade nem torna impossível explorar uma vulnerabilidade.

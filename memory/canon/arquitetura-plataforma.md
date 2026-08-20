@@ -3,17 +3,16 @@
 metadata:
   canon_id: canon-arquitetura-plataforma
   source_path: memory/canon/arquitetura-plataforma.md
-  generated_from: decisão do usuário, auditoria e requisitos dos quatro projetos
+  generated_from: decisão do usuário, auditoria e requisitos de apiwpp/Blindou
   updated_at: 2026-08-19
   status: canonical
 
 ## Objetivo e limite
 
-O servidor hospeda somente quatro projetos do mesmo administrador: `apiwpp`,
-Pixel/CIA, SaferWPP e Blindou. Não há acesso de clientes ao host ou ao
-Kubernetes. O cluster fornece isolamento lógico, não isolamento forte contra
-comprometimento do kernel/root. O Blindou só recebe tráfego comercial depois
-de uma fronteira externa comprovada.
+O servidor preserva somente o serviço `apiwpp` existente e reserva a capacidade
+restante ao Blindou. Pixel/CIA e SaferWPP não recebem workloads. Não há acesso
+de clientes ao host ou ao Kubernetes. O cluster fornece isolamento lógico, não
+isolamento forte contra comprometimento do kernel/root.
 
 ## Identidades
 
@@ -41,27 +40,30 @@ Cada repositório de aplicação possui `README-SERVIDOR-LOCAL.md` e uma referê
 obrigatória em `AGENTS.md`. O guia define ownership, comandos permitidos,
 proibições, verificação e escalonamento para a plataforma.
 
-## Topologia física de contenção
+## Topologia temporária de contenção
 
 ```text
-Internet -> Huawei HG8145V5 (ONT)
+Internet -> Huawei HG8145V5, sem porta publicada
                     |
-           firewall externo dedicado
-        +-----------+-----------+
-        |           |           |
-      HOME        EDGE      BLINDOU-DMZ
-  PC admin      cloudflared   Ubuntu + K3s
-     |          proxy saída        |
-     +-- 22/6443 autorizados       +-- blindou-production
-                                  +-- projetos locais existentes
+              KNUP KP-SW105
+                    |
+          Ubuntu + UFW + K3s
+             |             |
+          apiwpp        Blindou
+                         +-- blindou-edge/cloudflared
+                         +-- blindou-production
 ```
 
-O firewall externo nega BLINDOU-DMZ para HOME, gerência da ONT, outros
-projetos e Internet. Apenas DNS/NTP controlados e providers explicitamente
-habilitados passam por proxy/allowlist. A zona EDGE inicia uma conexão privada
-e autenticada até a origem; não recebe acesso a SSH, Kubernetes ou banco.
-UFW, AppArmor e políticas do Kubernetes continuam, mas não são aceitos como
-prova de contenção se o próprio host for comprometido.
+UFW nega LAN, RFC1918, CGNAT e link-local pela interface física tanto para
+processos do host quanto para tráfego encaminhado dos Pods. Entrada da LAN é
+negada, com exceção de 22/6443 a partir do PC administrativo; DNS/DHCP são
+preservados. IPv6 é desabilitado na interface para fechar o `/64`
+compartilhado. `blindou-edge` inicia TCP/7844 para Cloudflare e acessa somente
+API/redirector por ClusterIP. Saída HTTPS pública da aplicação permanece
+temporariamente disponível.
+
+Esses controles não são prova de contenção se o host for comprometido por
+`root`. A decisão expira no cutover Vultr.
 
 Namespaces de infraestrutura não contam como novos projetos. Eles só serão
 criados quando uma dependência compartilhada realmente for implantada.
@@ -90,27 +92,22 @@ Baseline aplicado em 2026-08-15:
 As cotas são orçamento inicial, não promessa de capacidade. Serão revistas com
 métricas durante a implantação real.
 
-`blindou-production` é criado pela plataforma somente como namespace vazio,
+`blindou-production` e `blindou-edge` são criados pela plataforma somente como namespaces vazios,
 com Pod Security `restricted` e admissão adicional para imagens por digest,
 recursos explícitos, raiz somente leitura, capabilities removidas e token de
 ServiceAccount desabilitado. Quotas, contas de workload, PVCs e políticas
 específicas continuam pertencendo ao repositório Blindou.
 
-## Dados compartilhados no laboratório
+## Dados no host
 
-Para reduzir I/O e operação no host atual, um único processo PostgreSQL pode
-atender o laboratório, desde que cada projeto tenha banco, owner, papéis de
-runtime/migration e regras de acesso independentes. Nenhum projeto acessa o
-banco `clone_wpp` do `apiwpp`.
+O mesmo processo PostgreSQL 18 do host pode atender `apiwpp` e Blindou, mas
+cada produto usa banco, owner, papéis de runtime/migration, certificados e
+regras de acesso independentes. O Blindou nunca acessa o banco `clone_wpp` do
+`apiwpp` e começa vazio pelas migrations próprias.
 
-Esse arranjo é exclusivo do laboratório. Não satisfaz a exigência de
-PostgreSQL externo/HA do SaferWPP ou do Pixel em staging/produção. A política de
-backup deve ser reclassificada de `apiwpp` para o conjunto do laboratório antes
-de receber bancos adicionais.
-
-NATS pode ser compartilhado no laboratório somente com TLS, accounts,
-credenciais, subjects, streams e quotas separados. Keycloak pode ser uma
-dependência da plataforma. MinIO e ClamAV permanecem dependências do SaferWPP.
+NATS e Redis do Blindou pertencem somente ao produto e rodam no seu namespace.
+Os namespaces históricos Pixel/CIA e SaferWPP permanecem vazios e não recebem
+banco, mensageria, identidade ou armazenamento neste servidor.
 
 ## Entrada HTTP
 
@@ -118,10 +115,11 @@ O primeiro acesso usa ClusterIP e port-forward administrativo. Um ingress
 interno poderá ser adicionado depois, limitado ao PC administrativo e sem abrir
 80/443 para a rede residencial.
 
-O Blindou usa Pages e Tunnel, mas o conector fica na EDGE externa e alcança uma
-origem privada com mTLS. Webhook UAZAPI ou collector Pixel público também
-exigem borda externa separada. A ONT residencial não recebe DMZ host, UPnP ou
-redirecionamento de porta para o servidor.
+O Blindou usa Pages e Tunnel; durante a exceção o conector fica em
+`blindou-edge` e alcança API/redirector por ClusterIP. Access/mTLS protege
+administração e integrações máquina-a-máquina no edge Cloudflare; o Tunnel
+autentica o conector pelo token próprio. A ONT residencial não recebe DMZ host,
+UPnP ou redirecionamento de porta para o servidor.
 
 ## Deploy e rollback
 

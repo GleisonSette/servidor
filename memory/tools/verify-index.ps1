@@ -75,8 +75,14 @@ foreach ($id in $required) {
 }
 $agents=Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $repoRoot 'AGENTS.md')
 foreach ($entry in @('memory/canon/index.md',
-    'memory/metadata/politica-composicao-contexto.md','memory/tools/search-index.ps1')) {
+    'memory/metadata/politica-composicao-contexto.md','memory/tools/search-index.ps1',
+    'memory/tools/test-retrieval.ps1')) {
     if (-not $agents.Contains($entry)) { throw "AGENTS.md nao referencia $entry" }
+}
+foreach ($qaPath in @('memory\tools\test-retrieval.ps1','memory\qa\casos.json')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $repoRoot $qaPath) -PathType Leaf)) {
+        throw "Artefato de QA ausente: $qaPath"
+    }
 }
 Write-Output ("Memoria RAG verificada: {0} chunks e {1} fontes." -f
     $chunks.Count,$sourceIds.Count)

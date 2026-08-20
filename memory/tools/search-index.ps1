@@ -56,7 +56,8 @@ foreach ($document in $index.documents) {
     $preview=([string]$chunk.text -replace '\s+',' ').Trim()
     if ($preview.Length -gt 220) { $preview=$preview.Substring(0,217)+'...' }
     $results.Add([pscustomobject][ordered]@{
-        score=[Math]::Round($score,4); source_path=$chunk.source_path
+        score=[Math]::Round($score,4); source_id=$chunk.source_id
+        source_path=$chunk.source_path
         section=$chunk.section; matched_terms=@($matched); preview=$preview
     })
 }

@@ -22,6 +22,7 @@ metadata:
 - Segunda interface física `eno1` observada inativa; ela não é uma barreira de
   segurança porque pertence ao mesmo host.
 - IPv4 reservado por DHCP: `192.168.100.59/24`.
+- IPv6 público observado em `enp2s0`, com prefixo `/64` e rota padrão pela ONT.
 - PC administrativo: `192.168.100.57`.
 - WireGuard `wg-apiwpp`: `10.203.0.2/30`.
 
@@ -30,9 +31,9 @@ metadata:
 - Gateway/ONT observado em `192.168.100.1`: Huawei HG8145V5, perfil `OI2`.
 - O servidor e a estação administrativa ainda compartilham
   `192.168.100.0/24`; a rota padrão do host aponta diretamente para a ONT.
-- Não existe firewall externo entre servidor e residência. Portanto, o gate de
-  contenção do Blindou está reprovado por topologia e nenhum deploy comercial
-  do Blindou é autorizado no estado atual.
+- Não existe firewall externo entre servidor e residência. A exceção temporária
+  UFW/IPv6/Kubernetes foi autorizada, mas ainda não está aplicada; nenhum deploy
+  comercial do Blindou é autorizado no estado atual.
 
 - SSH utiliza chave pública permanente, usuário `apiadmin` e identidade de host
   validada. O acesso é limitado ao PC administrativo.
@@ -48,6 +49,8 @@ metadata:
 - `blindou-deployctl` também está ausente. Os artefatos do Blindou ainda não
   foram aplicados e o namespace `blindou-production` ainda não foi verificado
   no runtime.
+- `blindou-hostctl` está preparado no repositório, mas ainda não foi instalado
+  como root nem executou a contenção temporária.
 - Não havia processo nem unit systemd `cloudflared` no host na conferência
   final de 2026-08-19.
 
@@ -71,7 +74,8 @@ metadata:
   recusado.
 - O audit log do Kubernetes está ativo em nível `Metadata`, sem corpos de
   Secrets e com limites de 14 dias, cinco arquivos e 50 MiB por arquivo.
-- Pixel/CIA e SaferWPP não estão implantados.
+- Pixel/CIA e SaferWPP não estão implantados e não receberão workloads nesse
+  host. A capacidade livre foi reservada ao Blindou; `apiwpp` permanece.
 
 ## Dados, backup e observabilidade
 

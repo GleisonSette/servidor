@@ -1,0 +1,41 @@
+{
+  "version": "1.0.0",
+  "cases": [
+    {
+      "id": "qa-001-proximo-passo",
+      "query": "qual é o próximo passo gate aceite rollback bootstrap blindou-hostctl",
+      "top": 4,
+      "expected_source_ids": ["plano-implementacao"]
+    },
+    {
+      "id": "qa-002-estado-host",
+      "query": "estado atual host versões portas capacidade backups workloads",
+      "top": 4,
+      "expected_source_ids": ["estado-atual"]
+    },
+    {
+      "id": "qa-003-arquitetura",
+      "query": "arquitetura namespaces isolamento rede deploy rollback dados compartilhados",
+      "top": 4,
+      "expected_source_ids": ["arquitetura-plataforma"]
+    },
+    {
+      "id": "qa-004-historico",
+      "query": "o que já foi executado evidência resultado manutenção auditoria",
+      "top": 4,
+      "expected_source_ids": ["historico-execucao"]
+    },
+    {
+      "id": "qa-005-decisoes",
+      "query": "decisão receptor externo de alertas borda pública pendência",
+      "top": 4,
+      "expected_source_ids": ["decisoes"]
+    },
+    {
+      "id": "qa-006-blindou-convivencia",
+      "query": "somente apiwpp preservado capacidade restante Blindou UAZAPI contenção temporária Vultr",
+      "top": 5,
+      "expected_source_ids": ["decisoes", "arquitetura-plataforma", "plano-implementacao"]
+    }
+  ]
+}

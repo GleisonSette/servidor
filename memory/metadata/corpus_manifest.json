@@ -3,10 +3,10 @@
     "generated_at":  "2026-08-19",
     "project":  "servidor-local-compartilhado",
     "memory_root":  "memory",
-    "source_scope":  "Host, K3s, tres projetos, operacao, seguranca e continuidade.",
+    "source_scope":  "Host, K3s, apiwpp existente, Blindou, operacao, seguranca e continuidade.",
     "layers":  {
                    "canon":  6,
-                   "index_chunks":  53
+                   "index_chunks":  58
                },
     "topics":  [
                    "indice-canonico",

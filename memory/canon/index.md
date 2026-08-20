@@ -38,15 +38,16 @@ corpus por padrão.
 - Os quatro repositórios de aplicação possuem guia obrigatório de acesso ao
   servidor. Somente o apiwpp tem controladores instalados; Pixel, SaferWPP e
   Blindou falham fechados para alterações até receberem controladores próprios.
-- O Blindou foi priorizado como quarto projeto. Sua preparação declarativa de
-  contenção está concluída, mas a implantação está bloqueada porque o servidor
-  ainda compartilha a LAN residencial com a ONT Huawei HG8145V5.
-- A próxima ação é escolher/instalar um firewall externo com zonas HOME, EDGE e
-  BLINDOU-DMZ e passar o gate de isolamento. Nenhum workload Blindou foi
-  aplicado e `blindou-deployctl` ainda não existe.
-- A Fase 3.1 do SaferWPP permanece pausada, sem perder a auditoria já registrada.
-- O receptor externo de alertas permanece como decisão D005 e não bloqueia a
-  preparação interna do SaferWPP.
+- O servidor preserva o serviço `apiwpp`; toda a capacidade restante foi
+  reservada ao Blindou. Pixel/CIA e SaferWPP não recebem novos workloads.
+- O firewall externo foi adiado. A contenção temporária UFW/IPv6/Kubernetes e o
+  namespace `blindou-edge` estão preparados, mas ainda não aplicados. Ela não
+  contém `root` e termina no cutover Vultr.
+- A próxima ação é o bootstrap humano do `blindou-hostctl`, aplicação e
+  verificação do firewall temporário, preservando `apiwpp`. Nenhum workload
+  Blindou foi aplicado e `blindou-deployctl` ainda não existe.
+- O receptor externo de alertas permanece como decisão D005 e precisa ser
+  resolvido antes da primeira release operacional do Blindou.
 
 ## Precedência
 

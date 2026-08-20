@@ -79,8 +79,8 @@ Aceite:
 
 ## Fase 2B - Contenção externa do Blindou
 
-Status: preparação declarativa concluída em 2026-08-19; implantação física
-pendente e bloqueante para o Blindou.
+Status: preparação declarativa concluída em 2026-08-19 e substituída pela
+exceção temporária da Fase 2C. Nenhuma barreira física será comprada agora.
 
 Concluído sem alterar o runtime:
 
@@ -91,100 +91,104 @@ Concluído sem alterar o runtime:
   kill switch e testes negativos;
 - preparar namespace vazio, baseline de admissão, verificador e rollback.
 
+O aceite externo permanece referência futura, mas não é gate da primeira
+operação temporária.
+
+## Fase 2C - Contenção local temporária do Blindou
+
+Status: artefatos e controlador preparados; bootstrap root e aplicação viva
+pendentes.
+
+Concluído no repositório:
+
+- controlador `blindou-hostctl` com interface fechada, backup e rollback;
+- regras UFW para negar destinos privados no host e no encaminhamento dos Pods,
+  além de negar entrada da LAN sem interromper DNS/DHCP/SSH/K3s autorizados;
+- desativação reversível de IPv6 somente na interface física;
+- namespace `blindou-edge` com quota, Pod Security e default deny;
+- contrato do `cloudflared` por digest, Secret exclusivo, TCP/7844 e origem
+  ClusterIP;
+- decisão de preservar `apiwpp`, reservar o restante ao Blindou e impedir novos
+  workloads Pixel/CIA/SaferWPP;
+- risco de `root` e expiração na Vultr registrados.
+
 Próxima ação exata:
 
-- escolher o equipamento de firewall dedicado e definir suas interfaces;
-- revisar o plano de endereçamento sem reutilizar `192.168.100.0/24` na DMZ;
-- após autorização operacional separada, instalar a barreira, mover o servidor
-  e executar `operations/remote/verify-blindou-isolation.sh`;
-- somente com resultado `passed`, preparar `blindou-deployctl` e o gateway de
-  origem privado.
+1. uma sessão humana root instala o controlador pelo bootstrap versionado;
+2. executar `apply-firewall blindou-temporary-host-containment` e `verify`;
+3. validar `apiwpp-deployctl verify` e portas a partir do PC administrativo;
+4. somente depois preparar `blindou-deployctl`, namespaces/gates, domínios,
+   Tunnel, Access/mTLS, Secrets e primeira release.
 
 Aceite pendente:
 
-- servidor fora da sub-rede residencial;
-- nenhuma entrada WAN, DMZ host, UPnP ou port forward para o servidor;
-- DMZ sem acesso à HOME, gerência da ONT ou HTTPS arbitrário;
-- `cloudflared` ausente do servidor e presente somente na EDGE;
-- providers exigidos acessíveis apenas pela allowlist;
-- logs, alerta e kill switch independentes do host comprometido.
+- controlador root-owned instalado e único caminho sem senha do Blindou;
+- UFW e sysctl verificados sem perda de DNS, Internet, SSH, K3s ou `apiwpp`;
+- ONT inacessível a partir do host e sem porta publicada;
+- `cloudflared` somente em `blindou-edge` e token somente no Secret da EDGE;
+- API/redirector apenas ClusterIP e saúde pública validada fora do host;
+- migração Vultr mantida como encerramento obrigatório da exceção.
 
-## Fase 3 - SaferWPP lab
+## Fase 2D - Plataforma e controlador de deploy do Blindou
 
-Status: Fase 3.1 pausada enquanto o usuário prioriza Blindou; auditoria inicial
-concluída parcialmente e nenhuma mudança feita no servidor.
-
-Controle transversal concluído em 2026-08-15: os três repositórios então existentes
-possuem guia obrigatório de acesso segregado. O apiwpp já usa controladores
-restritos; o SaferWPP e o Pixel não podem alterar o host até seus controladores
-próprios serem implementados nas respectivas fases. Isso não muda a ordem: a
-Fase 3.1 volta a ser a próxima ação somente depois da prioridade Blindou ou por
-nova decisão explícita do usuário.
-
-Este é o próximo projeto depois das Fases 0 a 2.
-
-Já confirmado na Fase 3.1:
-
-- base de código `e8a0427` limpa, seguida apenas pelo commit documental
-  `d8fce28`;
-- chart limitado a Kubernetes 1.34, enquanto o laboratório usa K3s 1.36.2;
-- schema sem ambiente `lab` e quatro imagens/workloads separados;
-- dependências reais de dados, mensageria, identidade e armazenamento;
-- observabilidade padrão do chart precisa ser adaptada ao stack instalado.
-
-Próxima ação exata para concluir a Fase 3.1:
-
-- terminar o inventário de migrations, contratos de startup e gates sem alterar
-  o servidor;
-- fechar o perfil `lab` para K3s 1.36, namespace `saferwpp-lab`, uma réplica,
-  Services ClusterIP e acesso inicial por port-forward;
-- definir dependências, sequência, capacidade, riscos, critérios de aceite,
-  rollback e o contrato mínimo do futuro `saferwpp-deployctl`;
-- apresentar o diff previsto e somente então iniciar a Fase 3.2 quando o
-  usuário pedir o próximo passo.
+Status: pendente; só começa depois do aceite vivo da Fase 2C e de autorização
+específica.
 
 Objetivos:
 
-- criar valores Helm `lab` para K3s 1.36, uma réplica e ingress desligado;
-- construir, escanear, assinar e importar quatro imagens por digest;
-- provisionar banco/papéis, PgBouncer, NATS, Keycloak, MinIO e ClamAV reais de
-  laboratório;
-- implantar API, worker, relay e web com políticas mínimas;
-- validar login, migrations, health, métricas e rollback por port-forward;
-- manter UAZAPI/R2 externos como gates explícitos da Fase 4 do produto.
+- criar `blindou-deployctl` root-owned com release assinada, imagem por digest,
+  lock, escopo fechado e rollback;
+- aplicar `blindou-production` e `blindou-edge` vazios com admissão, quotas,
+  NetworkPolicies e gates inicialmente bloqueados;
+- provisionar banco, papéis, TLS, backup e observabilidade exclusivos do
+  Blindou, sem acessar dados do `apiwpp`;
+- configurar domínios, Tunnel, WAF, Access/mTLS e Secrets por canal seguro;
+- atestar os gates somente depois dos testes negativos e da verificação do
+  `apiwpp`.
 
-## Fase 4 - Pixel/CIA lab
+Aceite:
 
-Status: pendente.
+- somente o controlador fechado consegue alterar recursos Blindou;
+- nenhum Service público, porta na ONT ou segredo fora do namespace correto;
+- `apiwpp-deployctl verify` continua aprovado;
+- backup, alertas, rollback e monitor externo comprovados.
+
+## Fase 2E - Primeira release e capacidade do Blindou
+
+Status: pendente; depende da Fase 2D, das decisões externas e de autorização de
+deploy.
 
 Objetivos:
 
-- preservar e consolidar o trabalho Pixel ainda não commitado;
-- tratar Pixel como SDK + collector + worker + Control Plane, não só `pixel.js`;
-- criar imagens OCI e manifests K3s;
-- provisionar PostgreSQL, KMS mTLS e NATS TLS reais de laboratório;
-- iniciar em modo interno/shadow com ingestão pública desligada;
-- validar durabilidade antes de `202`, replay, DLQ, retenção e rollback.
+- executar migration, primeira release e smoke público pela borda Cloudflare;
+- validar captura, dispatch, redirect, Analytics, UAZAPI e filas sem reativar o
+  provider local `api-wpp`;
+- testar reboot, queda de dependência, backup/restore e rollback do Blindou;
+- executar degraus de carga e soak com margem, observando HDD, memória, swap e
+  Fast Ethernet;
+- registrar o limite que dispara expansão e posterior cutover para Vultr.
+
+## Fase 3 - SaferWPP lab (cancelada para este host)
+
+Status: cancelada para este host por decisão D013; a auditoria histórica é
+preservada no histórico, mas nenhum workload, banco, controlador ou dependência
+será implantado. Reativação exigiria substituir explicitamente D013 e criar um
+novo plano de capacidade fora do caminho reservado ao Blindou.
+
+## Fase 4 - Pixel/CIA lab (cancelada para este host)
+
+Status: cancelada para este host por decisão D013.
+
+O inventário anterior permanece somente no histórico. Nenhum workload, banco,
+controlador ou dependência Pixel/CIA será implantado. Reativação exige nova
+decisão e capacidade fora do caminho reservado ao Blindou.
 
 ## Fase 5 - Entrada externa controlada
 
-Status: pendente.
-
-Objetivos:
-
-- escolher borda Cloudflare ou VM pública já autorizada;
-- encaminhar apenas webhook/collector por WireGuard ou mTLS;
-- aplicar TLS, WAF, rate limit, origem restrita e monitoramento externo;
-- manter SSH, 6443, PostgreSQL e métricas privados.
+Status: substituída pela borda Cloudflare exclusiva do Blindou nas Fases
+2C/2D. SSH, 6443, PostgreSQL e métricas continuam privados.
 
 ## Fase 6 - Ensaio combinado e operação
 
-Status: pendente.
-
-Objetivos:
-
-- testar reboot, queda de dependência, backup/restore e rollback dos três
-  projetos;
-- executar degraus de carga com margem e monitorar HDD, memória, swap e rede;
-- realizar soak de 24 horas no maior degrau aprovado;
-- registrar limites observados e critérios para SSD, NIC Gigabit e nobreak.
+Status: substituída pelo ensaio exclusivo do Blindou na Fase 2E. Não haverá
+ensaio combinado de três projetos neste host.

@@ -1,0 +1,318 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+umask 077
+
+readonly EXPECTED_HOSTNAME='apiwpp'
+readonly LAN_INTERFACE='enp2s0'
+readonly SERVER_IPV4='192.168.100.59'
+readonly LAN_CIDR='192.168.100.0/24'
+readonly ONT_IPV4='192.168.100.1'
+readonly ADMIN_IPV4='192.168.100.57'
+readonly SYSCTL_FILE='/etc/sysctl.d/90-blindou-temporary-network.conf'
+readonly BACKUP_ROOT='/var/backups/shared-lab/blindou-temporary-containment'
+readonly CONFIRMATION='blindou-temporary-host-containment'
+
+readonly -a RULE_MARKERS=(
+  blindou-deny-lan
+  blindou-deny-rfc1918-10
+  blindou-deny-rfc1918-172
+  blindou-deny-rfc1918-192
+  blindou-deny-cgnat
+  blindou-deny-linklocal
+  blindou-route-deny-lan
+  blindou-route-deny-rfc1918-10
+  blindou-route-deny-rfc1918-172
+  blindou-route-deny-rfc1918-192
+  blindou-route-deny-cgnat
+  blindou-route-deny-linklocal
+  blindou-route-allow-dns-udp
+  blindou-route-allow-dns-tcp
+  blindou-allow-dhcp
+  blindou-allow-dns-udp
+  blindou-allow-dns-tcp
+  blindou-deny-lan-inbound
+  blindou-admin-ssh
+  blindou-admin-k3s
+)
+
+fail() {
+  printf '[blindou-hostctl] FALHA: %s\n' "$*" >&2
+  exit 1
+}
+
+pass() {
+  printf '[blindou-hostctl] OK: %s\n' "$*"
+}
+
+require_root_and_host_identity() {
+  [[ "${EUID}" -eq 0 ]] || fail 'execute pelo controlador sudo restrito'
+  [[ "$(hostname)" == "$EXPECTED_HOSTNAME" ]] || fail 'hostname inesperado'
+  ip -4 -o addr show dev "$LAN_INTERFACE" \
+    | awk '{print $4}' | grep -Eq "^${SERVER_IPV4//./\\.}/" \
+    || fail 'endereço IPv4 ou interface residencial divergente'
+  ip -4 route show default \
+    | grep -Eq "^default via ${ONT_IPV4//./\\.} dev ${LAN_INTERFACE}([[:space:]]|$)" \
+    || fail 'rota padrão IPv4 divergente'
+}
+
+require_runtime_preconditions() {
+  require_root_and_host_identity
+  systemctl is-active --quiet ufw.service || fail 'UFW não está ativo'
+  systemctl is-active --quiet k3s.service || fail 'K3s não está ativo'
+  systemctl is-active --quiet apiwpp-private-gateway.service \
+    || fail 'gateway privado do apiwpp não está ativo'
+}
+
+has_rule() {
+  local marker="$1"
+  ufw status | grep -Eq "# ${marker}([[:space:]]|$)"
+}
+
+insert_rule_once() {
+  local marker="$1"
+  shift
+  if has_rule "$marker"; then
+    return
+  fi
+  if [[ "${1:-}" == 'route' ]]; then
+    shift
+    ufw route insert 1 "$@" comment "$marker" >/dev/null
+  else
+    ufw insert 1 "$@" comment "$marker" >/dev/null
+  fi
+}
+
+containment_rule_count() {
+  local marker count=0
+  for marker in "${RULE_MARKERS[@]}"; do
+    if has_rule "$marker"; then
+      count=$((count + 1))
+    fi
+  done
+  printf '%s\n' "$count"
+}
+
+backup_state() {
+  local timestamp backup_dir
+  timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  backup_dir="${BACKUP_ROOT}/${timestamp}"
+  install -d -m 0700 "$backup_dir"
+  ufw status verbose >"${backup_dir}/ufw-status.txt"
+  ufw status numbered >"${backup_dir}/ufw-status-numbered.txt"
+  tar --create --gzip --file "${backup_dir}/etc-ufw.tar.gz" \
+    --directory / etc/ufw etc/default/ufw
+  if [[ -f "$SYSCTL_FILE" ]]; then
+    install -m 0600 "$SYSCTL_FILE" "$backup_dir/sysctl.conf"
+  fi
+  printf '%s\n' "$backup_dir" >"${BACKUP_ROOT}/latest"
+  if [[ ! -d "${BACKUP_ROOT}/baseline" ]]; then
+    install -d -m 0700 "${BACKUP_ROOT}/baseline"
+    {
+      printf 'disable_ipv6=%s\n' \
+        "$(sysctl -n "net.ipv6.conf.${LAN_INTERFACE}.disable_ipv6")"
+      printf 'accept_ra=%s\n' \
+        "$(sysctl -n "net.ipv6.conf.${LAN_INTERFACE}.accept_ra")"
+    } >"${BACKUP_ROOT}/baseline/interface-sysctl-values"
+    chmod 0600 "${BACKUP_ROOT}/baseline/interface-sysctl-values"
+  fi
+  pass "backup criado em ${backup_dir}"
+}
+
+write_ipv6_containment() {
+  local temporary
+  temporary="$(mktemp)"
+  cat >"$temporary" <<EOF
+# Blindou: contenção temporária enquanto o host permanece na LAN residencial.
+# IPv6 na interface física é desabilitado para impedir acesso lateral pelo /64
+# público compartilhado. K3s e WireGuard IPv4 permanecem inalterados.
+net.ipv6.conf.${LAN_INTERFACE}.accept_ra = 0
+net.ipv6.conf.${LAN_INTERFACE}.disable_ipv6 = 1
+EOF
+  install -o root -g root -m 0644 "$temporary" "$SYSCTL_FILE"
+  rm -f -- "$temporary"
+  sysctl -q -p "$SYSCTL_FILE"
+}
+
+apply_firewall() {
+  [[ "${1:-}" == "$CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${CONFIRMATION}"
+  require_runtime_preconditions
+  local rule_count
+  rule_count="$(containment_rule_count)"
+  if [[ "$rule_count" -eq "${#RULE_MARKERS[@]}" && -f "$SYSCTL_FILE" ]]; then
+    verify
+    pass 'contenção temporária já estava aplicada'
+    return
+  fi
+  if [[ "$rule_count" -ne 0 || -e "$SYSCTL_FILE" ]]; then
+    fail 'estado parcial detectado; execute rollback antes de reaplicar'
+  fi
+  backup_state
+
+  # Negações entram primeiro; as exceções específicas são inseridas depois no
+  # topo. UFW preserva tráfego ESTABLISHED, portanto a sessão SSH atual não é
+  # interrompida quando as regras são carregadas.
+  insert_rule_once blindou-deny-lan \
+    deny out on "$LAN_INTERFACE" to "$LAN_CIDR"
+  insert_rule_once blindou-deny-rfc1918-10 \
+    deny out on "$LAN_INTERFACE" to 10.0.0.0/8
+  insert_rule_once blindou-deny-rfc1918-172 \
+    deny out on "$LAN_INTERFACE" to 172.16.0.0/12
+  insert_rule_once blindou-deny-rfc1918-192 \
+    deny out on "$LAN_INTERFACE" to 192.168.0.0/16
+  insert_rule_once blindou-deny-cgnat \
+    deny out on "$LAN_INTERFACE" to 100.64.0.0/10
+  insert_rule_once blindou-deny-linklocal \
+    deny out on "$LAN_INTERFACE" to 169.254.0.0/16
+
+  # Replica a negação na cadeia FORWARD para que tráfego roteado dos Pods não
+  # contorne as regras de saída do próprio host. NetworkPolicy continua sendo
+  # a primeira defesa e estas regras são a segunda camada.
+  insert_rule_once blindou-route-deny-lan \
+    route deny out on "$LAN_INTERFACE" to "$LAN_CIDR"
+  insert_rule_once blindou-route-deny-rfc1918-10 \
+    route deny out on "$LAN_INTERFACE" to 10.0.0.0/8
+  insert_rule_once blindou-route-deny-rfc1918-172 \
+    route deny out on "$LAN_INTERFACE" to 172.16.0.0/12
+  insert_rule_once blindou-route-deny-rfc1918-192 \
+    route deny out on "$LAN_INTERFACE" to 192.168.0.0/16
+  insert_rule_once blindou-route-deny-cgnat \
+    route deny out on "$LAN_INTERFACE" to 100.64.0.0/10
+  insert_rule_once blindou-route-deny-linklocal \
+    route deny out on "$LAN_INTERFACE" to 169.254.0.0/16
+
+  # CoreDNS pode encaminhar consultas do cluster ao resolvedor da ONT. Essas
+  # exceções específicas ficam acima das negações roteadas.
+  insert_rule_once blindou-route-allow-dns-udp \
+    route allow out on "$LAN_INTERFACE" proto udp to "$ONT_IPV4" port 53
+  insert_rule_once blindou-route-allow-dns-tcp \
+    route allow out on "$LAN_INTERFACE" proto tcp to "$ONT_IPV4" port 53
+
+  insert_rule_once blindou-allow-dhcp \
+    allow out on "$LAN_INTERFACE" proto udp \
+    from "$SERVER_IPV4" port 68 to "$ONT_IPV4" port 67
+  insert_rule_once blindou-allow-dns-udp \
+    allow out on "$LAN_INTERFACE" proto udp to "$ONT_IPV4" port 53
+  insert_rule_once blindou-allow-dns-tcp \
+    allow out on "$LAN_INTERFACE" proto tcp to "$ONT_IPV4" port 53
+  insert_rule_once blindou-deny-lan-inbound \
+    deny in on "$LAN_INTERFACE" from "$LAN_CIDR" to "$SERVER_IPV4"
+  insert_rule_once blindou-admin-ssh \
+    limit in on "$LAN_INTERFACE" proto tcp \
+    from "$ADMIN_IPV4" to "$SERVER_IPV4" port 22
+  insert_rule_once blindou-admin-k3s \
+    allow in on "$LAN_INTERFACE" proto tcp \
+    from "$ADMIN_IPV4" to "$SERVER_IPV4" port 6443
+
+  ufw logging medium >/dev/null
+  write_ipv6_containment
+  ufw reload >/dev/null
+  verify
+  pass 'contenção temporária aplicada; apiwpp foi preservado'
+}
+
+verify() {
+  require_runtime_preconditions
+  local marker
+  for marker in "${RULE_MARKERS[@]}"; do
+    has_rule "$marker" || fail "regra UFW ausente: ${marker}"
+  done
+  [[ -f "$SYSCTL_FILE" && ! -L "$SYSCTL_FILE" ]] \
+    || fail 'arquivo sysctl de contenção ausente ou inválido'
+  [[ "$(stat -c '%U:%G:%a' "$SYSCTL_FILE")" == 'root:root:644' ]] \
+    || fail 'permissões do sysctl divergentes'
+  [[ "$(sysctl -n "net.ipv6.conf.${LAN_INTERFACE}.disable_ipv6")" == '1' ]] \
+    || fail 'IPv6 permanece ativo na interface residencial'
+  [[ -z "$(ip -6 route show default dev "$LAN_INTERFACE")" ]] \
+    || fail 'a interface residencial ainda possui rota IPv6 padrão'
+  resolvectl query cloudflare.com >/dev/null \
+    || fail 'resolução DNS deixou de funcionar'
+  timeout 8 curl --silent --show-error --fail \
+    --output /dev/null https://www.cloudflare.com/cdn-cgi/trace \
+    || fail 'saída HTTPS pública deixou de funcionar'
+  if timeout 3 bash -c "exec 3<>/dev/tcp/${ONT_IPV4}/443" >/dev/null 2>&1; then
+    fail 'administração HTTPS da ONT continua alcançável pelo servidor'
+  fi
+  [[ -z "$(systemctl --failed --no-legend --plain)" ]] \
+    || fail 'há unit systemd em estado failed'
+  test "$(k3s kubectl get node "$EXPECTED_HOSTNAME" \
+    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')" = True \
+    || fail 'nó K3s não está Ready'
+  pass 'UFW, IPv6, DNS, Internet, ONT, K3s e apiwpp verificados'
+}
+
+delete_rule_by_marker() {
+  local marker="$1" number
+  while true; do
+    number="$(ufw status numbered \
+      | sed -n "s/^\[ *\([0-9][0-9]*\)\].*# ${marker}[[:space:]]*$/\1/p" \
+      | head -n 1)"
+    [[ -n "$number" ]] || break
+    ufw --force delete "$number" >/dev/null
+  done
+}
+
+rollback_firewall() {
+  [[ "${1:-}" == "$CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${CONFIRMATION}"
+  require_root_and_host_identity
+  local marker baseline_values baseline_disable baseline_accept_ra
+  systemctl is-active --quiet ufw.service \
+    || fail 'UFW precisa estar ativo para o rollback seletivo'
+  baseline_values="${BACKUP_ROOT}/baseline/interface-sysctl-values"
+  [[ -f "$baseline_values" && ! -L "$baseline_values" ]] \
+    || fail 'baseline de sysctl ausente; não é seguro presumir valores'
+  baseline_disable="$(sed -n 's/^disable_ipv6=//p' "$baseline_values")"
+  baseline_accept_ra="$(sed -n 's/^accept_ra=//p' "$baseline_values")"
+  [[ "$baseline_disable" =~ ^[01]$ ]] \
+    || fail 'baseline disable_ipv6 inválido'
+  [[ "$baseline_accept_ra" =~ ^[012]$ ]] \
+    || fail 'baseline accept_ra inválido'
+  for marker in "${RULE_MARKERS[@]}"; do
+    delete_rule_by_marker "$marker"
+  done
+  rm -f -- "$SYSCTL_FILE"
+  sysctl -q -w \
+    "net.ipv6.conf.${LAN_INTERFACE}.disable_ipv6=${baseline_disable}"
+  sysctl -q -w \
+    "net.ipv6.conf.${LAN_INTERFACE}.accept_ra=${baseline_accept_ra}"
+  ufw reload >/dev/null
+  pass 'somente as regras temporárias do Blindou foram removidas'
+}
+
+status() {
+  require_root_and_host_identity
+  printf 'host=%s\n' "$(hostname)"
+  printf 'interface=%s\n' "$LAN_INTERFACE"
+  printf 'ipv6_disabled=%s\n' \
+    "$(sysctl -n "net.ipv6.conf.${LAN_INTERFACE}.disable_ipv6")"
+  printf 'apiwpp_gateway=%s\n' \
+    "$(systemctl is-active apiwpp-private-gateway.service || true)"
+  printf 'k3s=%s\n' "$(systemctl is-active k3s.service || true)"
+  ufw status verbose
+}
+
+case "${1:-}" in
+  apply-firewall)
+    [[ $# -eq 2 ]] || fail 'uso: blindou-hostctl apply-firewall CONFIRMAÇÃO'
+    apply_firewall "$2"
+    ;;
+  rollback-firewall)
+    [[ $# -eq 2 ]] || fail 'uso: blindou-hostctl rollback-firewall CONFIRMAÇÃO'
+    rollback_firewall "$2"
+    ;;
+  verify)
+    [[ $# -eq 1 ]] || fail 'uso: blindou-hostctl verify'
+    verify
+    ;;
+  status)
+    [[ $# -eq 1 ]] || fail 'uso: blindou-hostctl status'
+    status
+    ;;
+  *)
+    fail 'uso: blindou-hostctl {status|verify|apply-firewall CONFIRMAÇÃO|rollback-firewall CONFIRMAÇÃO}'
+    ;;
+esac
