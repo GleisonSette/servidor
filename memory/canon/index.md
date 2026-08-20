@@ -47,13 +47,15 @@ corpus por padrão.
   idempotência. A contenção de host está ativa; ela não contém `root` e termina
   no cutover Vultr.
 - A fundação interna da Fase 2D foi concluída em 2026-08-20:
-  `blindou-deployctl` root-owned, namespaces vazios com gates `blocked`,
+  `blindou-deployctl` root-owned, `blindou-production` com gate `blocked` e
+  `blindou-edge` com gate `connector-only`,
   database sem migrations, quatro logins isolados, TLS mais SCRAM, backup
-  lógico criptografado recuperável e métricas Prometheus. Nenhum workload,
-  Secret, Tunnel ou release Blindou foi aplicado.
-- A próxima ação é resolver P005 e as dependências externas antes de preparar a
-  primeira release assinada; os gates permanecem bloqueados até nova
-  autorização.
+  lógico criptografado recuperável e métricas Prometheus. O Tunnel
+  `blindou-physical` está saudável com um único Pod e Secret exclusivos da
+  EDGE; nenhum workload de aplicação, migration ou release foi aplicado.
+- A próxima ação é resolver P005, UAZAPI, Secrets e as autorizações externas
+  pendentes antes de preparar a primeira release assinada;
+  `blindou-production` permanece bloqueado.
 - O receptor externo de alertas permanece como decisão D005 e precisa ser
   resolvido antes da primeira release operacional do Blindou.
 

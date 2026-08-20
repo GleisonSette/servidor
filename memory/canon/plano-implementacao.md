@@ -139,10 +139,10 @@ Aceite ainda pendente:
 
 ## Fase 2D - Plataforma e controlador de deploy do Blindou
 
-Status: fundação interna concluída e verificada em 2026-08-20. Zero Trust e o
-Tunnel remoto `blindou-physical` foram criados; o controlador fechado para
-ativar somente o conector foi preparado. Aplicação, migrations e release
-continuam bloqueadas.
+Status: fundação interna e conector concluídos e verificados em 2026-08-20.
+Zero Trust e o Tunnel remoto `blindou-physical` estão saudáveis; somente
+`blindou-edge` passou para `connector-only`, enquanto `blindou-production`,
+migrations e release continuam bloqueados.
 
 Objetivos:
 
@@ -165,13 +165,12 @@ Aceite:
 
 Próxima ação exata:
 
-1. instalar o controlador atualizado e enviar o token do Tunnel pelo fluxo
-   oculto; somente `blindou-edge` passa para `connector-only`;
-2. validar o conector no Zero Trust e manter `blindou-production` `blocked`;
-3. preparar `app.blindou.com` no Pages e `api.blindou.com` no Tunnel, sem
-   publicar origem inexistente;
-4. resolver P005, UAZAPI e os demais Secrets antes da primeira release;
-5. somente mediante nova autorização, liberar o gate completo, executar
+1. publicar o código no GitHub somente após autorização de `push`, concluir o
+   primeiro build Pages e associar `app.blindou.com`;
+2. ativar Cloudflare for SaaS somente após autorização explícita da cobrança
+   por uso e manter os hostnames personalizados fechados até verificação;
+3. resolver P005, UAZAPI e os demais Secrets antes da primeira release;
+4. somente mediante nova autorização, liberar o gate completo, executar
    migrations e aplicar a primeira release assinada na Fase 2E.
 
 ## Fase 2E - Primeira release e capacidade do Blindou

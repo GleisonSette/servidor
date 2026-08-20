@@ -367,3 +367,25 @@ humana do token sem exibição.
 - Sintaxe Bash/PowerShell, YAML, invariantes de segredo, quota e imagem imutável
   passaram localmente. Nenhuma mudança viva no cluster foi realizada por este
   registro.
+
+## 2026-08-20 - Ativação do conector Cloudflare isolado
+
+Resultado: concluído e saudável; aplicação permaneceu bloqueada.
+
+- A primeira atualização do controlador instalou os arquivos, mas retornou
+  código 1 porque sondagens esperadas chamavam funções que encerravam o shell e
+  porque a coleta inicial podia disputar o lock com a verificação final.
+- As sondagens foram isoladas em subshell e o bootstrap passou a aguardar o
+  término da coleta inicial. Sintaxe e contrato dos artefatos passaram no
+  staging antes da reinstalação root-owned; fonte e controlador instalado
+  apresentaram o mesmo SHA-256.
+- Mediante autorização explícita, o token do Tunnel foi lido da sessão
+  autenticada do Chrome, enviado somente por `stdin` ao controlador e removido
+  da área de transferência. O valor não foi exibido, salvo em arquivo,
+  argumento, Git ou namespace da aplicação.
+- O Tunnel `blindou-physical` apareceu como `Saudável` no Zero Trust. O
+  controlador confirmou `cloudflare_connector=ready`, um único Pod e Secret em
+  `blindou-edge`, gate `connector-only`, nenhum Service/PVC e
+  `blindou-production` ainda `blocked` com zero objetos operacionais.
+- `blindou-hostctl verify` e `apiwpp-deployctl verify` passaram após a mudança;
+  DNS, Internet, ONT, K3s e `apiwpp` permaneceram saudáveis.

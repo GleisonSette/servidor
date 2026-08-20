@@ -103,6 +103,8 @@ install -o root -g root -m 0644 "$METRICS_TIMER_SOURCE" \
 visudo -cf "$SUDOERS_TARGET" >/dev/null
 systemctl daemon-reload
 systemctl enable --now blindou-platform-metrics.timer >/dev/null
-systemctl start blindou-platform-metrics.service
+systemctl start --wait blindou-platform-metrics.service
+[[ "$(systemctl show blindou-platform-metrics.service --property=Result --value)" == 'success' ]] \
+  || fail 'coleta inicial de métricas falhou'
 sudo -u apiadmin sudo -n "$CONTROLLER_TARGET" status >/dev/null
 printf '%s\n' 'blindou_deployctl_bootstrap=installed'

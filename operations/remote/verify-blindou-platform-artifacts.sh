@@ -131,6 +131,18 @@ grep -Fq -- '--from-file=token=/dev/stdin' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'token do Tunnel não entra diretamente no Secret'
 grep -Fq 'rollback_edge_connector_internal' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'rollback do conector Cloudflare ausente'
+[[ "$(grep -Fc 'if ( verify_edge_connector >/dev/null 2>&1 ); then' \
+  "${REMOTE_DIR}/blindou-deployctl")" == '2' ]] \
+  || fail 'sondagem do conector precisa isolar falha esperada em subshell'
+[[ "$(grep -Fc 'if ( verify_foundation >/dev/null 2>&1 ); then' \
+  "${REMOTE_DIR}/blindou-deployctl")" == '2' ]] \
+  || fail 'sondagem da fundação precisa isolar falha esperada em subshell'
+grep -Fq 'if ( verify_data_foundation >/dev/null 2>&1 ); then' \
+  "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'sondagem dos dados precisa isolar falha esperada em subshell'
+grep -Fq 'systemctl start --wait blindou-platform-metrics.service' \
+  "${REMOTE_DIR}/bootstrap-blindou-deployctl.sh" \
+  || fail 'bootstrap não aguarda a coleta inicial liberar o controlador'
 if grep -F "printf \"%s\\n\" \"include_if_exists 'pg_hba_blindou.conf'\"" \
     "${REMOTE_DIR}/blindou-deployctl" >/dev/null; then
   fail 'include HBA PostgreSQL usa aspas simples inválidas'

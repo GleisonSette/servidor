@@ -310,7 +310,7 @@ apply_foundation() {
   node_label_before="$(kube get node "$NODE_NAME" \
     -o jsonpath='{.metadata.labels.blindou\.io/node-role}' 2>/dev/null || true)"
   if [[ "$edge_preexisting" == true || "$app_preexisting" == true ]]; then
-    if verify_foundation >/dev/null 2>&1; then
+    if ( verify_foundation >/dev/null 2>&1 ); then
       pass 'fundação Blindou já estava aplicada'
       return
     fi
@@ -406,7 +406,7 @@ provision_edge_connector() {
   [[ "${1:-}" == "$EDGE_CONNECTOR_CONFIRMATION" ]] \
     || fail "confirmation required: ${EDGE_CONNECTOR_CONFIRMATION}"
   require_platform_preconditions
-  if verify_edge_connector >/dev/null 2>&1; then
+  if ( verify_edge_connector >/dev/null 2>&1 ); then
     pass 'Cloudflare connector was already provisioned and healthy'
     return
   fi
@@ -1043,8 +1043,8 @@ apply_release() {
 metrics() {
   require_root_and_host
   local foundation=0 data=0 latest_backup=0 gate_app=0 gate_edge=0
-  if verify_foundation >/dev/null 2>&1; then foundation=1; fi
-  if verify_data_foundation >/dev/null 2>&1; then data=1; fi
+  if ( verify_foundation >/dev/null 2>&1 ); then foundation=1; fi
+  if ( verify_data_foundation >/dev/null 2>&1 ); then data=1; fi
   if [[ -f "${DATABASE_BACKUP_ROOT}/latest" ]]; then
     local backup_id epoch
     backup_id="$(<"${DATABASE_BACKUP_ROOT}/latest")"
@@ -1098,7 +1098,7 @@ show_status() {
   else
     printf 'current_release=absent\n'
   fi
-  if verify_edge_connector >/dev/null 2>&1; then
+  if ( verify_edge_connector >/dev/null 2>&1 ); then
     printf 'cloudflare_connector=ready\n'
   else
     printf 'cloudflare_connector=absent_or_unhealthy\n'
