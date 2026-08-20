@@ -114,7 +114,8 @@ Concluído no repositório:
 
 Próxima ação exata:
 
-1. uma sessão humana root instala o controlador pelo bootstrap versionado;
+1. uma sessão humana root executa
+   `/home/apiadmin/blindou-platform-bootstrap-4a2bf78/operations/remote/bootstrap-blindou-hostctl.sh`;
 2. executar `apply-firewall blindou-temporary-host-containment` e `verify`;
 3. validar `apiwpp-deployctl verify` e portas a partir do PC administrativo;
 4. somente depois preparar `blindou-deployctl`, namespaces/gates, domínios,

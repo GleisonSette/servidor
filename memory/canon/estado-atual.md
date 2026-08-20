@@ -51,6 +51,9 @@ metadata:
   no runtime.
 - `blindou-hostctl` está preparado no repositório, mas ainda não foi instalado
   como root nem executou a contenção temporária.
+- O inbox do commit `4a2bf78` está validado em
+  `/home/apiadmin/blindou-platform-bootstrap-4a2bf78`; ele é apenas staging no
+  diretório do usuário e não concede privilégio até o bootstrap humano.
 - Não havia processo nem unit systemd `cloudflared` no host na conferência
   final de 2026-08-19.
 

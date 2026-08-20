@@ -232,3 +232,17 @@ Resultado: artefatos validados offline; aplicação root pendente.
   usuário, aprovada pelo `visudo` real do Ubuntu e comparada por SHA-256 com a
   fonte local. O arquivo e o diretório temporários foram removidos; nada foi
   instalado em `/etc/sudoers.d`.
+
+## 2026-08-19 - Staging do bootstrap Blindou no servidor
+
+Resultado: inbox versionado preparado; instalação root pendente.
+
+- Os quatro artefatos do commit de plataforma `4a2bf78` foram enviados para
+  `/home/apiadmin/blindou-platform-bootstrap-4a2bf78/operations/remote`.
+- Scripts ficaram com modo `0700` e a política sudoers com modo `0600`, todos
+  pertencentes ao usuário não privilegiado antes do bootstrap humano.
+- `bash -n` e `visudo -cf` passaram no Ubuntu; SHA-256 local e remoto coincidiu
+  para cada arquivo.
+- Nenhum arquivo foi instalado em `/usr/local/sbin`, `/etc/sudoers.d`,
+  `/etc/ufw` ou `/etc/sysctl.d`; firewall, IPv6, K3s e `apiwpp` não foram
+  alterados.
