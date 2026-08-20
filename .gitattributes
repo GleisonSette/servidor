@@ -9,3 +9,4 @@ LICENSE text eol=lf
 *.jsonl text eol=lf
 *.md text eol=lf
 *.ps1 text eol=crlf
+operations/remote/* text eol=lf
