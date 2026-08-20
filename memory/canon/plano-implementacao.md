@@ -139,10 +139,10 @@ Aceite ainda pendente:
 
 ## Fase 2D - Plataforma e controlador de deploy do Blindou
 
-Status: em execução autorizada em 2026-08-19. Controlador, manifests fechados,
-identidades públicas, backup criptografado, métricas, testes offline e runbook
-estão preparados no repositório. Instalação root e aceitação viva ainda não
-foram executadas.
+Status: fundação interna concluída e verificada em 2026-08-20; ativação externa
+continua pendente. Controlador root, namespaces bloqueados, database vazio,
+identidades internas, primeiro backup criptografado recuperável e métricas
+estão ativos. Cloudflare, Secrets, migrations e workloads não foram aplicados.
 
 Objetivos:
 
@@ -165,14 +165,12 @@ Aceite:
 
 Próxima ação exata:
 
-1. commit do controlador e dos contratos validados;
-2. staging com hashes no host e bootstrap humano root;
-3. aplicar namespaces bloqueados, provisionar database vazio e criar o primeiro
-   backup lógico criptografado;
-4. executar idempotência, testes negativos, export/decriptação do backup,
-   métricas e regressão do `apiwpp`;
-5. manter Cloudflare, Secrets e workloads bloqueados enquanto P005 e as
-   credenciais externas estiverem abertos.
+1. manter os gates `blocked` enquanto P005, domínios, Cloudflare, UAZAPI e
+   credenciais externas estiverem abertos;
+2. definir receptor externo de alertas, retenção e RPO/RTO;
+3. preparar Secrets por canal seguro e imagens imutáveis por digest;
+4. somente mediante nova autorização, liberar os gates, executar migrations e
+   aplicar a primeira release assinada na Fase 2E.
 
 ## Fase 2E - Primeira release e capacidade do Blindou
 

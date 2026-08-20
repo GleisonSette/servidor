@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-estado-atual
   source_path: memory/canon/estado-atual.md
   generated_from: auditoria SSH, runtime K3s, Prometheus e repositórios locais
-  updated_at: 2026-08-19
+  updated_at: 2026-08-20
   status: canonical
 
 ## Host verificado
@@ -33,9 +33,10 @@ metadata:
   `192.168.100.0/24`; a rota padrão do host aponta diretamente para a ONT.
 - Não existe firewall externo entre servidor e residência. A camada de host da
   exceção temporária está ativa: UFW bloqueia redes privadas e entrada lateral,
-  e o IPv6 da `enp2s0` está desabilitado. Kubernetes/Cloudflare e os gates de
-  aplicação ainda não foram provisionados; nenhum deploy comercial do Blindou
-  é autorizado no estado atual.
+  e o IPv6 da `enp2s0` está desabilitado. A fundação Kubernetes interna do
+  Blindou está provisionada e bloqueada; Cloudflare, Secrets, migrations e
+  workloads ainda não foram aplicados, portanto nenhum deploy comercial do
+  Blindou é autorizado no estado atual.
 
 - SSH utiliza chave pública permanente, usuário `apiadmin` e identidade de host
   validada. O acesso é limitado ao PC administrativo.
@@ -48,9 +49,11 @@ metadata:
 - `apiwpp-deployctl` e `apiwpp-backupctl` estão instalados como controladores
   restritos. `pixel-deployctl` e `saferwpp-deployctl` ainda estão ausentes; por
   isso Pixel e SaferWPP não possuem caminho autorizado de alteração no host.
-- `blindou-deployctl` também está ausente. Os artefatos do Blindou ainda não
-  foram aplicados ao K3s e o namespace `blindou-production` ainda não foi
-  verificado no runtime.
+- `blindou-deployctl` está instalado como root a partir do commit `6a21fb8`. O
+  SHA-256 instalado `681c8723d77c3cf18c03ca3e96d21d02a37d8fa92acb50e1a6be8ad7e00dcc8e`
+  coincide com o staging versionado. A interface sudo sem senha continua
+  restrita às operações fechadas do controlador; rollbacks destrutivos exigem
+  autenticação humana.
 - `blindou-hostctl` corrigido foi instalado como root em 2026-08-19. A primeira
   aplicação foi revertida depois que o gate detectou falha de DNS; a segunda
   aplicação passou e deixou a contenção ativa. O controlador confirmou cada
@@ -80,6 +83,11 @@ metadata:
 - Uma ValidatingAdmissionPolicy recusa Service `NodePort`, `LoadBalancer` e
   `externalIPs` nos namespaces gerenciados; o teste server-side de NodePort foi
   recusado.
+- `blindou-production` e `blindou-edge` existem vazios, com Pod Security
+  `restricted`, default deny, quota de quarentena e gate `blocked`. Ambos
+  registraram zero objetos operacionais; testes negativos recusaram Pod e
+  Service público. Não existe release Blindou corrente nem `cloudflared` no
+  host ou no cluster.
 - O audit log do Kubernetes está ativo em nível `Metadata`, sem corpos de
   Secrets e com limites de 14 dias, cinco arquivos e 50 MiB por arquivo.
 - Pixel/CIA e SaferWPP não estão implantados e não receberão workloads nesse
@@ -98,6 +106,19 @@ metadata:
 - O backup consistente do K3s está em
   `/var/backups/shared-lab/20260815T113334Z`, root-only, com SHA-256 validado. É
   uma cópia no mesmo HDD e não protege contra falha física.
+- O database vazio `blindou` foi criado com quatro logins sem privilégios
+  administrativos e papéis separados para migration, runtime, redirector e
+  conector ML. Conexões do CIDR K3s exigem `hostssl`, certificado de cliente
+  confiável e SCRAM; nenhuma migration foi executada.
+- O primeiro backup lógico Blindou é `blindou-20260820T111734Z`, armazenado
+  somente como envelope CMS AES-256-GCM. O catálogo foi validado por
+  `pg_restore` antes da criptografia; uma prova local abriu o envelope com a
+  chave de recuperação DPAPI, confirmou o cabeçalho `PGDMP` e apagou chave e
+  dump temporários. SHA-256 do envelope:
+  `048b0ac1413a39790f3a38755185179e0d881a46ffd4430ef89f8a6178782d4f`.
+- O timer `blindou-platform-metrics.timer` está habilitado e ativo. Prometheus
+  coletou fundação `1`, dados `1`, coleta `1`, timestamp do backup e gates `0`
+  para os dois namespaces, preservando o significado de bloqueados.
 - Prometheus, Node Exporter e PostgreSQL Exporter estão `up`, com três targets
   saudáveis e zero alertas ativos.
 - O coletor `stat_bgwriter`, incompatível com PostgreSQL 18 no exporter 0.15,
@@ -112,6 +133,10 @@ metadata:
 - Não há pacote atualizável restante nem reboot requerido após a manutenção.
 - K3s, PostgreSQL, WireGuard, gateway privado, observabilidade e `apiwpp`
   passaram na verificação final; não há unit systemd falha.
+- Depois da fundação Blindou, `blindou-hostctl verify`,
+  `apiwpp-deployctl verify`, os três verificadores do `blindou-deployctl`, a
+  recuperação do backup e a coleta Prometheus passaram; zero unit systemd
+  falhou e nenhum arquivo plaintext de backup permaneceu em `/var/tmp`.
 - A contenção temporária passou em DNS, HTTPS pública, bloqueio da ONT, K3s,
   `apiwpp` e reaplicação idempotente. IPv6 da `enp2s0` está desabilitado.
 - Do PC administrativo, somente TCP 22 e 6443 responderam. TCP 443, 5432,

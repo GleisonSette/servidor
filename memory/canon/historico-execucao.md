@@ -313,3 +313,38 @@ mudança viva ainda pendentes.
 - Sintaxe Bash, Python/PyYAML, YAML, segredo e invariantes da fundação passaram
   localmente. Nenhum namespace, database, login, Secret, workload, Tunnel ou
   credencial externa foi aplicado nesta preparação.
+
+## 2026-08-20 - Fundação interna isolada do Blindou no servidor físico
+
+Resultado: fundação interna concluída; ativação externa e primeira release
+permanecem bloqueadas.
+
+- O bootstrap humano instalou a revisão final `6a21fb8` do
+  `blindou-deployctl`; o SHA-256 instalado e o staging versionado coincidiram em
+  `681c8723d77c3cf18c03ca3e96d21d02a37d8fa92acb50e1a6be8ad7e00dcc8e`.
+- `blindou-production` e `blindou-edge` foram aplicados vazios, com gates
+  `blocked`, quarentena, Pod Security `restricted`, default deny e testes
+  negativos de Pod/Service público. A reaplicação comprovou idempotência e os
+  dois namespaces permaneceram com zero objetos operacionais.
+- O database vazio `blindou`, quatro logins sem privilégios administrativos,
+  papéis separados, CA/certificado cliente e HBA `hostssl` com SCRAM foram
+  provisionados e reaplicados de forma idempotente. Nenhuma migration ou tabela
+  de aplicação foi criada.
+- A validação viva revelou e corrigiu dois defeitos fail-closed: aspas simples
+  inválidas no `include_if_exists` do HBA e falta de travessia do usuário
+  `postgres` no staging plaintext do backup. Também foi eliminada uma detecção
+  falsa de `cloudflared` por linha de comando, passando a comparar o nome exato
+  do processo.
+- O backup `blindou-20260820T111734Z` teve catálogo validado antes de ser
+  criptografado por CMS AES-256-GCM. O envelope exportado possui SHA-256
+  `048b0ac1413a39790f3a38755185179e0d881a46ffd4430ef89f8a6178782d4f`.
+  A prova local com a chave DPAPI recuperou um dump `PGDMP`; chave e plaintext
+  temporários foram removidos imediatamente.
+- `blindou-hostctl verify`, `apiwpp-deployctl verify`, fundação, dados e backup
+  passaram. O `apiwpp` manteve uma réplica Ready, 18 migrations, API, métricas
+  e gateway privado saudáveis; zero unit systemd falhou.
+- O timer de métricas está habilitado e ativo. Node Exporter e Prometheus
+  observaram fundação `1`, dados `1`, coleta `1`, timestamp do backup e gates
+  `0`. Não havia processo `cloudflared` nem staging plaintext em `/var/tmp`.
+- Cloudflare, Secrets, migrations, workloads e release permaneceram ausentes.
+  Receptor externo, retenção, RPO/RTO e credenciais externas continuam em P005.

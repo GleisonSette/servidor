@@ -31,7 +31,7 @@ $required = @(
     'platform/base/namespaces.yaml',
     'platform/base/project-spaces.yaml',
     'platform/base/service-exposure-policy.yaml',
-    'platform/base/production-workload-policy.yaml',
+    'platform/blindou/20-production-workload-policy.yaml',
     'platform/security/blindou-edge-policy.yaml',
     'platform/k3s/audit-policy.yaml',
     'platform/k3s/20-shared-lab.yaml',
@@ -53,13 +53,13 @@ if ($namespaceManifest.Contains('platform.servidor.local/deployment-gate: passed
     throw 'O manifesto base nunca pode pré-aprovar o gate de contenção externa.'
 }
 
-$productionPolicy = Get-Content -Raw -LiteralPath (Join-Path $root 'platform/base/production-workload-policy.yaml')
+$productionPolicy = Get-Content -Raw -LiteralPath (Join-Path $root 'platform/blindou/20-production-workload-policy.yaml')
 if (-not $productionPolicy.Contains("namespaceObject.metadata.labels['platform.servidor.local/deployment-gate'] == 'passed'")) {
     throw 'A admissão de produção deve falhar fechada enquanto o gate não estiver passed.'
 }
 
 $edgePolicy = Get-Content -Raw -LiteralPath (Join-Path $root 'platform/security/blindou-edge-policy.yaml')
-foreach ($invariant in @('dmzToHome: deny-and-log', 'serverCloudflareConnector: forbidden', 'portForwardingToServer: forbidden')) {
+foreach ($invariant in @('ontDmzHostFeature: disabled', 'cloudflareConnectorOutsideEdgeNamespace: forbidden', 'portForwardingToServer: forbidden')) {
     if (-not $edgePolicy.Contains($invariant)) {
         throw "Invariante de contenção ausente: $invariant"
     }

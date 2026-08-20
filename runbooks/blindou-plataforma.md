@@ -112,9 +112,12 @@ sudo -n /usr/local/sbin/blindou-deployctl export-latest-backup
 
 O controlador cria um `pg_dump` custom com Zstandard, valida seu catálogo,
 criptografa-o em envelope CMS AES-256-GCM para o certificado de recuperação e
-remove o texto claro. A outbox expõe somente o envelope, o manifesto e o
-certificado público. A prova de recuperação deve ocorrer fora do servidor com a
-chave privada custodiada separadamente.
+remove o texto claro. O dump nasce em diretório aleatório `0700` sob `/var/tmp`
+para que o usuário `postgres` não receba acesso de travessia ao diretório dos
+backups criptografados. O trap do controlador remove esse staging também em
+falha. A outbox expõe somente o envelope, o manifesto e o certificado público.
+A prova de recuperação deve ocorrer fora do servidor com a chave privada
+custodiada separadamente.
 
 Periodicidade, retenção, destino offsite, RPO, RTO e ensaio recorrente dependem
 de D005/P005. Não apagar ou rotacionar backups por valor inferido.
@@ -143,6 +146,9 @@ obrigatórios existirem. Nesta fase não passar gates nem aplicar release.
 
 Falha de coleta produz uma métrica explícita com valor zero. Alertas externos e
 scrape dos workloads permanecem bloqueados por P005 e pela ausência de runtime.
+Como o controlador usa lock exclusivo, uma auditoria manual concorrente pode
+fazer um ciclo do coletor falhar fechado em zero; o ciclo seguinte deve voltar
+a um sem intervenção. Persistência em zero exige investigação.
 
 ## Verificação final desta etapa
 

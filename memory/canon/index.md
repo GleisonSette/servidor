@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-indice-canonico
   source_path: memory/canon/index.md
   generated_from: decisão do usuário e auditoria do servidor em 2026-08-15
-  updated_at: 2026-08-19
+  updated_at: 2026-08-20
   status: canonical
 
 ## Regra de entrada
@@ -36,8 +36,8 @@ corpus por padrão.
   Kubernetes está ativo e há backup consistente do cluster com checksum.
 - Somente `apiwpp` está implantado; Pixel e SaferWPP ainda não estão no cluster.
 - Os quatro repositórios de aplicação possuem guia obrigatório de acesso ao
-  servidor. Somente o apiwpp tem controladores instalados; Pixel, SaferWPP e
-  Blindou falham fechados para alterações até receberem controladores próprios.
+  servidor. `apiwpp` e Blindou têm controladores próprios instalados; Pixel e
+  SaferWPP falham fechados para alterações.
 - O servidor preserva o serviço `apiwpp`; toda a capacidade restante foi
   reservada ao Blindou. Pixel/CIA e SaferWPP não recebem novos workloads.
 - O firewall externo foi adiado. A primeira aplicação da contenção temporária
@@ -46,12 +46,14 @@ corpus por padrão.
   passou em DNS, Internet, bloqueio da ONT, K3s, `apiwpp`, portas e
   idempotência. A contenção de host está ativa; ela não contém `root` e termina
   no cutover Vultr.
-- A Fase 2D foi autorizada. `blindou-deployctl`, namespaces bloqueados,
-  fundação de dados, backup criptografado e métricas estão preparados e
-  validados no repositório, mas ainda não foram instalados no host. Nenhum
-  workload Blindou foi aplicado.
-- A próxima ação é commitar os artefatos, fazer staging com hashes, executar o
-  bootstrap root e somente então aplicar/validar a fundação vazia.
+- A fundação interna da Fase 2D foi concluída em 2026-08-20:
+  `blindou-deployctl` root-owned, namespaces vazios com gates `blocked`,
+  database sem migrations, quatro logins isolados, TLS mais SCRAM, backup
+  lógico criptografado recuperável e métricas Prometheus. Nenhum workload,
+  Secret, Tunnel ou release Blindou foi aplicado.
+- A próxima ação é resolver P005 e as dependências externas antes de preparar a
+  primeira release assinada; os gates permanecem bloqueados até nova
+  autorização.
 - O receptor externo de alertas permanece como decisão D005 e precisa ser
   resolvido antes da primeira release operacional do Blindou.
 
