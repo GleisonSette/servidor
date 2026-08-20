@@ -22,6 +22,9 @@ readonly DATABASE_BACKUP_ROOT="${BACKUP_ROOT}/postgresql"
 readonly DATABASE_PLAINTEXT_TMP_ROOT='/var/tmp'
 readonly BACKUP_EXPORT_ROOT='/home/apiadmin/blindou-backup-outbox'
 readonly DATA_ROOT='/etc/blindou'
+readonly CLOUDFLARE_SAAS_SECRET_DIR="${DATA_ROOT}/cloudflare-saas"
+readonly CLOUDFLARE_SAAS_TOKEN_FILE="${CLOUDFLARE_SAAS_SECRET_DIR}/api-token"
+readonly CLOUDFLARE_SAAS_ZONE_ID='e0bb5f20a8e4f928d008cb8dc7876202'
 readonly DATABASE_SECRET_DIR="${DATA_ROOT}/database"
 readonly DATABASE_CREDENTIALS="${DATABASE_SECRET_DIR}/credentials.env"
 readonly CLIENT_CA_DIR="${DATA_ROOT}/postgres-ca"
@@ -43,6 +46,7 @@ readonly ALLOWED_SIGNERS="${DATA_ROOT}/deploy/allowed_signers"
 readonly RELEASE_PATTERN='^[0-9a-f]{40}$'
 readonly FOUNDATION_CONFIRMATION='blindou-platform-foundation'
 readonly EDGE_CONNECTOR_CONFIRMATION='blindou-edge-connector'
+readonly CLOUDFLARE_SAAS_TOKEN_CONFIRMATION='blindou-cloudflare-saas-token'
 readonly DATA_CONFIRMATION='blindou-data-foundation'
 readonly DATA_ROLLBACK_CONFIRMATION='blindou-empty-data-foundation'
 readonly BACKUP_CONFIRMATION='blindou-database-backup'
@@ -66,6 +70,7 @@ cleanup() {
       "${DATABASE_PLAINTEXT_TMP_ROOT}"/blindou-backup.*|\
       "${CLIENT_CA_DIR}"/*.tmp|"${CLIENT_CA_DIR}"/client-ext.*|\
       "${CLIENT_CERT_DIR}"/*.tmp|\
+      "${CLOUDFLARE_SAAS_TOKEN_FILE}.tmp."*|\
       "${POSTGRES_CONFIG_FILE}.tmp"|"${POSTGRES_HBA_FILE}.tmp")
         rm -rf -- "$resolved"
         ;;
@@ -449,6 +454,123 @@ rollback_edge_connector() {
   require_platform_preconditions
   rollback_edge_connector_internal
   pass 'Cloudflare connector and its Kubernetes Secret were removed; edge is blocked again'
+}
+
+cloudflare_saas_token_format_is_valid() {
+  local token="$1"
+  [[ ${#token} -ge 20 && ${#token} -le 512 \
+      && "$token" =~ ^[A-Za-z0-9._-]+$ ]]
+}
+
+cloudflare_saas_token_file_is_secure() {
+  [[ -f "$CLOUDFLARE_SAAS_TOKEN_FILE" \
+      && ! -L "$CLOUDFLARE_SAAS_TOKEN_FILE" \
+      && "$(stat -c '%U:%G:%a' "$CLOUDFLARE_SAAS_TOKEN_FILE" 2>/dev/null)" == 'root:root:600' \
+      && "$(wc -l <"$CLOUDFLARE_SAAS_TOKEN_FILE")" == '1' ]] \
+    || return 1
+  local token
+  IFS= read -r token <"$CLOUDFLARE_SAAS_TOKEN_FILE" || return 1
+  cloudflare_saas_token_format_is_valid "$token"
+}
+
+cloudflare_api_request() {
+  local token="$1" url="$2"
+  printf '%s\n' \
+    'silent' \
+    'show-error' \
+    'fail-with-body' \
+    'proto = "=https"' \
+    'tlsv1.2' \
+    'connect-timeout = 10' \
+    'max-time = 30' \
+    "header = \"Authorization: Bearer ${token}\"" \
+    'header = "Accept: application/json"' \
+    "url = \"${url}\"" \
+    | curl --config -
+}
+
+cloudflare_saas_token_has_minimum_scope() {
+  local token="$1" response
+  response="$(cloudflare_api_request "$token" \
+    'https://api.cloudflare.com/client/v4/user/tokens/verify')" \
+    || return 1
+  jq -e '.success == true and .result.status == "active"' \
+    <<<"$response" >/dev/null || { unset response; return 1; }
+  unset response
+
+  response="$(cloudflare_api_request "$token" \
+    "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_SAAS_ZONE_ID}/custom_hostnames?per_page=1")" \
+    || return 1
+  jq -e '.success == true and (.result | type == "array")' \
+    <<<"$response" >/dev/null || { unset response; return 1; }
+  unset response
+}
+
+verify_cloudflare_saas_token() {
+  require_platform_preconditions
+  cloudflare_saas_token_file_is_secure \
+    || fail 'Cloudflare for SaaS token file is absent or insecure'
+  local token
+  IFS= read -r token <"$CLOUDFLARE_SAAS_TOKEN_FILE" \
+    || fail 'Cloudflare for SaaS token could not be read'
+  if ! cloudflare_saas_token_has_minimum_scope "$token"; then
+    unset token
+    fail 'Cloudflare for SaaS token is inactive or lacks zone custom-hostname access'
+  fi
+  unset token
+  pass 'Cloudflare for SaaS token is active, root-only and scoped to the Blindou zone'
+}
+
+provision_cloudflare_saas_token() {
+  [[ "${1:-}" == "$CLOUDFLARE_SAAS_TOKEN_CONFIRMATION" ]] \
+    || fail "confirmation required: ${CLOUDFLARE_SAAS_TOKEN_CONFIRMATION}"
+  require_platform_preconditions
+  assert_namespace_labels "$APP_NAMESPACE" application blocked
+  assert_quarantine_namespace "$APP_NAMESPACE"
+  [[ ! -f "$CURRENT_RELEASE" ]] \
+    || fail 'Cloudflare for SaaS token provisioning is closed after a release exists'
+  [[ ! -t 0 ]] || fail 'Cloudflare for SaaS token must arrive through non-interactive stdin'
+
+  local token existing temporary
+  IFS= read -r token || fail 'Cloudflare for SaaS token was not received'
+  cloudflare_saas_token_format_is_valid "$token" \
+    || { unset token; fail 'Cloudflare for SaaS token format is invalid'; }
+  cloudflare_saas_token_has_minimum_scope "$token" \
+    || { unset token; fail 'Cloudflare for SaaS token is inactive or lacks zone custom-hostname access'; }
+
+  if [[ -e "$CLOUDFLARE_SAAS_TOKEN_FILE" || -L "$CLOUDFLARE_SAAS_TOKEN_FILE" ]]; then
+    cloudflare_saas_token_file_is_secure \
+      || { unset token; fail 'existing Cloudflare for SaaS token file is insecure'; }
+    IFS= read -r existing <"$CLOUDFLARE_SAAS_TOKEN_FILE"
+    [[ "$existing" == "$token" ]] \
+      || { unset token existing; fail 'a different token is already provisioned'; }
+    unset token existing
+    verify_cloudflare_saas_token >/dev/null
+    pass 'Cloudflare for SaaS token was already provisioned and remains valid'
+    return
+  fi
+
+  install -d -o root -g root -m 0700 "$CLOUDFLARE_SAAS_SECRET_DIR"
+  temporary="$(mktemp "${CLOUDFLARE_SAAS_TOKEN_FILE}.tmp.XXXXXX")"
+  cleanup_paths+=("$temporary")
+  printf '%s\n' "$token" >"$temporary"
+  unset token
+  install -o root -g root -m 0600 "$temporary" "$CLOUDFLARE_SAAS_TOKEN_FILE"
+  rm -f -- "$temporary"
+  verify_cloudflare_saas_token >/dev/null
+  pass 'Cloudflare for SaaS token provisioned in the root-only provider store; runtime remains blocked'
+}
+
+rollback_cloudflare_saas_token() {
+  [[ "${1:-}" == "$CLOUDFLARE_SAAS_TOKEN_CONFIRMATION" ]] \
+    || fail "confirmation required: ${CLOUDFLARE_SAAS_TOKEN_CONFIRMATION}"
+  require_platform_preconditions
+  assert_namespace_labels "$APP_NAMESPACE" application blocked
+  assert_quarantine_namespace "$APP_NAMESPACE"
+  [[ ! -f "$CURRENT_RELEASE" ]] \
+    || fail 'token rollback is closed after a release exists'
+  rm -f -- "$CLOUDFLARE_SAAS_TOKEN_FILE"
+  pass 'Cloudflare for SaaS token removed from the root-only provider store'
 }
 
 generate_database_material() {
@@ -941,7 +1063,8 @@ require_release_gates() {
     AUTH_SECURITY_CODE_ENCRYPTION_KEY AUTH_SECURITY_CHANNEL_ENCRYPTION_KEY \
     AUTH_TRUST_HASH_SECRET AUTH_SECURITY_WHATSAPP_SENDER_TOKEN \
     UAZAPI_ADMIN_TOKEN UAZAPI_WEBHOOK_SECRET UAZAPI_TOKEN_ENCRYPTION_KEY \
-    NATS_PASSWORD REDIS_PASSWORD RESEND_API_KEY METRICS_BEARER_TOKEN
+    NATS_PASSWORD REDIS_PASSWORD RESEND_API_KEY METRICS_BEARER_TOKEN \
+    CLOUDFLARE_SAAS_API_TOKEN
   secret_has_keys "$APP_NAMESPACE" blindou-redirect-secrets \
     REDIRECTOR_DATABASE_URL REDIRECTOR_CODE_SECRET REDIRECTOR_HMAC_SECRET \
     REDIRECTOR_IP_HASH_SECRET REDIRECTOR_FINGERPRINT_HASH_SECRET METRICS_BEARER_TOKEN
@@ -1042,7 +1165,7 @@ apply_release() {
 
 metrics() {
   require_root_and_host
-  local foundation=0 data=0 latest_backup=0 gate_app=0 gate_edge=0
+  local foundation=0 data=0 latest_backup=0 gate_app=0 gate_edge=0 cloudflare_saas_token=0
   if ( verify_foundation >/dev/null 2>&1 ); then foundation=1; fi
   if ( verify_data_foundation >/dev/null 2>&1 ); then data=1; fi
   if [[ -f "${DATABASE_BACKUP_ROOT}/latest" ]]; then
@@ -1055,6 +1178,7 @@ metrics() {
   fi
   [[ "$(namespace_label "$APP_NAMESPACE" 'platform\.servidor\.local/deployment-gate' 2>/dev/null || true)" == 'passed' ]] && gate_app=1
   [[ "$(namespace_label "$EDGE_NAMESPACE" 'platform\.servidor\.local/deployment-gate' 2>/dev/null || true)" == 'passed' ]] && gate_edge=1
+  if cloudflare_saas_token_file_is_secure; then cloudflare_saas_token=1; fi
   cat <<EOF
 # HELP blindou_platform_foundation_up Fundação Kubernetes bloqueada e íntegra.
 # TYPE blindou_platform_foundation_up gauge
@@ -1069,6 +1193,9 @@ blindou_database_backup_latest_timestamp_seconds ${latest_backup}
 # TYPE blindou_namespace_deployment_gate gauge
 blindou_namespace_deployment_gate{namespace="${APP_NAMESPACE}"} ${gate_app}
 blindou_namespace_deployment_gate{namespace="${EDGE_NAMESPACE}"} ${gate_edge}
+# HELP blindou_cloudflare_saas_token_secure Root-only Cloudflare for SaaS token is present with the expected local format.
+# TYPE blindou_cloudflare_saas_token_secure gauge
+blindou_cloudflare_saas_token_secure ${cloudflare_saas_token}
 EOF
 }
 
@@ -1103,6 +1230,11 @@ show_status() {
   else
     printf 'cloudflare_connector=absent_or_unhealthy\n'
   fi
+  if cloudflare_saas_token_file_is_secure; then
+    printf 'cloudflare_saas_credential_state=secure_local_store\n'
+  else
+    printf 'cloudflare_saas_credential_state=absent_or_insecure\n'
+  fi
 }
 
 case "${1:-}" in
@@ -1117,6 +1249,18 @@ case "${1:-}" in
   verify-edge-connector)
     [[ $# -eq 1 ]] || fail 'usage: blindou-deployctl verify-edge-connector'
     verify_edge_connector
+    ;;
+  verify-cloudflare-saas-token)
+    [[ $# -eq 1 ]] || fail 'usage: blindou-deployctl verify-cloudflare-saas-token'
+    verify_cloudflare_saas_token
+    ;;
+  provision-cloudflare-saas-token)
+    [[ $# -eq 2 ]] || fail 'usage: blindou-deployctl provision-cloudflare-saas-token CONFIRMATION'
+    provision_cloudflare_saas_token "$2"
+    ;;
+  rollback-cloudflare-saas-token)
+    [[ $# -eq 2 ]] || fail 'usage: blindou-deployctl rollback-cloudflare-saas-token CONFIRMATION'
+    rollback_cloudflare_saas_token "$2"
     ;;
   provision-edge-connector)
     [[ $# -eq 2 ]] || fail 'usage: blindou-deployctl provision-edge-connector CONFIRMATION'
@@ -1178,6 +1322,6 @@ case "${1:-}" in
     metrics
     ;;
   *)
-    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|validate-release RELEASE_ID|apply RELEASE_ID|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
+    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|validate-release RELEASE_ID|apply RELEASE_ID|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
     ;;
 esac

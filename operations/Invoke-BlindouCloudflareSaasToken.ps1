@@ -5,7 +5,7 @@ $ErrorActionPreference = "Stop"
 $server = "apiadmin@192.168.100.59"
 $identity = Join-Path $env:LOCALAPPDATA "apiwpp\ssh\apiwpp_admin_ed25519"
 $knownHosts = Join-Path $env:LOCALAPPDATA "apiwpp\ssh\known_hosts"
-$remoteRoot = "/home/apiadmin/blindou-platform-bootstrap-cloudflare"
+$remoteRoot = "/home/apiadmin/blindou-platform-bootstrap-cloudflare-saas"
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $sshArgs = @(
     "-F", "NUL",
@@ -40,7 +40,7 @@ $files = @(
     @{ Local = "platform/base/service-exposure-policy.yaml"; Remote = "platform/base/" }
 )
 
-Write-Host "Preparando o controlador fechado do conector Blindou." -ForegroundColor Cyan
+Write-Host "Preparando o cofre fechado do token Cloudflare for SaaS." -ForegroundColor Cyan
 & ssh.exe @sshArgs $server (
     "install -d -m 0700 " +
     "$remoteRoot/operations/remote $remoteRoot/platform/blindou $remoteRoot/platform/base"
@@ -62,22 +62,15 @@ Write-Host "Digite a senha de sudo para instalar o controlador atualizado." -For
 )
 if ($LASTEXITCODE -ne 0) { throw "Bootstrap remoto falhou." }
 
-Write-Host "No Chrome, clique em 'Copiar token' no Tunnel blindou-physical." -ForegroundColor Cyan
-Write-Host "Depois cole abaixo. O conteúdo não aparecerá e não será salvo." -ForegroundColor Yellow
-$secureInput = Read-Host "Token ou comando copiado" -AsSecureString
+Write-Host "Cole o token restrito criado no Cloudflare." -ForegroundColor Cyan
+Write-Host "O conteúdo não aparecerá nem será salvo nesta máquina." -ForegroundColor Yellow
+$secureInput = Read-Host "Token Cloudflare for SaaS" -AsSecureString
 $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureInput)
-$rawInput = $null
 $token = $null
 try {
-    $rawInput = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr).Trim()
-    if ($rawInput -match '(?:--token|service\s+install)\s+["'']?([A-Za-z0-9._-]{80,4096})') {
-        $token = $Matches[1]
-    }
-    elseif ($rawInput -match '^[A-Za-z0-9._-]{80,4096}$') {
-        $token = $rawInput
-    }
-    else {
-        throw "O conteúdo colado não contém um token de Tunnel reconhecível."
+    $token = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr).Trim()
+    if ($token -notmatch '^[A-Za-z0-9._-]{20,512}$') {
+        throw "O conteúdo colado não possui o formato esperado de um API token."
     }
 
     $safeSshArgs = @(
@@ -87,7 +80,7 @@ try {
         "-o StrictHostKeyChecking=yes",
         "-o UserKnownHostsFile=`"$knownHosts`"",
         $server,
-        "sudo -n /usr/local/sbin/blindou-deployctl provision-edge-connector blindou-edge-connector"
+        "sudo -n /usr/local/sbin/blindou-deployctl provision-cloudflare-saas-token blindou-cloudflare-saas-token"
     ) -join " "
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = "ssh.exe"
@@ -109,18 +102,17 @@ try {
     $stderr = $stderrTask.GetAwaiter().GetResult()
     if ($stdout) { Write-Host $stdout.TrimEnd() }
     if ($stderr) { Write-Host $stderr.TrimEnd() -ForegroundColor Red }
-    if ($process.ExitCode -ne 0) { throw "Provisionamento do conector falhou." }
+    if ($process.ExitCode -ne 0) { throw "Provisionamento seguro do token falhou." }
 }
 finally {
     if ($bstr -ne [IntPtr]::Zero) {
         [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
     }
     $token = $null
-    $rawInput = $null
     $secureInput.Dispose()
 }
 
-& ssh.exe @sshArgs $server "sudo -n /usr/local/sbin/blindou-deployctl verify-edge-connector"
-if ($LASTEXITCODE -ne 0) { throw "A verificação final do conector falhou." }
-Write-Host "Conector Blindou instalado e verificado. Volte ao Codex." -ForegroundColor Green
+& ssh.exe @sshArgs $server "sudo -n /usr/local/sbin/blindou-deployctl verify-cloudflare-saas-token"
+if ($LASTEXITCODE -ne 0) { throw "A verificação final do token falhou." }
+Write-Host "Token ativo e guardado no cofre root-only. O runtime permanece bloqueado." -ForegroundColor Green
 Read-Host "Pressione ENTER para fechar"

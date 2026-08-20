@@ -123,6 +123,43 @@ sudo /usr/local/sbin/blindou-deployctl \
 Esse rollback não apaga o Tunnel no painel Cloudflare; apenas desconecta o
 servidor. O token pode ser rotacionado ou revogado no Zero Trust.
 
+## Credencial Cloudflare for SaaS
+
+O API token que administra hostnames personalizados é diferente do token do
+Tunnel. Ele deve conter somente `SSL and Certificates: Edit` na zona exata
+`blindou.com`; não recebe DNS, Tunnel, Pages, conta ou billing. Para atualizar o
+controlador e transferir o token sem argumento, arquivo local ou log:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\operations\Invoke-BlindouCloudflareSaasToken.ps1
+```
+
+O controlador valida que o token está ativo e consegue listar no máximo um
+custom hostname da zona. Somente então grava `/etc/blindou/cloudflare-saas/api-token`
+como `root:root 0600`, dentro de diretório `0700`. A credencial não entra no
+Kubernetes, no banco, no RAG ou no Git nesta etapa. A presença do arquivo não
+libera `blindou-production`, migration, release ou criação de hostname.
+
+Verificação sem revelar valor ou hostnames:
+
+```bash
+sudo -n /usr/local/sbin/blindou-deployctl verify-cloudflare-saas-token
+sudo -n /usr/local/sbin/blindou-deployctl status
+```
+
+O rollback só é permitido enquanto a aplicação estiver bloqueada e não existir
+release corrente; ele exige a senha administrativa:
+
+```bash
+sudo /usr/local/sbin/blindou-deployctl \
+  rollback-cloudflare-saas-token blindou-cloudflare-saas-token
+```
+
+Revogar o token no painel Cloudflare é uma etapa externa separada. Depois que o
+runtime existir, rotação e revogação exigirão um fluxo próprio que preserve a
+credencial anterior até a nova ser validada.
+
 ## Fundação de dados
 
 ```bash
@@ -185,6 +222,8 @@ obrigatórios existirem. Nesta fase não passar gates nem aplicar release.
 - integridade da fundação de dados;
 - timestamp do backup lógico mais recente;
 - estado do gate de cada namespace;
+- presença segura local da credencial Cloudflare for SaaS, sem testar ou expor
+  seu valor no coletor;
 - sucesso da própria coleta.
 
 Falha de coleta produz uma métrica explícita com valor zero. Alertas externos e
@@ -198,6 +237,7 @@ a um sem intervenção. Persistência em zero exige investigação.
 ```bash
 sudo -n /usr/local/sbin/blindou-deployctl status
 sudo -n /usr/local/sbin/blindou-deployctl verify-foundation
+sudo -n /usr/local/sbin/blindou-deployctl verify-cloudflare-saas-token
 sudo -n /usr/local/sbin/blindou-deployctl verify-data
 sudo -n /usr/local/sbin/blindou-deployctl verify-backup
 sudo -n /usr/local/sbin/apiwpp-deployctl verify

@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-historico-execucao
   source_path: memory/canon/historico-execucao.md
   generated_from: auditorias e implementações autorizadas no laboratório
-  updated_at: 2026-08-19
+  updated_at: 2026-08-20
   status: canonical
 
 ## Regra de registro
@@ -389,3 +389,33 @@ Resultado: concluído e saudável; aplicação permaneceu bloqueada.
   `blindou-production` ainda `blocked` com zero objetos operacionais.
 - `blindou-hostctl verify` e `apiwpp-deployctl verify` passaram após a mudança;
   DNS, Internet, ONT, K3s e `apiwpp` permaneceram saudáveis.
+
+## 2026-08-20 - Cofre da credencial Cloudflare for SaaS
+
+Resultado: credencial restrita validada e instalada; runtime da aplicação
+permaneceu bloqueado.
+
+- Cloudflare for SaaS foi ativado para a zona `blindou.com`, mantendo o limite
+  operacional da aplicação em 90 hostnames para reservar margem dentro da
+  franquia inicial.
+- Foi criado um API token limitado à zona e à permissão
+  `SSL and Certificates: Edit`. A primeira credencial apareceu na árvore de
+  acessibilidade do navegador durante a criação e foi revogada imediatamente,
+  antes de ser usada. Uma credencial substituta foi criada e transferida sem
+  exibir seu valor.
+- O controlador passou a receber a credencial somente por `stdin`, validar
+  atividade e acesso à coleção de custom hostnames e usar configuração do
+  `curl` por entrada padrão, mantendo o segredo fora dos argumentos de processo.
+- A primeira verificação da credencial substituta confirmou que o token estava
+  ativo, mas recusou o acesso por uso indevido do ID da conta como ID de zona.
+  O controlador foi corrigido para a zona exata `blindou.com`, reinstalado e a
+  validação passou.
+- A credencial foi gravada fora do Kubernetes em diretório `root-only`, com
+  arquivo `root:root 0600`. Seu rollback exige autenticação humana e só é aceito
+  enquanto não existir release corrente.
+- Nenhum custom hostname, Secret da aplicação, migration ou release foi criado.
+  `blindou-production` continuou `blocked`; o Tunnel isolado e o `apiwpp`
+  permaneceram saudáveis.
+- O painel confirmou a lista vazia de custom hostnames e informou que a origem
+  de fallback ainda não está ativa. Ela só será configurada depois que a origem
+  da API estiver publicada e validada em fase autorizada.

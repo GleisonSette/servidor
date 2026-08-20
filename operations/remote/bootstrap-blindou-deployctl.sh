@@ -46,7 +46,13 @@ done
 
 bash -n "$CONTROLLER_SOURCE"
 bash -n "$METRICS_SOURCE"
-python3 -m py_compile "$VERIFIER_SOURCE"
+python3 - "$VERIFIER_SOURCE" <<'PY'
+from pathlib import Path
+import sys
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+compile(source, sys.argv[1], "exec")
+PY
 python3 - "$PLATFORM_SOURCE" "$SERVICE_POLICY_SOURCE" <<'PY'
 from pathlib import Path
 import sys

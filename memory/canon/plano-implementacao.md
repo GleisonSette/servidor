@@ -142,7 +142,9 @@ Aceite ainda pendente:
 Status: fundação interna e conector concluídos e verificados em 2026-08-20.
 Zero Trust e o Tunnel remoto `blindou-physical` estão saudáveis; somente
 `blindou-edge` passou para `connector-only`, enquanto `blindou-production`,
-migrations e release continuam bloqueados.
+migrations e release continuam bloqueados. Cloudflare for SaaS está ativado no
+plano da zona e sua credencial restrita foi validada e guardada fora do
+runtime; nenhum custom hostname de cliente foi criado.
 
 Objetivos:
 
@@ -167,10 +169,12 @@ Próxima ação exata:
 
 1. publicar o código no GitHub somente após autorização de `push`, concluir o
    primeiro build Pages e associar `app.blindou.com`;
-2. ativar Cloudflare for SaaS somente após autorização explícita da cobrança
-   por uso e manter os hostnames personalizados fechados até verificação;
+2. manter a cota global da aplicação em 90 custom hostnames e, depois que a API
+   tiver origem publicada, configurar e validar a origem de fallback antes do
+   primeiro fluxo autorizado de domínio por conta/tenant;
 3. resolver P005, UAZAPI e os demais Secrets antes da primeira release;
-4. somente mediante nova autorização, liberar o gate completo, executar
+4. somente mediante nova autorização de deploy, copiar as credenciais
+   necessárias para os Secrets do runtime, liberar o gate completo, executar
    migrations e aplicar a primeira release assinada na Fase 2E.
 
 ## Fase 2E - Primeira release e capacidade do Blindou

@@ -131,6 +131,20 @@ grep -Fq -- '--from-file=token=/dev/stdin' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'token do Tunnel não entra diretamente no Secret'
 grep -Fq 'rollback_edge_connector_internal' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'rollback do conector Cloudflare ausente'
+grep -Fq "readonly CLOUDFLARE_SAAS_TOKEN_FILE=\"\${CLOUDFLARE_SAAS_SECRET_DIR}/api-token\"" \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'cofre root-only do token SaaS ausente'
+grep -Fq "readonly CLOUDFLARE_SAAS_ZONE_ID='e0bb5f20a8e4f928d008cb8dc7876202'" \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'escopo da zona Blindou ausente'
+grep -Fq 'Cloudflare for SaaS token must arrive through non-interactive stdin' \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'token SaaS não exige stdin fechado'
+grep -Fq "'https://api.cloudflare.com/client/v4/user/tokens/verify'" \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'verificação ativa do token SaaS ausente'
+grep -Fq '/custom_hostnames?per_page=1' \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'verificação de acesso aos hostnames ausente'
+grep -Fq '| curl --config -' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'token SaaS seria exposto nos argumentos do curl'
+grep -Fq 'CLOUDFLARE_SAAS_API_TOKEN' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'gate de release não exige o token SaaS'
 [[ "$(grep -Fc 'if ( verify_edge_connector >/dev/null 2>&1 ); then' \
   "${REMOTE_DIR}/blindou-deployctl")" == '2' ]] \
   || fail 'sondagem do conector precisa isolar falha esperada em subshell'
@@ -149,7 +163,8 @@ if grep -F "printf \"%s\\n\" \"include_if_exists 'pg_hba_blindou.conf'\"" \
 fi
 grep -Fq 'cms -encrypt -binary -stream -aes-256-gcm' \
   "${REMOTE_DIR}/blindou-deployctl" || fail 'backup criptografado forte ausente'
-if grep -RInE '(BEGIN (RSA |OPENSSH )?PRIVATE KEY|(password|token|secret)[[:space:]]*[:=][[:space:]]*["'\'']?[[:alnum:]/+_.-]{12,})' \
+if grep -RInE --exclude-dir=__pycache__ \
+    '(BEGIN (RSA |OPENSSH )?PRIVATE KEY|(password|token|secret)[[:space:]]*[:=][[:space:]]*["'\'']?[[:alnum:]/+_.-]{12,})' \
     "${REPOSITORY_ROOT}/platform/blindou" "$REMOTE_DIR" >/dev/null; then
   fail 'possível segredo encontrado nos artefatos'
 fi

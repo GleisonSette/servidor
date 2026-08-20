@@ -34,9 +34,9 @@ metadata:
 - Não existe firewall externo entre servidor e residência. A camada de host da
   exceção temporária está ativa: UFW bloqueia redes privadas e entrada lateral,
   e o IPv6 da `enp2s0` está desabilitado. A fundação Kubernetes interna do
-  Blindou está provisionada e bloqueada; Cloudflare, Secrets, migrations e
-  workloads ainda não foram aplicados, portanto nenhum deploy comercial do
-  Blindou é autorizado no estado atual.
+  Blindou está provisionada. Somente o conector Cloudflare está ativo em
+  `blindou-edge`; a aplicação, migrations e release continuam bloqueadas,
+  portanto nenhum deploy comercial do Blindou é autorizado no estado atual.
 
 - SSH utiliza chave pública permanente, usuário `apiadmin` e identidade de host
   validada. O acesso é limitado ao PC administrativo.
@@ -49,11 +49,11 @@ metadata:
 - `apiwpp-deployctl` e `apiwpp-backupctl` estão instalados como controladores
   restritos. `pixel-deployctl` e `saferwpp-deployctl` ainda estão ausentes; por
   isso Pixel e SaferWPP não possuem caminho autorizado de alteração no host.
-- `blindou-deployctl` está instalado como root a partir do commit `6a21fb8`. O
-  SHA-256 instalado `681c8723d77c3cf18c03ca3e96d21d02a37d8fa92acb50e1a6be8ad7e00dcc8e`
-  coincide com o staging versionado. A interface sudo sem senha continua
-  restrita às operações fechadas do controlador; rollbacks destrutivos exigem
-  autenticação humana.
+- `blindou-deployctl` está instalado como root com suporte fechado ao conector
+  e à credencial Cloudflare for SaaS. O SHA-256 da fonte final é
+  `76949a2b1466f5103ecfb848bea3c19b0bc2efe767ecfa6e3018393defe7dbcf`.
+  A interface sudo sem senha continua restrita às operações fechadas do
+  controlador; rollbacks destrutivos exigem autenticação humana.
 - `blindou-hostctl` corrigido foi instalado como root em 2026-08-19. A primeira
   aplicação foi revertida depois que o gate detectou falha de DNS; a segunda
   aplicação passou e deixou a contenção ativa. O controlador confirmou cada
@@ -62,8 +62,8 @@ metadata:
   `/home/apiadmin/blindou-platform-bootstrap-7cceebf`; ele é somente staging no
   diretório do usuário. O controlador instalado possui o mesmo SHA-256 da fonte
   versionada.
-- Não havia processo nem unit systemd `cloudflared` no host na conferência
-  final pós-ativação de 2026-08-19.
+- Não existe unit systemd `cloudflared` no host. O único conector roda como Pod
+  restrito no namespace `blindou-edge`.
 
 ## K3s e workloads
 
@@ -83,11 +83,12 @@ metadata:
 - Uma ValidatingAdmissionPolicy recusa Service `NodePort`, `LoadBalancer` e
   `externalIPs` nos namespaces gerenciados; o teste server-side de NodePort foi
   recusado.
-- `blindou-production` e `blindou-edge` existem vazios, com Pod Security
-  `restricted`, default deny, quota de quarentena e gate `blocked`. Ambos
-  registraram zero objetos operacionais; testes negativos recusaram Pod e
-  Service público. Não existe release Blindou corrente nem `cloudflared` no
-  host ou no cluster.
+- `blindou-production` permanece vazio, com Pod Security `restricted`, default
+  deny, quota de quarentena, gate `blocked` e zero objetos operacionais.
+  `blindou-edge` está em gate `connector-only` e contém somente os três objetos
+  permitidos do Tunnel: um Deployment com um Pod Ready, ServiceAccount e Secret
+  exclusivos. Não existe Service, PVC, release Blindou corrente nem outro
+  workload de aplicação nesses namespaces.
 - O audit log do Kubernetes está ativo em nível `Metadata`, sem corpos de
   Secrets e com limites de 14 dias, cinco arquivos e 50 MiB por arquivo.
 - Pixel/CIA e SaferWPP não estão implantados e não receberão workloads nesse
@@ -118,7 +119,14 @@ metadata:
   `048b0ac1413a39790f3a38755185179e0d881a46ffd4430ef89f8a6178782d4f`.
 - O timer `blindou-platform-metrics.timer` está habilitado e ativo. Prometheus
   coletou fundação `1`, dados `1`, coleta `1`, timestamp do backup e gates `0`
-  para os dois namespaces, preservando o significado de bloqueados.
+  para os dois namespaces, pois `connector-only` não equivale a liberação de
+  release. A presença segura local da credencial Cloudflare for SaaS também é
+  publicada como gauge, sem consultar ou revelar o valor durante a coleta.
+- O API token Cloudflare for SaaS está fora do Kubernetes em
+  `/etc/blindou/cloudflare-saas/api-token`, sob diretório `0700` e arquivo
+  `root:root 0600`. O controlador confirmou token ativo e acesso de leitura à
+  coleção de custom hostnames da zona `blindou.com`; isso não libera criação de
+  hostname, migration ou release.
 - Prometheus, Node Exporter e PostgreSQL Exporter estão `up`, com três targets
   saudáveis e zero alertas ativos.
 - O coletor `stat_bgwriter`, incompatível com PostgreSQL 18 no exporter 0.15,
@@ -134,9 +142,10 @@ metadata:
 - K3s, PostgreSQL, WireGuard, gateway privado, observabilidade e `apiwpp`
   passaram na verificação final; não há unit systemd falha.
 - Depois da fundação Blindou, `blindou-hostctl verify`,
-  `apiwpp-deployctl verify`, os três verificadores do `blindou-deployctl`, a
-  recuperação do backup e a coleta Prometheus passaram; zero unit systemd
-  falhou e nenhum arquivo plaintext de backup permaneceu em `/var/tmp`.
+  `apiwpp-deployctl verify`, os verificadores de fundação, dados, backup,
+  conector EDGE e credencial SaaS do `blindou-deployctl`, a recuperação do
+  backup e a coleta Prometheus passaram; zero unit systemd falhou e nenhum
+  arquivo plaintext de backup permaneceu em `/var/tmp`.
 - A contenção temporária passou em DNS, HTTPS pública, bloqueio da ONT, K3s,
   `apiwpp` e reaplicação idempotente. IPv6 da `enp2s0` está desabilitado.
 - Do PC administrativo, somente TCP 22 e 6443 responderam. TCP 443, 5432,

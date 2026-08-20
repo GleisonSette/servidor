@@ -9,6 +9,10 @@
   métricas e workloads não são publicados na LAN.
 - Segredos vivem no gerenciador operacional adequado e nunca neste repositório,
   RAG, commit, log ou comando exibido.
+- Credenciais externas preparadas antes do runtime ficam em diretórios
+  root-only por provider e finalidade. Sua transferência usa `stdin` fechado;
+  o controlador valida o provider antes de instalar e nunca aceita o segredo em
+  argumento. O Secret Kubernetes só nasce em uma fase de release autorizada.
 
 ## Guias obrigatórios por projeto
 

@@ -53,8 +53,11 @@ corpus por padrão.
   lógico criptografado recuperável e métricas Prometheus. O Tunnel
   `blindou-physical` está saudável com um único Pod e Secret exclusivos da
   EDGE; nenhum workload de aplicação, migration ou release foi aplicado.
-- A próxima ação é resolver P005, UAZAPI, Secrets e as autorizações externas
-  pendentes antes de preparar a primeira release assinada;
+- Cloudflare for SaaS está ativo para `blindou.com`; o API token mínimo foi
+  validado e está em cofre root-only fora do Kubernetes. Nenhum hostname de
+  cliente foi criado e a cota operacional da aplicação permanece em 90.
+- A próxima ação é resolver P005, UAZAPI, Secrets e as autorizações de
+  push/deploy pendentes antes de preparar a primeira release assinada;
   `blindou-production` permanece bloqueado.
 - O receptor externo de alertas permanece como decisão D005 e precisa ser
   resolvido antes da primeira release operacional do Blindou.

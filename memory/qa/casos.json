@@ -36,6 +36,12 @@
       "query": "somente apiwpp preservado capacidade restante Blindou UAZAPI contenção temporária Vultr",
       "top": 5,
       "expected_source_ids": ["decisoes", "arquitetura-plataforma", "plano-implementacao"]
+    },
+    {
+      "id": "qa-007-cloudflare-saas-token",
+      "query": "token Cloudflare for SaaS root-only zona blindou.com runtime bloqueado custom hostnames",
+      "top": 5,
+      "expected_source_ids": ["estado-atual", "historico-execucao", "plano-implementacao"]
     }
   ]
 }
