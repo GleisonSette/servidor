@@ -46,10 +46,12 @@ corpus por padrão.
   passou em DNS, Internet, bloqueio da ONT, K3s, `apiwpp`, portas e
   idempotência. A contenção de host está ativa; ela não contém `root` e termina
   no cutover Vultr.
-- A próxima ação, mediante autorização específica, é preparar
-  `blindou-deployctl`, namespaces/gates, banco, observabilidade e a borda
-  Cloudflare. Nenhum workload Blindou foi aplicado e `blindou-deployctl` ainda
-  não existe.
+- A Fase 2D foi autorizada. `blindou-deployctl`, namespaces bloqueados,
+  fundação de dados, backup criptografado e métricas estão preparados e
+  validados no repositório, mas ainda não foram instalados no host. Nenhum
+  workload Blindou foi aplicado.
+- A próxima ação é commitar os artefatos, fazer staging com hashes, executar o
+  bootstrap root e somente então aplicar/validar a fundação vazia.
 - O receptor externo de alertas permanece como decisão D005 e precisa ser
   resolvido antes da primeira release operacional do Blindou.
 

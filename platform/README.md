@@ -7,6 +7,8 @@ repositórios.
 ## Conteúdo
 
 - `base/`: espaços de projeto, cotas, limites, políticas de rede e admissão.
+- `blindou/`: namespaces exclusivos que nascem vazios, em quarentena e com o
+  gate de deploy bloqueado.
 - `k3s/`: política de auditoria e fragmento de configuração do K3s.
 - `security/`: contrato da contenção temporária UFW/Kubernetes e de sua
   expiração no cutover Vultr. Ele não contém segredos.
@@ -17,13 +19,15 @@ Antes de aplicar, executar a validação descrita em
 `runbooks/aplicar-base-plataforma.md`. A ordem é:
 
 1. validar os manifests no servidor;
-2. aplicar `platform/base`;
+2. aplicar `platform/base` para os espaços compartilhados;
 3. confirmar que os namespaces continuam sem workloads e sem serviços;
 4. instalar a política de auditoria e o fragmento K3s;
 5. reiniciar o K3s em janela controlada e validar o nó e o `apiwpp`.
 
-Os namespaces `blindou-production` e `blindou-edge` podem ser preparados
-vazios, mas nenhum workload do Blindou pode ser implantado enquanto o gate do runbook
-`runbooks/blindou-contencao.md` não estiver comprovado.
+Os namespaces `blindou-production` e `blindou-edge` não pertencem mais ao
+`platform/base`: o controlador restrito os aplica por `platform/blindou`,
+sempre vazios, com quota zero e gate `blocked`. O procedimento e o rollback
+estão em `runbooks/blindou-plataforma.md`. Nenhum workload pode ser implantado
+enquanto os gates externos não forem comprovados e promovidos separadamente.
 
 Não há credenciais, kubeconfig ou material privado neste diretório.

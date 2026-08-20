@@ -3,6 +3,4 @@ kind: Kustomization
 resources:
   - namespaces.yaml
   - project-spaces.yaml
-  - blindou-edge-space.yaml
   - service-exposure-policy.yaml
-  - production-workload-policy.yaml

@@ -139,8 +139,10 @@ Aceite ainda pendente:
 
 ## Fase 2D - Plataforma e controlador de deploy do Blindou
 
-Status: pendente; a camada viva de host da Fase 2C passou, mas esta fase só
-começa com autorização específica.
+Status: em execução autorizada em 2026-08-19. Controlador, manifests fechados,
+identidades públicas, backup criptografado, métricas, testes offline e runbook
+estão preparados no repositório. Instalação root e aceitação viva ainda não
+foram executadas.
 
 Objetivos:
 
@@ -160,6 +162,17 @@ Aceite:
 - nenhum Service público, porta na ONT ou segredo fora do namespace correto;
 - `apiwpp-deployctl verify` continua aprovado;
 - backup, alertas, rollback e monitor externo comprovados.
+
+Próxima ação exata:
+
+1. commit do controlador e dos contratos validados;
+2. staging com hashes no host e bootstrap humano root;
+3. aplicar namespaces bloqueados, provisionar database vazio e criar o primeiro
+   backup lógico criptografado;
+4. executar idempotência, testes negativos, export/decriptação do backup,
+   métricas e regressão do `apiwpp`;
+5. manter Cloudflare, Secrets e workloads bloqueados enquanto P005 e as
+   credenciais externas estiverem abertos.
 
 ## Fase 2E - Primeira release e capacidade do Blindou
 

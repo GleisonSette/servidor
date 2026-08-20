@@ -1,0 +1,12 @@
+[Unit]
+Description=Atualiza métricas da plataforma Blindou a cada minuto
+
+[Timer]
+OnBootSec=2m
+OnUnitActiveSec=1m
+AccuracySec=10s
+Persistent=true
+Unit=blindou-platform-metrics.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+umask 027
+
+readonly OUTPUT_DIRECTORY='/var/lib/prometheus/node-exporter'
+readonly OUTPUT_FILE="${OUTPUT_DIRECTORY}/blindou-platform.prom"
+
+[[ "${EUID}" -eq 0 ]] || { printf '%s\n' 'execute como root' >&2; exit 1; }
+[[ "$(hostname)" == 'apiwpp' ]] || { printf '%s\n' 'hostname inesperado' >&2; exit 1; }
+[[ -d "$OUTPUT_DIRECTORY" && ! -L "$OUTPUT_DIRECTORY" ]] \
+  || { printf '%s\n' 'diretório textfile do Node Exporter ausente' >&2; exit 1; }
+
+temporary="$(mktemp "${OUTPUT_DIRECTORY}/.blindou-platform.XXXXXX")"
+cleanup() {
+  rm -f -- "$temporary"
+}
+trap cleanup EXIT
+
+if ! /usr/local/sbin/blindou-deployctl metrics >"$temporary"; then
+  cat >"$temporary" <<'EOF'
+# HELP blindou_platform_metrics_collection_up Coleta de métricas da plataforma Blindou.
+# TYPE blindou_platform_metrics_collection_up gauge
+blindou_platform_metrics_collection_up 0
+EOF
+else
+  cat >>"$temporary" <<'EOF'
+# HELP blindou_platform_metrics_collection_up Coleta de métricas da plataforma Blindou.
+# TYPE blindou_platform_metrics_collection_up gauge
+blindou_platform_metrics_collection_up 1
+EOF
+fi
+chown prometheus:prometheus "$temporary"
+chmod 0644 "$temporary"
+mv -f -- "$temporary" "$OUTPUT_FILE"

@@ -1,0 +1,1016 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+umask 077
+
+readonly EXPECTED_HOSTNAME='apiwpp'
+readonly NODE_NAME='apiwpp'
+readonly APP_NAMESPACE='blindou-production'
+readonly EDGE_NAMESPACE='blindou-edge'
+readonly FOUNDATION_DIR='/usr/local/lib/blindou-platform/foundation'
+readonly RELEASE_VERIFIER='/usr/local/lib/blindou-platform/blindou-release-verify.py'
+readonly STATE_ROOT='/var/lib/blindou-platform'
+readonly FOUNDATION_STATE="${STATE_ROOT}/foundation.state"
+readonly BACKUP_ROOT='/var/backups/blindou'
+readonly FOUNDATION_BACKUP_ROOT="${BACKUP_ROOT}/platform-foundation"
+readonly DATABASE_BACKUP_ROOT="${BACKUP_ROOT}/postgresql"
+readonly BACKUP_EXPORT_ROOT='/home/apiadmin/blindou-backup-outbox'
+readonly DATA_ROOT='/etc/blindou'
+readonly DATABASE_SECRET_DIR="${DATA_ROOT}/database"
+readonly DATABASE_CREDENTIALS="${DATABASE_SECRET_DIR}/credentials.env"
+readonly CLIENT_CA_DIR="${DATA_ROOT}/postgres-ca"
+readonly CLIENT_CERT_DIR="${DATA_ROOT}/postgres-client"
+readonly SERVER_CA_FILE="${CLIENT_CERT_DIR}/ca.crt"
+readonly CLIENT_CERT_FILE="${CLIENT_CERT_DIR}/tls.crt"
+readonly CLIENT_KEY_FILE="${CLIENT_CERT_DIR}/tls.key"
+readonly POSTGRES_CA_FILE='/etc/postgresql/18/main/blindou-client-ca.crt'
+readonly POSTGRES_CONFIG_FILE='/etc/postgresql/18/main/conf.d/91-blindou.conf'
+readonly POSTGRES_HBA_FILE='/etc/postgresql/18/main/pg_hba_blindou.conf'
+readonly POSTGRES_HBA_MAIN='/etc/postgresql/18/main/pg_hba.conf'
+readonly POSTGRES_SERVER_CERT='/etc/postgresql/18/main/apiwpp-server.crt'
+readonly BACKUP_RECIPIENT_CERT="${DATA_ROOT}/backup/recovery-recipient.crt"
+readonly RELEASE_INBOX='/home/apiadmin/blindou-deploy-inbox'
+readonly RELEASE_CACHE="${STATE_ROOT}/deploy-cache"
+readonly RELEASE_HISTORY="${STATE_ROOT}/deploy-history"
+readonly CURRENT_RELEASE="${STATE_ROOT}/current-release"
+readonly ALLOWED_SIGNERS="${DATA_ROOT}/deploy/allowed_signers"
+readonly RELEASE_PATTERN='^[0-9a-f]{40}$'
+readonly FOUNDATION_CONFIRMATION='blindou-platform-foundation'
+readonly DATA_CONFIRMATION='blindou-data-foundation'
+readonly DATA_ROLLBACK_CONFIRMATION='blindou-empty-data-foundation'
+readonly BACKUP_CONFIRMATION='blindou-database-backup'
+readonly ROLLBACK_CONFIRMATION='blindou-signed-rollback'
+
+exec 9>/run/lock/blindou-deployctl.lock
+if ! flock --nonblock 9; then
+  printf '%s\n' '[blindou-deployctl] ERRO: outra operação Blindou está em andamento' >&2
+  exit 2
+fi
+
+cleanup_paths=()
+cleanup() {
+  local path resolved
+  for path in "${cleanup_paths[@]:-}"; do
+    [[ -n "$path" ]] || continue
+    resolved="$(readlink -m "$path")"
+    case "$resolved" in
+      "${RELEASE_CACHE}"/.verify.*|"${DATABASE_BACKUP_ROOT}"/.tmp.*|\
+      "${DATABASE_BACKUP_ROOT}"/blindou-*.tmp|\
+      "${CLIENT_CA_DIR}"/*.tmp|"${CLIENT_CA_DIR}"/client-ext.*|\
+      "${CLIENT_CERT_DIR}"/*.tmp|\
+      "${POSTGRES_CONFIG_FILE}.tmp"|"${POSTGRES_HBA_FILE}.tmp")
+        rm -rf -- "$resolved"
+        ;;
+    esac
+  done
+}
+trap cleanup EXIT
+
+fail() {
+  printf '[blindou-deployctl] ERRO: %s\n' "$*" >&2
+  exit 1
+}
+
+pass() {
+  printf '[blindou-deployctl] OK: %s\n' "$*"
+}
+
+kube() {
+  k3s kubectl "$@"
+}
+
+postgres_query() {
+  runuser -u postgres -- psql -X --no-psqlrc --set=ON_ERROR_STOP=1 "$@"
+}
+
+require_root_and_host() {
+  [[ "${EUID}" -eq 0 ]] || fail 'execute pelo sudo restrito do controlador'
+  [[ "$(hostname)" == "$EXPECTED_HOSTNAME" ]] || fail 'hostname inesperado'
+  systemctl is-active --quiet k3s.service || fail 'K3s não está ativo'
+  systemctl is-active --quiet postgresql@18-main.service \
+    || fail 'PostgreSQL 18/main não está ativo'
+}
+
+require_platform_preconditions() {
+  require_root_and_host
+  /usr/local/sbin/blindou-hostctl verify >/dev/null \
+    || fail 'contenção temporária do host não passou'
+  /usr/local/sbin/apiwpp-deployctl verify >/dev/null \
+    || fail 'apiwpp não passou no gate de preservação'
+  [[ -d "$FOUNDATION_DIR" && ! -L "$FOUNDATION_DIR" ]] \
+    || fail 'bundle root-owned da fundação está ausente'
+}
+
+namespace_exists() {
+  kube get namespace "$1" >/dev/null 2>&1
+}
+
+namespace_label() {
+  kube get namespace "$1" -o "jsonpath={.metadata.labels.$2}"
+}
+
+namespace_object_count() {
+  local namespace="$1"
+  kube -n "$namespace" get \
+    deployment,statefulset,daemonset,job,cronjob,pod,service,secret,pvc \
+    -o json | jq '[.items[]] | length'
+}
+
+assert_namespace_labels() {
+  local namespace="$1" role="$2"
+  [[ "$(namespace_label "$namespace" 'platform\.servidor\.local/managed')" == 'true' ]] \
+    || fail "namespace ${namespace} não é gerenciado pela plataforma"
+  [[ "$(namespace_label "$namespace" 'platform\.servidor\.local/project')" == 'blindou' ]] \
+    || fail "namespace ${namespace} pertence a projeto inesperado"
+  [[ "$(namespace_label "$namespace" 'platform\.servidor\.local/environment')" == 'production' ]] \
+    || fail "namespace ${namespace} não está marcado como produção"
+  [[ "$(namespace_label "$namespace" 'platform\.servidor\.local/role')" == "$role" ]] \
+    || fail "papel do namespace ${namespace} diverge"
+  [[ "$(namespace_label "$namespace" 'platform\.servidor\.local/deployment-gate')" == 'blocked' ]] \
+    || fail "namespace ${namespace} deve permanecer bloqueado nesta etapa"
+  [[ "$(namespace_label "$namespace" 'pod-security\.kubernetes\.io/enforce')" == 'restricted' ]] \
+    || fail "Pod Security não está restricted em ${namespace}"
+  [[ "$(namespace_label "$namespace" 'pod-security\.kubernetes\.io/enforce-version')" == 'v1.36' ]] \
+    || fail "versão de Pod Security diverge em ${namespace}"
+}
+
+assert_quarantine_namespace() {
+  local namespace="$1"
+  [[ "$(namespace_object_count "$namespace")" == '0' ]] \
+    || fail "namespace ${namespace} contém workload, Service, Secret ou PVC"
+  [[ "$(kube -n "$namespace" get serviceaccount default \
+    -o jsonpath='{.automountServiceAccountToken}')" == 'false' ]] \
+    || fail "ServiceAccount default permite token em ${namespace}"
+  [[ "$(kube -n "$namespace" get resourcequota platform-quarantine \
+    -o jsonpath='{.spec.hard.pods}')" == '0' ]] \
+    || fail "quota de quarentena não bloqueia Pods em ${namespace}"
+  [[ "$(kube -n "$namespace" get resourcequota platform-quarantine \
+    -o jsonpath='{.spec.hard.services}')" == '0' ]] \
+    || fail "quota de quarentena não bloqueia Services em ${namespace}"
+  [[ "$(kube -n "$namespace" get resourcequota platform-quarantine \
+    -o jsonpath='{.spec.hard.secrets}')" == '0' ]] \
+    || fail "quota de quarentena não bloqueia Secrets em ${namespace}"
+  kube -n "$namespace" get limitrange platform-quarantine-defaults >/dev/null \
+    || fail "LimitRange ausente em ${namespace}"
+  kube -n "$namespace" get networkpolicy platform-default-deny >/dev/null \
+    || fail "default deny ausente em ${namespace}"
+  kube -n "$namespace" get networkpolicy platform-allow-cluster-dns >/dev/null \
+    || fail "política DNS ausente em ${namespace}"
+}
+
+negative_admission_tests() {
+  if cat <<EOF | kube apply --dry-run=server -f - >/dev/null 2>&1
+apiVersion: v1
+kind: Pod
+metadata:
+  name: blindou-negative-pod
+  namespace: ${APP_NAMESPACE}
+spec:
+  automountServiceAccountToken: false
+  containers:
+    - name: negative
+      image: docker.io/library/busybox:latest
+      command: ["sh", "-c", "exit 0"]
+      resources:
+        requests: {cpu: 1m, memory: 1Mi}
+        limits: {cpu: 1m, memory: 1Mi}
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: ["ALL"]}
+EOF
+  then
+    fail 'admissão aceitou Pod enquanto o gate está bloqueado'
+  fi
+  if cat <<EOF | kube apply --dry-run=server -f - >/dev/null 2>&1
+apiVersion: v1
+kind: Service
+metadata:
+  name: blindou-negative-nodeport
+  namespace: ${APP_NAMESPACE}
+spec:
+  type: NodePort
+  selector: {app: negative}
+  ports:
+    - port: 8080
+      targetPort: 8080
+EOF
+  then
+    fail 'admissão aceitou Service NodePort no Blindou'
+  fi
+}
+
+verify_foundation() {
+  require_platform_preconditions
+  namespace_exists "$APP_NAMESPACE" || fail "namespace ${APP_NAMESPACE} ausente"
+  namespace_exists "$EDGE_NAMESPACE" || fail "namespace ${EDGE_NAMESPACE} ausente"
+  assert_namespace_labels "$APP_NAMESPACE" application
+  assert_namespace_labels "$EDGE_NAMESPACE" edge
+  assert_quarantine_namespace "$APP_NAMESPACE"
+  assert_quarantine_namespace "$EDGE_NAMESPACE"
+  kube get validatingadmissionpolicy managed-production-workload-baseline >/dev/null \
+    || fail 'ValidatingAdmissionPolicy de produção ausente'
+  kube get validatingadmissionpolicybinding managed-production-workload-baseline >/dev/null \
+    || fail 'binding da admissão de produção ausente'
+  kube get validatingadmissionpolicy shared-lab-private-services >/dev/null \
+    || fail 'política de Services privados ausente'
+  kube get validatingadmissionpolicybinding shared-lab-private-services >/dev/null \
+    || fail 'binding de Services privados ausente'
+  [[ "$(kube get node "$NODE_NAME" -o jsonpath='{.metadata.labels.blindou\.io/node-role}')" == 'physical' ]] \
+    || fail 'nó físico não possui o label Blindou esperado'
+  [[ "$(kube get deployment,statefulset,daemonset -A -o json | jq \
+    '[.items[] | select((.metadata.name | ascii_downcase | contains("cloudflared")) or any(.spec.template.spec.containers[]?; .image | ascii_downcase | contains("cloudflared")))] | length')" == '0' ]] \
+    || fail 'cloudflared apareceu no cluster antes da configuração externa'
+  pgrep -fa '(^|/|[[:space:]])cloudflared([[:space:]]|$)' >/dev/null \
+    && fail 'cloudflared apareceu no host'
+  negative_admission_tests
+  pass 'namespaces vazios, quarentena, admissão e preservação do apiwpp verificados'
+}
+
+write_foundation_state() {
+  local edge_preexisting="$1" app_preexisting="$2" node_label_before="$3" backup_dir="$4"
+  install -d -o root -g root -m 0700 "$STATE_ROOT"
+  {
+    printf 'edge_preexisting=%s\n' "$edge_preexisting"
+    printf 'app_preexisting=%s\n' "$app_preexisting"
+    printf 'node_label_before=%s\n' "$node_label_before"
+    printf 'backup_dir=%s\n' "$backup_dir"
+  } >"${FOUNDATION_STATE}.tmp"
+  install -o root -g root -m 0600 "${FOUNDATION_STATE}.tmp" "$FOUNDATION_STATE"
+  rm -f -- "${FOUNDATION_STATE}.tmp"
+}
+
+apply_foundation() {
+  [[ "${1:-}" == "$FOUNDATION_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${FOUNDATION_CONFIRMATION}"
+  require_platform_preconditions
+  local edge_preexisting=false app_preexisting=false node_label_before timestamp backup_dir
+  namespace_exists "$EDGE_NAMESPACE" && edge_preexisting=true
+  namespace_exists "$APP_NAMESPACE" && app_preexisting=true
+  node_label_before="$(kube get node "$NODE_NAME" \
+    -o jsonpath='{.metadata.labels.blindou\.io/node-role}' 2>/dev/null || true)"
+  if [[ "$edge_preexisting" == true || "$app_preexisting" == true ]]; then
+    if verify_foundation >/dev/null 2>&1; then
+      pass 'fundação Blindou já estava aplicada'
+      return
+    fi
+    fail 'namespace Blindou preexistente diverge; rollback/reconciliação humana exigida'
+  fi
+
+  timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  backup_dir="${FOUNDATION_BACKUP_ROOT}/${timestamp}"
+  install -d -o root -g root -m 0700 "$backup_dir"
+  kube get validatingadmissionpolicy,validatingadmissionpolicybinding -o yaml \
+    >"${backup_dir}/admission-before.yaml"
+  kube get node "$NODE_NAME" -o yaml >"${backup_dir}/node-before.yaml"
+  write_foundation_state \
+    "$edge_preexisting" "$app_preexisting" "$node_label_before" "$backup_dir"
+
+  if ! (
+    kube apply -f "${FOUNDATION_DIR}/shared-service-exposure-policy.yaml" >/dev/null
+    kube apply -f "${FOUNDATION_DIR}/20-production-workload-policy.yaml" >/dev/null
+    kube apply -f "${FOUNDATION_DIR}/00-namespaces.yaml" >/dev/null
+    kube apply -f "${FOUNDATION_DIR}/10-quarantine.yaml" >/dev/null
+    kube label node "$NODE_NAME" blindou.io/node-role=physical --overwrite >/dev/null
+    verify_foundation
+  ); then
+    rollback_foundation "$FOUNDATION_CONFIRMATION" auto \
+      || fail 'aplicação falhou e rollback automático também falhou'
+    fail 'aplicação da fundação falhou; rollback automático concluído'
+  fi
+  pass "fundação bloqueada aplicada; backup em ${backup_dir}"
+}
+
+rollback_foundation() {
+  [[ "${1:-}" == "$FOUNDATION_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${FOUNDATION_CONFIRMATION}"
+  local mode="${2:-human}" edge_preexisting app_preexisting node_label_before backup_dir
+  require_root_and_host
+  [[ -f "$FOUNDATION_STATE" && ! -L "$FOUNDATION_STATE" ]] \
+    || fail 'estado da fundação ausente'
+  # O arquivo é gerado pelo próprio controlador com valores restritos.
+  # shellcheck disable=SC1090
+  source "$FOUNDATION_STATE"
+  [[ "$edge_preexisting" =~ ^(true|false)$ && "$app_preexisting" =~ ^(true|false)$ ]] \
+    || fail 'estado da fundação inválido'
+  [[ "$backup_dir" =~ ^${FOUNDATION_BACKUP_ROOT}/[0-9]{8}T[0-9]{6}Z$ \
+      && -f "${backup_dir}/admission-before.yaml" ]] \
+    || fail 'backup anterior da admissao e invalido'
+  for namespace in "$APP_NAMESPACE" "$EDGE_NAMESPACE"; do
+    if namespace_exists "$namespace"; then
+      [[ "$(namespace_object_count "$namespace")" == '0' ]] \
+        || fail "rollback recusado: ${namespace} contém objeto operacional"
+    fi
+  done
+  kube delete -f "${FOUNDATION_DIR}/10-quarantine.yaml" --ignore-not-found >/dev/null
+  if [[ "$app_preexisting" == false ]]; then
+    kube delete namespace "$APP_NAMESPACE" --ignore-not-found --wait=true >/dev/null
+  fi
+  if [[ "$edge_preexisting" == false ]]; then
+    kube delete namespace "$EDGE_NAMESPACE" --ignore-not-found --wait=true >/dev/null
+  fi
+  kube delete validatingadmissionpolicybinding \
+    managed-production-workload-baseline shared-lab-private-services \
+    --ignore-not-found >/dev/null
+  kube delete validatingadmissionpolicy \
+    managed-production-workload-baseline shared-lab-private-services \
+    --ignore-not-found >/dev/null
+  kube apply -f "${backup_dir}/admission-before.yaml" >/dev/null
+  if [[ -z "$node_label_before" ]]; then
+    kube label node "$NODE_NAME" blindou.io/node-role- >/dev/null 2>&1 || true
+  else
+    kube label node "$NODE_NAME" "blindou.io/node-role=${node_label_before}" --overwrite >/dev/null
+  fi
+  if [[ "$mode" != auto ]]; then
+    pass 'somente namespaces vazios e controles da fundação Blindou foram revertidos'
+  fi
+}
+
+generate_database_material() {
+  install -d -o root -g root -m 0700 \
+    "$DATABASE_SECRET_DIR" "$CLIENT_CA_DIR" "$CLIENT_CERT_DIR"
+  if [[ ! -f "$DATABASE_CREDENTIALS" ]]; then
+    {
+      printf 'BLINDOU_MIGRATION_PASSWORD=%s\n' "$(openssl rand -hex 32)"
+      printf 'BLINDOU_RUNTIME_PASSWORD=%s\n' "$(openssl rand -hex 32)"
+      printf 'BLINDOU_REDIRECT_PASSWORD=%s\n' "$(openssl rand -hex 32)"
+      printf 'BLINDOU_ML_PASSWORD=%s\n' "$(openssl rand -hex 32)"
+    } >"${DATABASE_CREDENTIALS}.tmp"
+    install -o root -g root -m 0600 "${DATABASE_CREDENTIALS}.tmp" "$DATABASE_CREDENTIALS"
+    rm -f -- "${DATABASE_CREDENTIALS}.tmp"
+  fi
+  [[ -f "$DATABASE_CREDENTIALS" && ! -L "$DATABASE_CREDENTIALS" \
+      && "$(stat -c '%U:%G:%a' "$DATABASE_CREDENTIALS")" == 'root:root:600' ]] \
+    || fail 'arquivo de credenciais do banco inválido'
+
+  if [[ ! -f "${CLIENT_CA_DIR}/client-ca.key" ]]; then
+    cleanup_paths+=(
+      "${CLIENT_CA_DIR}/client-ca.key.tmp"
+      "${CLIENT_CA_DIR}/client-ca.crt.tmp"
+    )
+    openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 825 \
+      -subj '/CN=Blindou PostgreSQL Client CA' \
+      -addext 'basicConstraints=critical,CA:TRUE,pathlen:0' \
+      -addext 'keyUsage=critical,keyCertSign,cRLSign' \
+      -keyout "${CLIENT_CA_DIR}/client-ca.key.tmp" \
+      -out "${CLIENT_CA_DIR}/client-ca.crt.tmp" >/dev/null 2>&1
+    install -o root -g root -m 0600 \
+      "${CLIENT_CA_DIR}/client-ca.key.tmp" "${CLIENT_CA_DIR}/client-ca.key"
+    install -o root -g root -m 0644 \
+      "${CLIENT_CA_DIR}/client-ca.crt.tmp" "${CLIENT_CA_DIR}/client-ca.crt"
+    rm -f -- "${CLIENT_CA_DIR}/client-ca.key.tmp" "${CLIENT_CA_DIR}/client-ca.crt.tmp"
+  fi
+  if [[ ! -f "$CLIENT_KEY_FILE" ]]; then
+    local extension_file
+    extension_file="$(mktemp "${CLIENT_CA_DIR}/client-ext.XXXXXX")"
+    cleanup_paths+=(
+      "$extension_file"
+      "${CLIENT_CERT_DIR}/tls.key.tmp"
+      "${CLIENT_CERT_DIR}/client.csr.tmp"
+      "${CLIENT_CERT_DIR}/tls.crt.tmp"
+    )
+    cat >"$extension_file" <<'EOF'
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature,keyEncipherment
+extendedKeyUsage=clientAuth
+subjectAltName=DNS:blindou-k3s-clients
+EOF
+    openssl req -new -newkey rsa:3072 -sha256 -nodes \
+      -subj '/CN=blindou-k3s-clients' \
+      -keyout "${CLIENT_CERT_DIR}/tls.key.tmp" \
+      -out "${CLIENT_CERT_DIR}/client.csr.tmp" >/dev/null 2>&1
+    openssl x509 -req -sha256 -days 397 \
+      -in "${CLIENT_CERT_DIR}/client.csr.tmp" \
+      -CA "${CLIENT_CA_DIR}/client-ca.crt" \
+      -CAkey "${CLIENT_CA_DIR}/client-ca.key" -CAcreateserial \
+      -extfile "$extension_file" \
+      -out "${CLIENT_CERT_DIR}/tls.crt.tmp" >/dev/null 2>&1
+    install -o root -g root -m 0600 "${CLIENT_CERT_DIR}/tls.key.tmp" "$CLIENT_KEY_FILE"
+    install -o root -g root -m 0644 "${CLIENT_CERT_DIR}/tls.crt.tmp" "$CLIENT_CERT_FILE"
+    rm -f -- "${CLIENT_CERT_DIR}/tls.key.tmp" "${CLIENT_CERT_DIR}/tls.crt.tmp" \
+      "${CLIENT_CERT_DIR}/client.csr.tmp" "$extension_file"
+  fi
+  install -o root -g root -m 0644 "$POSTGRES_SERVER_CERT" "$SERVER_CA_FILE"
+  install -o root -g postgres -m 0640 \
+    "${CLIENT_CA_DIR}/client-ca.crt" "$POSTGRES_CA_FILE"
+}
+
+load_database_credentials() {
+  [[ -f "$DATABASE_CREDENTIALS" && ! -L "$DATABASE_CREDENTIALS" ]] \
+    || fail 'credenciais do banco ausentes'
+  if grep -Ev '^(BLINDOU_MIGRATION_PASSWORD|BLINDOU_RUNTIME_PASSWORD|BLINDOU_REDIRECT_PASSWORD|BLINDOU_ML_PASSWORD)=[0-9a-f]{64}$' \
+      "$DATABASE_CREDENTIALS" | grep -q .; then
+    fail 'formato das credenciais do banco inválido'
+  fi
+  [[ "$(wc -l <"$DATABASE_CREDENTIALS")" == '4' ]] \
+    || fail 'quantidade de credenciais do banco inválida'
+  # shellcheck disable=SC1090
+  source "$DATABASE_CREDENTIALS"
+}
+
+install_postgres_client_auth() {
+  cleanup_paths+=("${POSTGRES_CONFIG_FILE}.tmp" "${POSTGRES_HBA_FILE}.tmp")
+  cat >"${POSTGRES_CONFIG_FILE}.tmp" <<EOF
+# Blindou: CA exclusiva para autenticação adicional dos clientes K3s.
+ssl_ca_file = '${POSTGRES_CA_FILE}'
+EOF
+  install -o root -g root -m 0644 "${POSTGRES_CONFIG_FILE}.tmp" "$POSTGRES_CONFIG_FILE"
+  rm -f -- "${POSTGRES_CONFIG_FILE}.tmp"
+  cat >"${POSTGRES_HBA_FILE}.tmp" <<'EOF'
+# Blindou: TLS + certificado de cliente confiável + SCRAM por identidade.
+hostssl blindou blindou_migration_login 10.42.0.0/16 scram-sha-256 clientcert=verify-ca
+hostssl blindou blindou_runtime_login   10.42.0.0/16 scram-sha-256 clientcert=verify-ca
+hostssl blindou blindou_redirect_login  10.42.0.0/16 scram-sha-256 clientcert=verify-ca
+hostssl blindou blindou_ml_login        10.42.0.0/16 scram-sha-256 clientcert=verify-ca
+EOF
+  install -o postgres -g postgres -m 0640 "${POSTGRES_HBA_FILE}.tmp" "$POSTGRES_HBA_FILE"
+  rm -f -- "${POSTGRES_HBA_FILE}.tmp"
+  if ! grep -Fxq "include_if_exists 'pg_hba_blindou.conf'" "$POSTGRES_HBA_MAIN"; then
+    local timestamp hba_tmp
+    timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    install -d -o root -g root -m 0700 "${BACKUP_ROOT}/postgres-config/${timestamp}"
+    install -o root -g root -m 0600 "$POSTGRES_HBA_MAIN" \
+      "${BACKUP_ROOT}/postgres-config/${timestamp}/pg_hba.conf"
+    hba_tmp="$(mktemp)"
+    {
+      printf "%s\n" "include_if_exists 'pg_hba_blindou.conf'"
+      cat "$POSTGRES_HBA_MAIN"
+    } >"$hba_tmp"
+    install -o postgres -g postgres -m 0640 "$hba_tmp" "$POSTGRES_HBA_MAIN"
+    rm -f -- "$hba_tmp"
+  fi
+  pg_ctlcluster 18 main reload
+  sleep 1
+  [[ "$(postgres_query -d postgres -Atqc \
+    "SELECT count(*) FROM pg_file_settings WHERE error IS NOT NULL")" == '0' ]] \
+    || fail 'PostgreSQL recusou a configuração Blindou'
+  [[ "$(postgres_query -d postgres -Atqc \
+    "SELECT count(*) FROM pg_hba_file_rules WHERE error IS NOT NULL")" == '0' ]] \
+    || fail 'PostgreSQL recusou a regra HBA Blindou'
+}
+
+create_database_roles() {
+  load_database_credentials
+  postgres_query -d postgres \
+    --set=migration_password="$BLINDOU_MIGRATION_PASSWORD" \
+    --set=runtime_password="$BLINDOU_RUNTIME_PASSWORD" \
+    --set=redirect_password="$BLINDOU_REDIRECT_PASSWORD" \
+    --set=ml_password="$BLINDOU_ML_PASSWORD" <<'SQL' >/dev/null
+SELECT format('CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION', role_name)
+FROM (VALUES ('blindou_migrator'), ('blindou_runtime'), ('blindou_app'), ('blindou_auth')) AS roles(role_name)
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name)
+\gexec
+SELECT format('CREATE ROLE blindou_migration_login LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION', :'migration_password')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'blindou_migration_login')
+\gexec
+SELECT format('CREATE ROLE blindou_runtime_login LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION', :'runtime_password')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'blindou_runtime_login')
+\gexec
+SELECT format('CREATE ROLE blindou_redirect_login LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION', :'redirect_password')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'blindou_redirect_login')
+\gexec
+SELECT format('CREATE ROLE blindou_ml_login LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION', :'ml_password')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'blindou_ml_login')
+\gexec
+ALTER ROLE blindou_migration_login PASSWORD :'migration_password';
+ALTER ROLE blindou_runtime_login PASSWORD :'runtime_password';
+ALTER ROLE blindou_redirect_login PASSWORD :'redirect_password';
+ALTER ROLE blindou_ml_login PASSWORD :'ml_password';
+GRANT blindou_migrator TO blindou_migration_login;
+GRANT blindou_runtime TO blindou_runtime_login;
+GRANT blindou_app TO blindou_redirect_login;
+GRANT blindou_app TO blindou_ml_login;
+SELECT 'CREATE DATABASE blindou OWNER blindou_migration_login ENCODING ''UTF8'' TEMPLATE template0'
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'blindou')
+\gexec
+REVOKE ALL ON DATABASE blindou FROM PUBLIC;
+GRANT CONNECT, TEMPORARY ON DATABASE blindou TO blindou_migration_login, blindou_runtime_login, blindou_redirect_login, blindou_ml_login;
+SQL
+}
+
+write_database_urls() {
+  load_database_credentials
+  local query_suffix
+  query_suffix='sslmode=verify-full&sslrootcert=/etc/blindou/postgres/ca.crt&sslcert=/etc/blindou/postgres/tls.crt&sslkey=/etc/blindou/postgres/tls.key'
+  {
+    printf 'MIGRATION_DATABASE_URL=postgresql://blindou_migration_login:%s@192.168.100.59:5432/blindou?%s\n' \
+      "$BLINDOU_MIGRATION_PASSWORD" "$query_suffix"
+    printf 'DATABASE_URL=postgresql://blindou_runtime_login:%s@192.168.100.59:5432/blindou?%s\n' \
+      "$BLINDOU_RUNTIME_PASSWORD" "$query_suffix"
+    printf 'REDIRECTOR_DATABASE_URL=postgresql://blindou_redirect_login:%s@192.168.100.59:5432/blindou?%s\n' \
+      "$BLINDOU_REDIRECT_PASSWORD" "$query_suffix"
+    printf 'ML_CONNECTOR_DATABASE_URL=postgresql://blindou_ml_login:%s@192.168.100.59:5432/blindou?%s\n' \
+      "$BLINDOU_ML_PASSWORD" "$query_suffix"
+  } >"${DATABASE_SECRET_DIR}/urls.env.tmp"
+  install -o root -g root -m 0600 \
+    "${DATABASE_SECRET_DIR}/urls.env.tmp" "${DATABASE_SECRET_DIR}/urls.env"
+  rm -f -- "${DATABASE_SECRET_DIR}/urls.env.tmp"
+}
+
+verify_data_foundation() {
+  require_root_and_host
+  [[ -f "$DATABASE_CREDENTIALS" && "$(stat -c '%U:%G:%a' "$DATABASE_CREDENTIALS")" == 'root:root:600' ]] \
+    || fail 'credenciais do banco ausentes ou expostas'
+  [[ -f "${DATABASE_SECRET_DIR}/urls.env" \
+      && "$(stat -c '%U:%G:%a' "${DATABASE_SECRET_DIR}/urls.env")" == 'root:root:600' ]] \
+    || fail 'URLs do banco ausentes ou expostas'
+  openssl verify -CAfile "${CLIENT_CA_DIR}/client-ca.crt" "$CLIENT_CERT_FILE" >/dev/null \
+    || fail 'certificado cliente PostgreSQL inválido'
+  [[ "$(stat -c '%U:%G:%a' "$CLIENT_KEY_FILE")" == 'root:root:600' ]] \
+    || fail 'chave cliente PostgreSQL exposta'
+  [[ "$(postgres_query -d postgres -Atqc \
+    "SELECT count(*) FROM pg_database WHERE datname='blindou'")" == '1' ]] \
+    || fail 'database Blindou ausente'
+  [[ "$(postgres_query -d postgres -Atqc \
+    "SELECT count(*) FROM pg_roles WHERE rolname IN ('blindou_migration_login','blindou_runtime_login','blindou_redirect_login','blindou_ml_login') AND rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication")" == '4' ]] \
+    || fail 'logins Blindou ausentes ou privilegiados'
+  [[ "$(postgres_query -d postgres -Atqc \
+    "SELECT count(*) FROM pg_auth_members m JOIN pg_roles member ON member.oid=m.member JOIN pg_roles role ON role.oid=m.roleid WHERE (member.rolname,role.rolname) IN (('blindou_migration_login','blindou_migrator'),('blindou_runtime_login','blindou_runtime'),('blindou_redirect_login','blindou_app'),('blindou_ml_login','blindou_app'))")" == '4' ]] \
+    || fail 'associação de papéis Blindou divergente'
+  [[ "$(postgres_query -d postgres -Atqc 'SHOW ssl_ca_file')" == "$POSTGRES_CA_FILE" ]] \
+    || fail 'PostgreSQL não usa a CA cliente Blindou'
+  [[ "$(postgres_query -d postgres -Atqc \
+    "SELECT count(*) FROM pg_hba_file_rules WHERE database @> ARRAY['blindou'] AND auth_method='scram-sha-256' AND options @> ARRAY['clientcert=verify-ca']")" == '4' ]] \
+    || fail 'HBA não exige TLS, certificado e SCRAM para os quatro logins'
+  /usr/local/sbin/apiwpp-deployctl verify >/dev/null \
+    || fail 'apiwpp regrediu depois do provisionamento do banco'
+  pass 'database vazio, quatro logins, TLS cliente e papéis isolados verificados'
+}
+
+provision_data_foundation() {
+  [[ "${1:-}" == "$DATA_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${DATA_CONFIRMATION}"
+  require_platform_preconditions
+  generate_database_material
+  install_postgres_client_auth
+  create_database_roles
+  write_database_urls
+  verify_data_foundation
+  pass 'fundação de dados Blindou provisionada sem executar migrations'
+}
+
+rollback_data_foundation() {
+  [[ "${1:-}" == "$DATA_ROLLBACK_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${DATA_ROLLBACK_CONFIRMATION}"
+  require_root_and_host
+  local user_table_count
+  user_table_count="$(postgres_query -d blindou -Atqc \
+    "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind IN ('r','p') AND n.nspname NOT IN ('pg_catalog','information_schema')")"
+  [[ "$user_table_count" == '0' ]] \
+    || fail 'rollback de dados recusado: database já contém tabelas de aplicação'
+  postgres_query -d postgres <<'SQL' >/dev/null
+SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='blindou' AND pid <> pg_backend_pid();
+DROP DATABASE IF EXISTS blindou;
+DROP ROLE IF EXISTS blindou_migration_login, blindou_runtime_login, blindou_redirect_login, blindou_ml_login;
+DROP ROLE IF EXISTS blindou_migrator, blindou_runtime, blindou_app, blindou_auth;
+SQL
+  rm -f -- "$POSTGRES_CONFIG_FILE" "$POSTGRES_HBA_FILE"
+  local hba_tmp
+  hba_tmp="$(mktemp)"
+  grep -Fvx "include_if_exists 'pg_hba_blindou.conf'" "$POSTGRES_HBA_MAIN" >"$hba_tmp"
+  install -o postgres -g postgres -m 0640 "$hba_tmp" "$POSTGRES_HBA_MAIN"
+  rm -f -- "$hba_tmp"
+  pg_ctlcluster 18 main reload
+  rm -rf -- "$DATABASE_SECRET_DIR" "$CLIENT_CA_DIR" "$CLIENT_CERT_DIR"
+  pass 'database vazio, logins e configuração PostgreSQL Blindou removidos'
+}
+
+backup_database() {
+  [[ "${1:-}" == "$BACKUP_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${BACKUP_CONFIRMATION}"
+  require_root_and_host
+  verify_data_foundation >/dev/null
+  [[ -f "$BACKUP_RECIPIENT_CERT" && ! -L "$BACKUP_RECIPIENT_CERT" ]] \
+    || fail 'certificado público de recuperação ausente'
+  openssl x509 -checkend 2592000 -noout -in "$BACKUP_RECIPIENT_CERT" >/dev/null \
+    || fail 'certificado de recuperação expira em menos de 30 dias'
+  local timestamp backup_id temporary_dir plain_dump encrypted_tmp encrypted_file manifest
+  timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  backup_id="blindou-${timestamp}"
+  install -d -o root -g root -m 0700 "$DATABASE_BACKUP_ROOT"
+  temporary_dir="${DATABASE_BACKUP_ROOT}/.tmp.${backup_id}.$$"
+  install -d -o postgres -g postgres -m 0700 "$temporary_dir"
+  cleanup_paths+=("$temporary_dir")
+  plain_dump="${temporary_dir}/blindou.dump"
+  runuser -u postgres -- pg_dump --dbname=blindou --format=custom \
+    --compress=zstd:6 --file="$plain_dump"
+  runuser -u postgres -- pg_restore --list "$plain_dump" >/dev/null \
+    || fail 'catálogo do dump lógico é inválido'
+  chown root:root "$plain_dump"
+  chmod 0600 "$plain_dump"
+  encrypted_tmp="${DATABASE_BACKUP_ROOT}/${backup_id}.dump.cms.tmp"
+  cleanup_paths+=("$encrypted_tmp")
+  encrypted_file="${DATABASE_BACKUP_ROOT}/${backup_id}.dump.cms"
+  openssl cms -encrypt -binary -stream -aes-256-gcm \
+    -in "$plain_dump" -out "$encrypted_tmp" -outform DER \
+    "$BACKUP_RECIPIENT_CERT"
+  chmod 0600 "$encrypted_tmp"
+  openssl cms -cmsout -inform DER -in "$encrypted_tmp" -noout >/dev/null \
+    || fail 'envelope CMS do backup é inválido'
+  mv "$encrypted_tmp" "$encrypted_file"
+  manifest="${DATABASE_BACKUP_ROOT}/${backup_id}.manifest"
+  {
+    printf 'schema=1\n'
+    printf 'project=blindou\n'
+    printf 'database=blindou\n'
+    printf 'backup_id=%s\n' "$backup_id"
+    printf 'created_at_utc=%s\n' "$timestamp"
+    printf 'encryption=cms-aes-256-gcm\n'
+    printf 'encrypted_sha256=%s\n' "$(sha256sum "$encrypted_file" | awk '{print $1}')"
+    printf 'encrypted_size=%s\n' "$(stat -c '%s' "$encrypted_file")"
+    printf 'plaintext_catalog_verified=true\n'
+  } >"${manifest}.tmp"
+  install -o root -g root -m 0600 "${manifest}.tmp" "$manifest"
+  rm -f -- "${manifest}.tmp" "$plain_dump"
+  rmdir -- "$temporary_dir"
+  printf '%s\n' "$backup_id" >"${DATABASE_BACKUP_ROOT}/latest.tmp"
+  install -o root -g root -m 0600 \
+    "${DATABASE_BACKUP_ROOT}/latest.tmp" "${DATABASE_BACKUP_ROOT}/latest"
+  rm -f -- "${DATABASE_BACKUP_ROOT}/latest.tmp"
+  pass "backup lógico criptografado criado: ${backup_id}"
+}
+
+verify_latest_backup() {
+  require_root_and_host
+  [[ -f "${DATABASE_BACKUP_ROOT}/latest" && ! -L "${DATABASE_BACKUP_ROOT}/latest" ]] \
+    || fail 'marcador do backup Blindou ausente'
+  local backup_id encrypted_file manifest expected_sha expected_size
+  backup_id="$(<"${DATABASE_BACKUP_ROOT}/latest")"
+  [[ "$backup_id" =~ ^blindou-[0-9]{8}T[0-9]{6}Z$ ]] \
+    || fail 'identificador do backup inválido'
+  encrypted_file="${DATABASE_BACKUP_ROOT}/${backup_id}.dump.cms"
+  manifest="${DATABASE_BACKUP_ROOT}/${backup_id}.manifest"
+  [[ -f "$encrypted_file" && ! -L "$encrypted_file" \
+      && "$(stat -c '%U:%G:%a' "$encrypted_file")" == 'root:root:600' ]] \
+    || fail 'arquivo de backup ausente ou exposto'
+  [[ -f "$manifest" && ! -L "$manifest" ]] || fail 'manifesto do backup ausente'
+  expected_sha="$(sed -n 's/^encrypted_sha256=//p' "$manifest")"
+  expected_size="$(sed -n 's/^encrypted_size=//p' "$manifest")"
+  [[ "$expected_sha" =~ ^[0-9a-f]{64}$ \
+      && "$(sha256sum "$encrypted_file" | awk '{print $1}')" == "$expected_sha" ]] \
+    || fail 'checksum do backup diverge'
+  [[ "$expected_size" =~ ^[0-9]+$ \
+      && "$(stat -c '%s' "$encrypted_file")" == "$expected_size" ]] \
+    || fail 'tamanho do backup diverge'
+  grep -Fxq 'encryption=cms-aes-256-gcm' "$manifest" \
+    || fail 'algoritmo de criptografia do backup diverge'
+  grep -Fxq 'plaintext_catalog_verified=true' "$manifest" \
+    || fail 'catálogo do dump não foi validado antes da criptografia'
+  openssl cms -cmsout -inform DER -in "$encrypted_file" -noout >/dev/null \
+    || fail 'envelope criptografado inválido'
+  pass "backup lógico criptografado verificado: ${backup_id}"
+}
+
+export_latest_backup() {
+  verify_latest_backup >/dev/null
+  local backup_id export_dir encrypted_file manifest
+  backup_id="$(<"${DATABASE_BACKUP_ROOT}/latest")"
+  encrypted_file="${DATABASE_BACKUP_ROOT}/${backup_id}.dump.cms"
+  manifest="${DATABASE_BACKUP_ROOT}/${backup_id}.manifest"
+  if [[ -e "$BACKUP_EXPORT_ROOT" ]]; then
+    [[ -d "$BACKUP_EXPORT_ROOT" && ! -L "$BACKUP_EXPORT_ROOT" \
+        && "$(stat -c '%U:%G:%a' "$BACKUP_EXPORT_ROOT")" == 'root:apiadmin:750' ]] \
+      || fail 'outbox de backup possui owner ou modo inesperado'
+  else
+    install -d -o root -g apiadmin -m 0750 "$BACKUP_EXPORT_ROOT"
+  fi
+  export_dir="${BACKUP_EXPORT_ROOT}/${backup_id}"
+  if [[ -e "$export_dir" ]]; then
+    [[ -d "$export_dir" && ! -L "$export_dir" \
+        && "$(stat -c '%U:%G:%a' "$export_dir")" == 'root:apiadmin:750' ]] \
+      || fail 'diretorio exportado possui owner ou modo inesperado'
+  else
+    install -d -o root -g apiadmin -m 0750 "$export_dir"
+  fi
+  install -o root -g apiadmin -m 0640 \
+    "$encrypted_file" "${export_dir}/${backup_id}.dump.cms"
+  install -o root -g apiadmin -m 0640 \
+    "$manifest" "${export_dir}/${backup_id}.manifest"
+  install -o root -g apiadmin -m 0640 \
+    "$BACKUP_RECIPIENT_CERT" "${export_dir}/recovery-recipient.crt"
+  [[ "$(sha256sum "${export_dir}/${backup_id}.dump.cms" | awk '{print $1}')" \
+      == "$(sha256sum "$encrypted_file" | awk '{print $1}')" ]] \
+    || fail 'copia exportada do backup diverge da origem'
+  pass "backup criptografado exportado para leitura: ${export_dir}"
+}
+
+read_field() {
+  local key="$1" manifest="$2" count
+  count="$(grep -Ec "^${key}=[^=[:cntrl:]]*$" "$manifest" || true)"
+  [[ "$count" == '1' ]] || return 1
+  sed -n "s/^${key}=//p" "$manifest"
+}
+
+verify_apiadmin_file() {
+  local path="$1"
+  [[ -f "$path" && ! -L "$path" && "$(stat -c '%U' "$path")" == 'apiadmin' ]]
+}
+
+cache_release() {
+  local release_id="$1"
+  [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
+  local release_dir manifest signature archive schema project signed_release revision bundle_sha source_state cached_dir verify_dir
+  release_dir="${RELEASE_INBOX}/${release_id}"
+  manifest="${release_dir}/release.manifest"
+  signature="${release_dir}/release.manifest.sig"
+  archive="${release_dir}/rendered.tar.gz"
+  [[ -d "$release_dir" && ! -L "$release_dir" \
+      && "$(stat -c '%U' "$release_dir")" == 'apiadmin' ]] \
+    || fail 'diretório de release ausente ou com owner inválido'
+  verify_apiadmin_file "$manifest" || fail 'manifesto de release inválido'
+  verify_apiadmin_file "$signature" || fail 'assinatura de release inválida'
+  verify_apiadmin_file "$archive" || fail 'archive de release inválido'
+  [[ "$(stat -c '%s' "$manifest")" -le 4096 \
+      && "$(stat -c '%s' "$archive")" -le 52428800 ]] \
+    || fail 'artefato de release excede o limite'
+  ssh-keygen -Y verify -f "$ALLOWED_SIGNERS" -I blindou-local -n blindou-deploy \
+    -s "$signature" <"$manifest" >/dev/null \
+    || fail 'assinatura da release não foi aceita'
+  schema="$(read_field schema "$manifest")" || fail 'schema ausente'
+  project="$(read_field project "$manifest")" || fail 'project ausente'
+  signed_release="$(read_field release_id "$manifest")" || fail 'release_id ausente'
+  revision="$(read_field revision "$manifest")" || fail 'revision ausente'
+  bundle_sha="$(read_field bundle_sha256 "$manifest")" || fail 'bundle_sha256 ausente'
+  source_state="$(read_field source_state "$manifest")" || fail 'source_state ausente'
+  [[ "$schema" == '1' && "$project" == 'blindou' \
+      && "$signed_release" == "$release_id" && "$revision" == "$release_id" \
+      && "$bundle_sha" =~ ^[0-9a-f]{64}$ && "$source_state" == 'clean' ]] \
+    || fail 'campos do manifesto assinado divergem do contrato'
+
+  install -d -o root -g root -m 0700 "$RELEASE_CACHE" "$RELEASE_HISTORY"
+  cached_dir="${RELEASE_CACHE}/${release_id}"
+  if [[ -e "$cached_dir" ]]; then
+    [[ -d "$cached_dir" && ! -L "$cached_dir" ]] \
+      || fail 'cache da release inválido'
+    [[ "$(sha256sum "${cached_dir}/rendered.tar.gz" | awk '{print $1}')" == "$bundle_sha" ]] \
+      || fail 'release já existe com conteúdo divergente'
+  else
+    install -d -o root -g root -m 0700 "$cached_dir"
+    install -o root -g root -m 0600 "$manifest" "${cached_dir}/release.manifest"
+    install -o root -g root -m 0600 "$signature" "${cached_dir}/release.manifest.sig"
+    install -o root -g root -m 0600 "$archive" "${cached_dir}/rendered.tar.gz"
+  fi
+  rm -rf -- "${cached_dir}/rendered"
+  verify_dir="$(mktemp -d "${RELEASE_CACHE}/.verify.${release_id}.XXXXXX")"
+  cleanup_paths+=("$verify_dir")
+  python3 "$RELEASE_VERIFIER" "${cached_dir}/rendered.tar.gz" "$verify_dir" \
+    "$release_id" "$bundle_sha"
+  mv "$verify_dir" "${cached_dir}/rendered"
+  install -o root -g root -m 0600 "$manifest" "${RELEASE_HISTORY}/${release_id}.manifest"
+  install -o root -g root -m 0600 "$signature" "${RELEASE_HISTORY}/${release_id}.manifest.sig"
+  pass "release assinada validada e armazenada: ${release_id}"
+}
+
+secret_has_keys() {
+  local namespace="$1" secret_name="$2"
+  shift 2
+  local keys required
+  keys="$(kube -n "$namespace" get secret "$secret_name" \
+    -o go-template='{{range $key, $value := .data}}{{printf "%s\n" $key}}{{end}}')" \
+    || fail "Secret obrigatório ausente: ${namespace}/${secret_name}"
+  for required in "$@"; do
+    grep -Fxq "$required" <<<"$keys" \
+      || fail "Secret ${namespace}/${secret_name} não contém ${required}"
+  done
+}
+
+require_release_gates() {
+  verify_data_foundation >/dev/null
+  for namespace in "$APP_NAMESPACE" "$EDGE_NAMESPACE"; do
+    [[ "$(namespace_label "$namespace" 'platform\.servidor\.local/deployment-gate')" == 'passed' ]] \
+      || fail "gate do namespace ${namespace} não está passed"
+    if kube -n "$namespace" get resourcequota platform-quarantine >/dev/null 2>&1; then
+      fail "quota de quarentena ainda existe em ${namespace}"
+    fi
+  done
+  secret_has_keys "$APP_NAMESPACE" blindou-core-secrets \
+    DATABASE_URL PASSWORD_PEPPER_CURRENT TOKEN_HASH_SECRET JWT_SECRET \
+    TOTP_ENCRYPTION_KEY SESSION_ENCRYPTION_KEY AUTH_SECURITY_CODE_HASH_SECRET \
+    AUTH_SECURITY_CODE_ENCRYPTION_KEY AUTH_SECURITY_CHANNEL_ENCRYPTION_KEY \
+    AUTH_TRUST_HASH_SECRET AUTH_SECURITY_WHATSAPP_SENDER_TOKEN \
+    UAZAPI_ADMIN_TOKEN UAZAPI_WEBHOOK_SECRET UAZAPI_TOKEN_ENCRYPTION_KEY \
+    NATS_PASSWORD REDIS_PASSWORD RESEND_API_KEY METRICS_BEARER_TOKEN
+  secret_has_keys "$APP_NAMESPACE" blindou-redirect-secrets \
+    REDIRECTOR_DATABASE_URL REDIRECTOR_CODE_SECRET REDIRECTOR_HMAC_SECRET \
+    REDIRECTOR_IP_HASH_SECRET REDIRECTOR_FINGERPRINT_HASH_SECRET METRICS_BEARER_TOKEN
+  secret_has_keys "$APP_NAMESPACE" blindou-ml-secrets \
+    ML_CONNECTOR_DATABASE_URL ML_CONNECTOR_INTERNAL_API_KEY \
+    ML_SESSION_ENCRYPTION_KEY ML_SESSION_ENCRYPTION_PEPPER
+  secret_has_keys "$APP_NAMESPACE" blindou-migration-secrets MIGRATION_DATABASE_URL
+  secret_has_keys "$APP_NAMESPACE" blindou-nats-auth backend-password
+  secret_has_keys "$APP_NAMESPACE" blindou-redis-auth users.acl
+  secret_has_keys "$APP_NAMESPACE" blindou-nats-tls ca.crt tls.crt tls.key
+  secret_has_keys "$APP_NAMESPACE" blindou-postgres-client ca.crt tls.crt tls.key
+  secret_has_keys "$EDGE_NAMESPACE" blindou-cloudflare-tunnel token
+}
+
+wait_release() {
+  local release_id="$1" rendered="$2" migration_job="blindou-migrate-${release_id:0:12}"
+  kube -n "$APP_NAMESPACE" rollout status statefulset/blindou-nats --timeout=300s
+  kube -n "$APP_NAMESPACE" rollout status statefulset/blindou-redis --timeout=300s
+  kube -n "$APP_NAMESPACE" wait --for=condition=complete "job/${migration_job}" --timeout=600s
+  local deployment
+  for deployment in blindou-backend blindou-ml-affiliate-connector blindou-redirector; do
+    kube -n "$APP_NAMESPACE" rollout status "deployment/${deployment}" --timeout=600s
+  done
+  while IFS= read -r worker_manifest; do
+    deployment="blindou-worker-$(basename "$worker_manifest" .yaml)"
+    kube -n "$APP_NAMESPACE" rollout status "deployment/${deployment}" --timeout=600s
+  done < <(find "$rendered/workers" -maxdepth 1 -type f -name '*.yaml' | sort)
+  kube -n "$EDGE_NAMESPACE" rollout status deployment/blindou-cloudflared --timeout=300s
+}
+
+apply_cached_release() {
+  local release_id="$1" rendered="${RELEASE_CACHE}/${release_id}/rendered"
+  [[ -d "$rendered" && ! -L "$rendered" ]] || fail 'release não está validada no cache root-owned'
+  require_release_gates
+  kube apply -f "$rendered/00-platform.yaml" >/dev/null
+  kube apply -f "$rendered/10-services.yaml" >/dev/null
+  kube apply -f "$rendered/20-nats-config.yaml" >/dev/null
+  kube apply -f "$rendered/30-network-policies.yaml" >/dev/null
+  kube apply -f "$rendered/40-workloads.yaml" -l 'blindou.io/tier=infra' >/dev/null
+  kube -n "$APP_NAMESPACE" rollout status statefulset/blindou-nats --timeout=300s
+  kube -n "$APP_NAMESPACE" rollout status statefulset/blindou-redis --timeout=300s
+  kube apply -f "$rendered/40-workloads.yaml" -l 'blindou.io/tier=migration' >/dev/null
+  kube -n "$APP_NAMESPACE" wait --for=condition=complete \
+    "job/blindou-migrate-${release_id:0:12}" --timeout=600s
+  kube apply -f "$rendered/40-workloads.yaml" -l 'blindou.io/tier=app' >/dev/null
+  kube apply -f "$rendered/workers" >/dev/null
+  kube apply -f "$rendered/60-cloudflared.yaml" >/dev/null
+  wait_release "$release_id" "$rendered"
+  printf '%s\n' "$release_id" >"${CURRENT_RELEASE}.tmp"
+  install -o root -g root -m 0600 "${CURRENT_RELEASE}.tmp" "$CURRENT_RELEASE"
+  rm -f -- "${CURRENT_RELEASE}.tmp"
+}
+
+rollback_release() {
+  local release_id="$1" confirmation="$2"
+  [[ "$confirmation" == "$ROLLBACK_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${ROLLBACK_CONFIRMATION}"
+  [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
+  local rendered="${RELEASE_CACHE}/${release_id}/rendered"
+  [[ -d "$rendered" && ! -L "$rendered" ]] || fail 'release de rollback ausente do cache'
+  require_release_gates
+  kube apply -f "$rendered/00-platform.yaml" >/dev/null
+  kube apply -f "$rendered/10-services.yaml" >/dev/null
+  kube apply -f "$rendered/20-nats-config.yaml" >/dev/null
+  kube apply -f "$rendered/30-network-policies.yaml" >/dev/null
+  kube apply -f "$rendered/40-workloads.yaml" -l 'blindou.io/tier in (infra,app)' >/dev/null
+  kube apply -f "$rendered/workers" >/dev/null
+  kube apply -f "$rendered/60-cloudflared.yaml" >/dev/null
+  local deployment
+  for deployment in blindou-backend blindou-ml-affiliate-connector blindou-redirector; do
+    kube -n "$APP_NAMESPACE" rollout status "deployment/${deployment}" --timeout=600s
+  done
+  kube -n "$EDGE_NAMESPACE" rollout status deployment/blindou-cloudflared --timeout=300s
+  printf '%s\n' "$release_id" >"${CURRENT_RELEASE}.tmp"
+  install -o root -g root -m 0600 "${CURRENT_RELEASE}.tmp" "$CURRENT_RELEASE"
+  rm -f -- "${CURRENT_RELEASE}.tmp"
+  pass "rollback de workloads para a release assinada ${release_id}; migrations não foram revertidas"
+}
+
+apply_release() {
+  local release_id="$1" previous=''
+  [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
+  cache_release "$release_id"
+  [[ -f "$CURRENT_RELEASE" ]] && previous="$(<"$CURRENT_RELEASE")"
+  if ! apply_cached_release "$release_id"; then
+    if [[ "$previous" =~ $RELEASE_PATTERN ]]; then
+      rollback_release "$previous" "$ROLLBACK_CONFIRMATION" \
+        || fail 'release falhou e rollback automático também falhou'
+      fail "release falhou; workloads restaurados para ${previous}"
+    fi
+    kube -n "$EDGE_NAMESPACE" delete deployment blindou-cloudflared --ignore-not-found >/dev/null || true
+    kube -n "$APP_NAMESPACE" scale deployment \
+      blindou-backend blindou-ml-affiliate-connector blindou-redirector --replicas=0 >/dev/null 2>&1 || true
+    fail 'primeira release falhou; entrada Cloudflare removida e aplicações escaladas a zero'
+  fi
+  pass "release assinada ${release_id} aplicada"
+}
+
+metrics() {
+  require_root_and_host
+  local foundation=0 data=0 latest_backup=0 gate_app=0 gate_edge=0
+  if verify_foundation >/dev/null 2>&1; then foundation=1; fi
+  if verify_data_foundation >/dev/null 2>&1; then data=1; fi
+  if [[ -f "${DATABASE_BACKUP_ROOT}/latest" ]]; then
+    local backup_id epoch
+    backup_id="$(<"${DATABASE_BACKUP_ROOT}/latest")"
+    if [[ "$backup_id" =~ ^blindou-([0-9]{8}T[0-9]{6}Z)$ ]]; then
+      epoch="$(date -u -d "${BASH_REMATCH[1]:0:8} ${BASH_REMATCH[1]:9:2}:${BASH_REMATCH[1]:11:2}:${BASH_REMATCH[1]:13:2}" +%s 2>/dev/null || true)"
+      [[ "$epoch" =~ ^[0-9]+$ ]] && latest_backup="$epoch"
+    fi
+  fi
+  [[ "$(namespace_label "$APP_NAMESPACE" 'platform\.servidor\.local/deployment-gate' 2>/dev/null || true)" == 'passed' ]] && gate_app=1
+  [[ "$(namespace_label "$EDGE_NAMESPACE" 'platform\.servidor\.local/deployment-gate' 2>/dev/null || true)" == 'passed' ]] && gate_edge=1
+  cat <<EOF
+# HELP blindou_platform_foundation_up Fundação Kubernetes bloqueada e íntegra.
+# TYPE blindou_platform_foundation_up gauge
+blindou_platform_foundation_up ${foundation}
+# HELP blindou_data_foundation_up Database, papéis e TLS internos íntegros.
+# TYPE blindou_data_foundation_up gauge
+blindou_data_foundation_up ${data}
+# HELP blindou_database_backup_latest_timestamp_seconds Timestamp do último backup lógico criptografado.
+# TYPE blindou_database_backup_latest_timestamp_seconds gauge
+blindou_database_backup_latest_timestamp_seconds ${latest_backup}
+# HELP blindou_namespace_deployment_gate Gate de implantação por namespace.
+# TYPE blindou_namespace_deployment_gate gauge
+blindou_namespace_deployment_gate{namespace="${APP_NAMESPACE}"} ${gate_app}
+blindou_namespace_deployment_gate{namespace="${EDGE_NAMESPACE}"} ${gate_edge}
+EOF
+}
+
+show_status() {
+  require_root_and_host
+  printf 'host=%s\n' "$(hostname)"
+  printf 'foundation_state=%s\n' "$([[ -f "$FOUNDATION_STATE" ]] && echo present || echo absent)"
+  for namespace in "$APP_NAMESPACE" "$EDGE_NAMESPACE"; do
+    if namespace_exists "$namespace"; then
+      printf 'namespace_%s=present gate=%s operational_objects=%s\n' \
+        "${namespace//-/_}" \
+        "$(namespace_label "$namespace" 'platform\.servidor\.local/deployment-gate')" \
+        "$(namespace_object_count "$namespace")"
+    else
+      printf 'namespace_%s=absent\n' "${namespace//-/_}"
+    fi
+  done
+  printf 'database_blindou=%s\n' \
+    "$(postgres_query -d postgres -Atqc "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_database WHERE datname='blindou') THEN 'present' ELSE 'absent' END")"
+  if [[ -f "${DATABASE_BACKUP_ROOT}/latest" ]]; then
+    printf 'latest_encrypted_backup=%s\n' "$(<"${DATABASE_BACKUP_ROOT}/latest")"
+  else
+    printf 'latest_encrypted_backup=absent\n'
+  fi
+  if [[ -f "$CURRENT_RELEASE" ]]; then
+    printf 'current_release=%s\n' "$(<"$CURRENT_RELEASE")"
+  else
+    printf 'current_release=absent\n'
+  fi
+}
+
+case "${1:-}" in
+  status)
+    [[ $# -eq 1 ]] || fail 'uso: blindou-deployctl status'
+    show_status
+    ;;
+  verify-foundation)
+    [[ $# -eq 1 ]] || fail 'uso: blindou-deployctl verify-foundation'
+    verify_foundation
+    ;;
+  apply-foundation)
+    [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl apply-foundation CONFIRMAÇÃO'
+    apply_foundation "$2"
+    ;;
+  rollback-foundation)
+    [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl rollback-foundation CONFIRMAÇÃO'
+    rollback_foundation "$2"
+    ;;
+  provision-data)
+    [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl provision-data CONFIRMAÇÃO'
+    provision_data_foundation "$2"
+    ;;
+  verify-data)
+    [[ $# -eq 1 ]] || fail 'uso: blindou-deployctl verify-data'
+    verify_data_foundation
+    ;;
+  rollback-data)
+    [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl rollback-data CONFIRMAÇÃO'
+    rollback_data_foundation "$2"
+    ;;
+  backup-database)
+    [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl backup-database CONFIRMAÇÃO'
+    backup_database "$2"
+    ;;
+  verify-backup)
+    [[ $# -eq 1 ]] || fail 'uso: blindou-deployctl verify-backup'
+    verify_latest_backup
+    ;;
+  export-latest-backup)
+    [[ $# -eq 1 ]] || fail 'uso: blindou-deployctl export-latest-backup'
+    export_latest_backup
+    ;;
+  validate-release)
+    [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl validate-release RELEASE_ID'
+    require_root_and_host
+    cache_release "$2"
+    ;;
+  apply)
+    [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl apply RELEASE_ID'
+    require_root_and_host
+    apply_release "$2"
+    ;;
+  rollback)
+    [[ $# -eq 3 ]] || fail 'uso: blindou-deployctl rollback RELEASE_ID CONFIRMAÇÃO'
+    require_root_and_host
+    rollback_release "$2" "$3"
+    ;;
+  metrics)
+    [[ $# -eq 1 ]] || fail 'uso: blindou-deployctl metrics'
+    metrics
+    ;;
+  *)
+    fail 'uso: blindou-deployctl {status|verify-foundation|apply-foundation CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|validate-release RELEASE_ID|apply RELEASE_ID|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
+    ;;
+esac

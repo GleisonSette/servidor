@@ -291,3 +291,22 @@ implantado.
   9090, 9100, 9187 e 30000 permaneceram fechadas.
 - Uma segunda execução do mesmo `apply-firewall` reconheceu o estado existente,
   repetiu o gate e comprovou idempotência.
+
+## 2026-08-19 - Preparação da plataforma isolada do Blindou
+
+Resultado: artefatos de controle e dados aprovados offline; bootstrap root e
+mudança viva ainda pendentes.
+
+- `blindou-deployctl` ganhou interface fechada, lock, assinatura de release,
+  cache root-owned, validação de archive, escopo Kubernetes e rollback.
+- `blindou-production` e `blindou-edge` foram separados da base compartilhada e
+  passam a nascer vazios, em quarentena, com gate `blocked`.
+- A fundação de dados declara database vazio, quatro logins sem privilégio,
+  CA/certificado cliente e HBA com SCRAM mais certificado.
+- O backup lógico valida o catálogo e usa CMS AES-256-GCM. Somente chaves
+  públicas foram versionadas; as privadas ficaram fora do Git e do servidor.
+- O contrato de release aceitou os manifests reais e recusou uma cópia
+  adulterada com `NodePort`.
+- Sintaxe Bash, Python/PyYAML, YAML, segredo e invariantes da fundação passaram
+  localmente. Nenhum namespace, database, login, Secret, workload, Tunnel ou
+  credencial externa foi aplicado nesta preparação.

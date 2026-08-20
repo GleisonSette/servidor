@@ -121,3 +121,16 @@ encerra a exceção.
 O serviço `apiwpp` existente é preservado; toda a capacidade restante fica
 reservada ao Blindou. Pixel/CIA e SaferWPP não recebem workloads. O Blindou
 continua usando UAZAPI e não reativa seu código `api-wpp`.
+
+## Resolvida D014 - Fundação isolada do Blindou no host compartilhado
+
+O Blindou usa o PostgreSQL 18 já operado no host, sem criar um segundo processo,
+mas recebe database vazio, quatro logins, grupos, regras HBA e CA cliente
+exclusivos. As conexões dos Pods exigem certificado e SCRAM; nenhum login possui
+superuser, criação de database/role ou replicação.
+
+O backup físico pgBackRest continua protegendo o cluster inteiro. O Blindou
+também produz dump lógico separado, valida o catálogo antes de criptografar e
+exporta somente o envelope CMS AES-256-GCM. A chave privada de recuperação e a
+chave de assinatura de release permanecem fora do servidor. Frequência,
+retenção, RPO/RTO e destino offsite continuam pendentes em D005.

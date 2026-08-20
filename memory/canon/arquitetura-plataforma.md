@@ -30,7 +30,9 @@ Estado dos controladores em 2026-08-15:
 
 - `apiwpp-deployctl` e `apiwpp-backupctl` estão instalados, root-owned e são os
   únicos caminhos sem senha do apiwpp;
-- `pixel-deployctl`, `saferwpp-deployctl` e `blindou-deployctl` ainda não existem;
+- `pixel-deployctl` e `saferwpp-deployctl` ainda não existem;
+- `blindou-deployctl` está preparado e validado no repositório, mas ainda não
+  foi instalado no host;
 - até a instalação de cada controlador, o respectivo Codex de aplicação pode
   preparar artefatos e confirmar o acesso, mas não alterar o servidor;
 - a capacidade administrativa com senha do usuário humano não é uma interface
@@ -92,11 +94,13 @@ Baseline aplicado em 2026-08-15:
 As cotas são orçamento inicial, não promessa de capacidade. Serão revistas com
 métricas durante a implantação real.
 
-`blindou-production` e `blindou-edge` são criados pela plataforma somente como namespaces vazios,
-com Pod Security `restricted` e admissão adicional para imagens por digest,
-recursos explícitos, raiz somente leitura, capabilities removidas e token de
-ServiceAccount desabilitado. Quotas, contas de workload, PVCs e políticas
-específicas continuam pertencendo ao repositório Blindou.
+`blindou-production` e `blindou-edge` são criados pelo controlador da plataforma
+somente como namespaces vazios, com gate `blocked`, quota zero para objetos
+operacionais, Pod Security `restricted`, default deny e admissão adicional para
+imagens por digest, recursos explícitos, raiz somente leitura, capabilities
+removidas e token de ServiceAccount desabilitado. Quotas e políticas de
+quarentena pertencem à plataforma; contas, PVCs e políticas dos workloads
+continuam pertencendo ao repositório Blindou e só entram depois do gate.
 
 ## Dados no host
 
@@ -104,6 +108,13 @@ O mesmo processo PostgreSQL 18 do host pode atender `apiwpp` e Blindou, mas
 cada produto usa banco, owner, papéis de runtime/migration, certificados e
 regras de acesso independentes. O Blindou nunca acessa o banco `clone_wpp` do
 `apiwpp` e começa vazio pelas migrations próprias.
+
+A fundação Blindou prepara quatro logins sem privilégio administrativo. As
+conexões vindas do CIDR dos Pods exigem senha SCRAM e certificado assinado pela
+CA cliente exclusiva do Blindou. O backup físico pgBackRest continua abrangendo
+o cluster compartilhado; adicionalmente o database Blindou recebe dump lógico
+isolado, validado e criptografado para uma chave de recuperação mantida fora do
+servidor.
 
 NATS e Redis do Blindou pertencem somente ao produto e rodam no seu namespace.
 Os namespaces históricos Pixel/CIA e SaferWPP permanecem vazios e não recebem

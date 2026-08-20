@@ -6,16 +6,10 @@ spec:
   failurePolicy: Fail
   matchConstraints:
     resourceRules:
-      - apiGroups:
-          - ""
-        apiVersions:
-          - v1
-        operations:
-          - CREATE
-          - UPDATE
-        resources:
-          - pods
-          - pods/ephemeralcontainers
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods", "pods/ephemeralcontainers"]
         scope: Namespaced
   validations:
     - expression: "has(namespaceObject.metadata.labels) && namespaceObject.metadata.labels['platform.servidor.local/deployment-gate'] == 'passed'"
@@ -51,8 +45,7 @@ metadata:
   name: managed-production-workload-baseline
 spec:
   policyName: managed-production-workload-baseline
-  validationActions:
-    - Deny
+  validationActions: ["Deny"]
   matchResources:
     namespaceSelector:
       matchLabels:
