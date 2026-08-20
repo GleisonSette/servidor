@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-plano-implementacao
   source_path: memory/canon/plano-implementacao.md
   generated_from: plano aprovado pelo usuário em 2026-08-15
-  updated_at: 2026-08-19
+  updated_at: 2026-08-20
   status: canonical
 
 ## Regra de continuidade
@@ -139,10 +139,10 @@ Aceite ainda pendente:
 
 ## Fase 2D - Plataforma e controlador de deploy do Blindou
 
-Status: fundação interna concluída e verificada em 2026-08-20; ativação externa
-continua pendente. Controlador root, namespaces bloqueados, database vazio,
-identidades internas, primeiro backup criptografado recuperável e métricas
-estão ativos. Cloudflare, Secrets, migrations e workloads não foram aplicados.
+Status: fundação interna concluída e verificada em 2026-08-20. Zero Trust e o
+Tunnel remoto `blindou-physical` foram criados; o controlador fechado para
+ativar somente o conector foi preparado. Aplicação, migrations e release
+continuam bloqueadas.
 
 Objetivos:
 
@@ -165,12 +165,14 @@ Aceite:
 
 Próxima ação exata:
 
-1. manter os gates `blocked` enquanto P005, domínios, Cloudflare, UAZAPI e
-   credenciais externas estiverem abertos;
-2. definir receptor externo de alertas, retenção e RPO/RTO;
-3. preparar Secrets por canal seguro e imagens imutáveis por digest;
-4. somente mediante nova autorização, liberar os gates, executar migrations e
-   aplicar a primeira release assinada na Fase 2E.
+1. instalar o controlador atualizado e enviar o token do Tunnel pelo fluxo
+   oculto; somente `blindou-edge` passa para `connector-only`;
+2. validar o conector no Zero Trust e manter `blindou-production` `blocked`;
+3. preparar `app.blindou.com` no Pages e `api.blindou.com` no Tunnel, sem
+   publicar origem inexistente;
+4. resolver P005, UAZAPI e os demais Secrets antes da primeira release;
+5. somente mediante nova autorização, liberar o gate completo, executar
+   migrations e aplicar a primeira release assinada na Fase 2E.
 
 ## Fase 2E - Primeira release e capacidade do Blindou
 

@@ -1,5 +1,7 @@
 Defaults!/usr/local/sbin/blindou-deployctl env_reset
-Cmnd_Alias BLINDOU_DEPLOY_READ = /usr/local/sbin/blindou-deployctl status, /usr/local/sbin/blindou-deployctl verify-foundation, /usr/local/sbin/blindou-deployctl verify-data, /usr/local/sbin/blindou-deployctl verify-backup, /usr/local/sbin/blindou-deployctl export-latest-backup
-Cmnd_Alias BLINDOU_DEPLOY_FOUNDATION = /usr/local/sbin/blindou-deployctl apply-foundation blindou-platform-foundation, /usr/local/sbin/blindou-deployctl provision-data blindou-data-foundation, /usr/local/sbin/blindou-deployctl backup-database blindou-database-backup
+Cmnd_Alias BLINDOU_DEPLOY_READ = /usr/local/sbin/blindou-deployctl status, /usr/local/sbin/blindou-deployctl verify-foundation, /usr/local/sbin/blindou-deployctl verify-edge-connector, /usr/local/sbin/blindou-deployctl verify-data, /usr/local/sbin/blindou-deployctl verify-backup, /usr/local/sbin/blindou-deployctl export-latest-backup
+Cmnd_Alias BLINDOU_DEPLOY_FOUNDATION = /usr/local/sbin/blindou-deployctl apply-foundation blindou-platform-foundation, /usr/local/sbin/blindou-deployctl provision-edge-connector blindou-edge-connector, /usr/local/sbin/blindou-deployctl provision-data blindou-data-foundation, /usr/local/sbin/blindou-deployctl backup-database blindou-database-backup
+Cmnd_Alias BLINDOU_DEPLOY_DESTRUCTIVE = /usr/local/sbin/blindou-deployctl rollback-edge-connector blindou-edge-connector
 Cmnd_Alias BLINDOU_SIGNED_RELEASE = /usr/local/sbin/blindou-deployctl validate-release *, /usr/local/sbin/blindou-deployctl apply *
 apiadmin ALL=(root) NOPASSWD: BLINDOU_DEPLOY_READ, BLINDOU_DEPLOY_FOUNDATION, BLINDOU_SIGNED_RELEASE
+apiadmin ALL=(root) BLINDOU_DEPLOY_DESTRUCTIVE

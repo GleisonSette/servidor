@@ -1,0 +1,145 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: blindou-cloudflared
+  namespace: blindou-edge
+  labels:
+    app.kubernetes.io/name: blindou-cloudflared
+    app.kubernetes.io/part-of: blindou
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blindou-cloudflared
+  namespace: blindou-edge
+  labels:
+    app.kubernetes.io/name: blindou-cloudflared
+    app.kubernetes.io/part-of: blindou
+    blindou.io/lifecycle: connector-foundation
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: blindou-cloudflared
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: blindou-cloudflared
+        app.kubernetes.io/part-of: blindou
+        blindou.io/component: edge
+        blindou.io/lifecycle: connector-foundation
+    spec:
+      serviceAccountName: blindou-cloudflared
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      nodeSelector:
+        blindou.io/node-role: physical
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+        appArmorProfile:
+          type: RuntimeDefault
+      containers:
+        - name: cloudflared
+          image: docker.io/cloudflare/cloudflared@sha256:18626b1baac4450214535cd5bc40ef44c0635244d585ebf707749c22b6f3408f
+          imagePullPolicy: IfNotPresent
+          args:
+            - tunnel
+            - --no-autoupdate
+            - --protocol
+            - http2
+            - --metrics
+            - 0.0.0.0:20241
+            - run
+            - --token-file
+            - /etc/cloudflared/token
+          ports:
+            - name: metrics
+              containerPort: 20241
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tunnel-token
+              mountPath: /etc/cloudflared
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tunnel-token
+          secret:
+            secretName: blindou-cloudflare-tunnel
+            defaultMode: 0440
+            items:
+              - key: token
+                path: token
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-cloudflared-edge
+  namespace: blindou-edge
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: blindou-cloudflared
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 0.0.0.0/8
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.0.0.0/24
+              - 192.0.2.0/24
+              - 192.168.0.0/16
+              - 198.18.0.0/15
+              - 198.51.100.0/24
+              - 203.0.113.0/24
+              - 224.0.0.0/4
+              - 240.0.0.0/4
+      ports:
+        - protocol: TCP
+          port: 7844

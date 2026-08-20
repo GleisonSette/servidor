@@ -4,9 +4,10 @@
 
 Este runbook governa a fundação do Blindou no servidor `apiwpp`. A fundação
 cria namespaces vazios e bloqueados, identidade de deploy, database vazio,
-logins, TLS cliente, backup lógico criptografado e métricas da plataforma. Ela
-não cria Secrets Kubernetes, não executa migrations, não publica imagens e não
-inicia `cloudflared`.
+logins, TLS cliente, backup lógico criptografado e métricas da plataforma. A
+fundação base não cria Secrets Kubernetes, não executa migrations e não publica
+imagens. Uma etapa separada e explicitamente autorizada pode liberar somente o
+conector `cloudflared`, mantendo a aplicação em quarentena.
 
 O PostgreSQL 18 continua sendo um processo compartilhado com o `apiwpp`, mas o
 Blindou possui database, quatro logins, grupos `NOLOGIN`, CA cliente, certificado
@@ -79,6 +80,48 @@ sudo /usr/local/sbin/blindou-deployctl \
 
 O rollback restaura as políticas de admissão capturadas antes da aplicação e o
 label anterior do nó. Ele recusa remover namespace que possua objeto operacional.
+
+## Conector Cloudflare isolado
+
+No computador administrativo, executar:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\operations\Invoke-BlindouCloudflareConnector.ps1
+```
+
+O script atualiza o controlador por bootstrap humano, pede o token em campo
+oculto e o envia somente pelo `stdin` do SSH. O token nunca entra em argumento,
+arquivo local, Git ou log. O controlador grava diretamente o Secret
+`blindou-edge/blindou-cloudflare-tunnel`, aplica a imagem imutável do
+`cloudflared` e espera a réplica ficar disponível.
+
+O gate `connector-only` admite exclusivamente um Pod chamado
+`blindou-cloudflared`. A quota permite um Pod e um Secret, mas continua negando
+Services e PVCs. `blindou-production` permanece `blocked`, vazio e com quotas
+zero. A NetworkPolicy do conector libera somente DNS do cluster e TCP/7844 para
+endereços públicos, sem destinos privados.
+
+Verificação:
+
+```bash
+sudo -n /usr/local/sbin/blindou-deployctl verify-edge-connector
+sudo -n /usr/local/sbin/blindou-deployctl verify-foundation
+sudo -n /usr/local/sbin/apiwpp-deployctl verify
+sudo -n /usr/local/sbin/blindou-hostctl verify
+```
+
+Se a primeira ativação falhar, o controlador remove automaticamente o Pod e o
+Secret e restaura a quarentena `blocked`. O rollback humano é destrutivo para o
+Secret e exige senha:
+
+```bash
+sudo /usr/local/sbin/blindou-deployctl \
+  rollback-edge-connector blindou-edge-connector
+```
+
+Esse rollback não apaga o Tunnel no painel Cloudflare; apenas desconecta o
+servidor. O token pode ser rotacionado ou revogado no Zero Trust.
 
 ## Fundação de dados
 
@@ -161,5 +204,7 @@ sudo -n /usr/local/sbin/apiwpp-deployctl verify
 sudo -n /usr/local/sbin/blindou-hostctl verify
 ```
 
-Também confirmar zero unit systemd falha, nenhuma porta nova e nenhum workload
-Blindou. Divergência interrompe a fase; não liberar Tunnel, Secrets ou gate.
+Também confirmar zero unit systemd falha e nenhuma porta nova. Antes da etapa
+do conector, os namespaces devem estar vazios; depois dela, somente o Pod e o
+Secret fechados descritos acima são aceitos. Qualquer outro workload interrompe
+a fase.

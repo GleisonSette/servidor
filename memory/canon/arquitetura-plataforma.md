@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-arquitetura-plataforma
   source_path: memory/canon/arquitetura-plataforma.md
   generated_from: decisão do usuário, auditoria e requisitos de apiwpp/Blindou
-  updated_at: 2026-08-19
+  updated_at: 2026-08-20
   status: canonical
 
 ## Objetivo e limite
@@ -26,13 +26,13 @@ isolamento forte contra comprometimento do kernel/root.
 SSH identifica o operador. O isolamento entre projetos é feito por assinatura
 de artefato, namespaces, RBAC, ServiceAccounts, NetworkPolicy, dados e limites.
 
-Estado dos controladores em 2026-08-15:
+Estado dos controladores em 2026-08-20:
 
 - `apiwpp-deployctl` e `apiwpp-backupctl` estão instalados, root-owned e são os
   únicos caminhos sem senha do apiwpp;
 - `pixel-deployctl` e `saferwpp-deployctl` ainda não existem;
-- `blindou-deployctl` está preparado e validado no repositório, mas ainda não
-  foi instalado no host;
+- `blindou-deployctl` está instalado e governa a fundação, dados, backup,
+  conector Cloudflare e releases assinadas do Blindou;
 - até a instalação de cada controlador, o respectivo Codex de aplicação pode
   preparar artefatos e confirmar o acesso, mas não alterar o servidor;
 - a capacidade administrativa com senha do usuário humano não é uma interface
@@ -94,13 +94,15 @@ Baseline aplicado em 2026-08-15:
 As cotas são orçamento inicial, não promessa de capacidade. Serão revistas com
 métricas durante a implantação real.
 
-`blindou-production` e `blindou-edge` são criados pelo controlador da plataforma
-somente como namespaces vazios, com gate `blocked`, quota zero para objetos
-operacionais, Pod Security `restricted`, default deny e admissão adicional para
-imagens por digest, recursos explícitos, raiz somente leitura, capabilities
-removidas e token de ServiceAccount desabilitado. Quotas e políticas de
-quarentena pertencem à plataforma; contas, PVCs e políticas dos workloads
-continuam pertencendo ao repositório Blindou e só entram depois do gate.
+`blindou-production` e `blindou-edge` nascem vazios, com gate `blocked`, quota
+zero para objetos operacionais, Pod Security `restricted`, default deny e
+admissão adicional. Após autorização explícita, somente `blindou-edge` pode
+avançar para `connector-only`: quota de um Pod e um Secret, nenhum Service/PVC e
+admissão limitada ao `blindou-cloudflared` imutável. `blindou-production`
+permanece bloqueado até a primeira release passar todos os gates. Quotas e
+políticas de quarentena pertencem à plataforma; contas, PVCs e políticas dos
+workloads continuam pertencendo ao repositório Blindou e só entram depois do
+gate completo.
 
 ## Dados no host
 

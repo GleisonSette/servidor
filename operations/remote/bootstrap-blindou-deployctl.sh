@@ -38,6 +38,8 @@ for source in \
   "$SIGNERS_SOURCE" "$RECIPIENT_SOURCE" "$SERVICE_POLICY_SOURCE" \
   "${PLATFORM_SOURCE}/00-namespaces.yaml" \
   "${PLATFORM_SOURCE}/10-quarantine.yaml" \
+  "${PLATFORM_SOURCE}/15-edge-connector-gate.yaml" \
+  "${PLATFORM_SOURCE}/16-edge-connector-runtime.yaml" \
   "${PLATFORM_SOURCE}/20-production-workload-policy.yaml"; do
   [[ -f "$source" && ! -L "$source" ]] || fail "fonte ausente ou simbólica: ${source}"
 done
@@ -79,6 +81,12 @@ install -o root -g root -m 0644 \
   "${PLATFORM_SOURCE}/00-namespaces.yaml" "${FOUNDATION_TARGET}/00-namespaces.yaml"
 install -o root -g root -m 0644 \
   "${PLATFORM_SOURCE}/10-quarantine.yaml" "${FOUNDATION_TARGET}/10-quarantine.yaml"
+install -o root -g root -m 0644 \
+  "${PLATFORM_SOURCE}/15-edge-connector-gate.yaml" \
+  "${FOUNDATION_TARGET}/15-edge-connector-gate.yaml"
+install -o root -g root -m 0644 \
+  "${PLATFORM_SOURCE}/16-edge-connector-runtime.yaml" \
+  "${FOUNDATION_TARGET}/16-edge-connector-runtime.yaml"
 install -o root -g root -m 0644 \
   "${PLATFORM_SOURCE}/20-production-workload-policy.yaml" \
   "${FOUNDATION_TARGET}/20-production-workload-policy.yaml"

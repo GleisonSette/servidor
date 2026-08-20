@@ -10,6 +10,9 @@ readonly NODE_NAME='apiwpp'
 readonly APP_NAMESPACE='blindou-production'
 readonly EDGE_NAMESPACE='blindou-edge'
 readonly FOUNDATION_DIR='/usr/local/lib/blindou-platform/foundation'
+readonly EDGE_GATE_MANIFEST="${FOUNDATION_DIR}/15-edge-connector-gate.yaml"
+readonly EDGE_RUNTIME_MANIFEST="${FOUNDATION_DIR}/16-edge-connector-runtime.yaml"
+readonly EDGE_CONNECTOR_IMAGE='docker.io/cloudflare/cloudflared@sha256:18626b1baac4450214535cd5bc40ef44c0635244d585ebf707749c22b6f3408f'
 readonly RELEASE_VERIFIER='/usr/local/lib/blindou-platform/blindou-release-verify.py'
 readonly STATE_ROOT='/var/lib/blindou-platform'
 readonly FOUNDATION_STATE="${STATE_ROOT}/foundation.state"
@@ -39,6 +42,7 @@ readonly CURRENT_RELEASE="${STATE_ROOT}/current-release"
 readonly ALLOWED_SIGNERS="${DATA_ROOT}/deploy/allowed_signers"
 readonly RELEASE_PATTERN='^[0-9a-f]{40}$'
 readonly FOUNDATION_CONFIRMATION='blindou-platform-foundation'
+readonly EDGE_CONNECTOR_CONFIRMATION='blindou-edge-connector'
 readonly DATA_CONFIRMATION='blindou-data-foundation'
 readonly DATA_ROLLBACK_CONFIRMATION='blindou-empty-data-foundation'
 readonly BACKUP_CONFIRMATION='blindou-database-backup'
@@ -121,7 +125,7 @@ namespace_object_count() {
 }
 
 assert_namespace_labels() {
-  local namespace="$1" role="$2"
+  local namespace="$1" role="$2" expected_gate="$3"
   [[ "$(namespace_label "$namespace" 'platform\.servidor\.local/managed')" == 'true' ]] \
     || fail "namespace ${namespace} não é gerenciado pela plataforma"
   [[ "$(namespace_label "$namespace" 'platform\.servidor\.local/project')" == 'blindou' ]] \
@@ -130,8 +134,8 @@ assert_namespace_labels() {
     || fail "namespace ${namespace} não está marcado como produção"
   [[ "$(namespace_label "$namespace" 'platform\.servidor\.local/role')" == "$role" ]] \
     || fail "papel do namespace ${namespace} diverge"
-  [[ "$(namespace_label "$namespace" 'platform\.servidor\.local/deployment-gate')" == 'blocked' ]] \
-    || fail "namespace ${namespace} deve permanecer bloqueado nesta etapa"
+  [[ "$(namespace_label "$namespace" 'platform\.servidor\.local/deployment-gate')" == "$expected_gate" ]] \
+    || fail "gate do namespace ${namespace} diverge de ${expected_gate}"
   [[ "$(namespace_label "$namespace" 'pod-security\.kubernetes\.io/enforce')" == 'restricted' ]] \
     || fail "Pod Security não está restricted em ${namespace}"
   [[ "$(namespace_label "$namespace" 'pod-security\.kubernetes\.io/enforce-version')" == 'v1.36' ]] \
@@ -160,6 +164,45 @@ assert_quarantine_namespace() {
     || fail "default deny ausente em ${namespace}"
   kube -n "$namespace" get networkpolicy platform-allow-cluster-dns >/dev/null \
     || fail "política DNS ausente em ${namespace}"
+}
+
+assert_edge_connector() {
+  [[ "$(kube -n "$EDGE_NAMESPACE" get resourcequota platform-quarantine \
+    -o jsonpath='{.spec.hard.pods}')" == '1' ]] \
+    || fail 'edge quota must limit Pods to one'
+  [[ "$(kube -n "$EDGE_NAMESPACE" get resourcequota platform-quarantine \
+    -o jsonpath='{.spec.hard.services}')" == '0' ]] \
+    || fail 'edge quota must keep Services blocked'
+  [[ "$(kube -n "$EDGE_NAMESPACE" get resourcequota platform-quarantine \
+    -o jsonpath='{.spec.hard.secrets}')" == '1' ]] \
+    || fail 'edge quota must limit Secrets to one'
+  [[ "$(kube -n "$EDGE_NAMESPACE" get resourcequota platform-quarantine \
+    -o jsonpath='{.spec.hard.persistentvolumeclaims}')" == '0' ]] \
+    || fail 'edge quota must keep PVCs blocked'
+  [[ "$(kube -n "$EDGE_NAMESPACE" get deployment -o json | jq \
+    '[.items[].metadata.name] | sort == ["blindou-cloudflared"]')" == 'true' ]] \
+    || fail 'unexpected Deployment in edge namespace'
+  [[ "$(kube -n "$EDGE_NAMESPACE" get statefulset,daemonset,job,cronjob,service,pvc \
+    -o json | jq '[.items[]] | length')" == '0' ]] \
+    || fail 'forbidden object in edge namespace'
+  [[ "$(kube -n "$EDGE_NAMESPACE" get pod \
+    -l app.kubernetes.io/name=blindou-cloudflared -o json | jq '[.items[]] | length')" == '1' ]] \
+    || fail 'cloudflared Pod count must be one'
+  [[ "$(kube -n "$EDGE_NAMESPACE" get secret -o json | jq \
+    '[.items[].metadata.name] | sort == ["blindou-cloudflare-tunnel"]')" == 'true' ]] \
+    || fail 'unexpected Secret in edge namespace'
+  secret_has_keys "$EDGE_NAMESPACE" blindou-cloudflare-tunnel token
+  [[ "$(kube -n "$EDGE_NAMESPACE" get deployment blindou-cloudflared \
+    -o jsonpath='{.spec.template.spec.containers[0].image}')" == "$EDGE_CONNECTOR_IMAGE" ]] \
+    || fail 'immutable cloudflared image diverges'
+  [[ "$(kube -n "$EDGE_NAMESPACE" get deployment blindou-cloudflared \
+    -o jsonpath='{.spec.template.spec.automountServiceAccountToken}')" == 'false' ]] \
+    || fail 'cloudflared ServiceAccount token is enabled'
+  [[ "$(kube -n "$EDGE_NAMESPACE" get deployment blindou-cloudflared \
+    -o jsonpath='{.status.availableReplicas}')" == '1' ]] \
+    || fail 'cloudflared has no available replica'
+  kube -n "$EDGE_NAMESPACE" get networkpolicy allow-cloudflared-edge >/dev/null \
+    || fail 'cloudflared NetworkPolicy is absent'
 }
 
 negative_admission_tests() {
@@ -206,12 +249,23 @@ EOF
 
 verify_foundation() {
   require_platform_preconditions
+  local edge_gate
   namespace_exists "$APP_NAMESPACE" || fail "namespace ${APP_NAMESPACE} ausente"
   namespace_exists "$EDGE_NAMESPACE" || fail "namespace ${EDGE_NAMESPACE} ausente"
-  assert_namespace_labels "$APP_NAMESPACE" application
-  assert_namespace_labels "$EDGE_NAMESPACE" edge
+  assert_namespace_labels "$APP_NAMESPACE" application blocked
   assert_quarantine_namespace "$APP_NAMESPACE"
-  assert_quarantine_namespace "$EDGE_NAMESPACE"
+  edge_gate="$(namespace_label "$EDGE_NAMESPACE" 'platform\.servidor\.local/deployment-gate')"
+  case "$edge_gate" in
+    blocked)
+      assert_namespace_labels "$EDGE_NAMESPACE" edge blocked
+      assert_quarantine_namespace "$EDGE_NAMESPACE"
+      ;;
+    connector-only)
+      assert_namespace_labels "$EDGE_NAMESPACE" edge connector-only
+      assert_edge_connector
+      ;;
+    *) fail "unexpected gate in namespace ${EDGE_NAMESPACE}" ;;
+  esac
   kube get validatingadmissionpolicy managed-production-workload-baseline >/dev/null \
     || fail 'ValidatingAdmissionPolicy de produção ausente'
   kube get validatingadmissionpolicybinding managed-production-workload-baseline >/dev/null \
@@ -222,11 +276,13 @@ verify_foundation() {
     || fail 'binding de Services privados ausente'
   [[ "$(kube get node "$NODE_NAME" -o jsonpath='{.metadata.labels.blindou\.io/node-role}')" == 'physical' ]] \
     || fail 'nó físico não possui o label Blindou esperado'
-  [[ "$(kube get deployment,statefulset,daemonset -A -o json | jq \
+  if [[ "$edge_gate" == blocked ]]; then
+    [[ "$(kube get deployment,statefulset,daemonset -A -o json | jq \
     '[.items[] | select((.metadata.name | ascii_downcase | contains("cloudflared")) or any(.spec.template.spec.containers[]?; .image | ascii_downcase | contains("cloudflared")))] | length')" == '0' ]] \
     || fail 'cloudflared apareceu no cluster antes da configuração externa'
   pgrep -x cloudflared >/dev/null \
     && fail 'cloudflared apareceu no host'
+  fi
   negative_admission_tests
   pass 'namespaces vazios, quarentena, admissão e preservação do apiwpp verificados'
 }
@@ -328,6 +384,71 @@ rollback_foundation() {
   if [[ "$mode" != auto ]]; then
     pass 'somente namespaces vazios e controles da fundação Blindou foram revertidos'
   fi
+}
+
+verify_edge_connector() {
+  verify_foundation >/dev/null
+  [[ "$(namespace_label "$EDGE_NAMESPACE" 'platform\.servidor\.local/deployment-gate')" == 'connector-only' ]] \
+    || fail 'edge connector gate is not active'
+  pass 'Cloudflare connector is isolated and available'
+}
+
+rollback_edge_connector_internal() {
+  kube delete -f "$EDGE_RUNTIME_MANIFEST" --ignore-not-found --wait=true >/dev/null
+  kube -n "$EDGE_NAMESPACE" delete secret blindou-cloudflare-tunnel \
+    --ignore-not-found --wait=true >/dev/null
+  kube apply -f "${FOUNDATION_DIR}/00-namespaces.yaml" >/dev/null
+  kube apply -f "${FOUNDATION_DIR}/10-quarantine.yaml" >/dev/null
+  verify_foundation >/dev/null
+}
+
+provision_edge_connector() {
+  [[ "${1:-}" == "$EDGE_CONNECTOR_CONFIRMATION" ]] \
+    || fail "confirmation required: ${EDGE_CONNECTOR_CONFIRMATION}"
+  require_platform_preconditions
+  if verify_edge_connector >/dev/null 2>&1; then
+    pass 'Cloudflare connector was already provisioned and healthy'
+    return
+  fi
+  assert_namespace_labels "$APP_NAMESPACE" application blocked
+  assert_quarantine_namespace "$APP_NAMESPACE"
+  assert_namespace_labels "$EDGE_NAMESPACE" edge blocked
+  assert_quarantine_namespace "$EDGE_NAMESPACE"
+  [[ ! -t 0 ]] || fail 'tunnel token must arrive through non-interactive stdin'
+
+  local token
+  IFS= read -r token || fail 'tunnel token was not received'
+  [[ ${#token} -ge 80 && ${#token} -le 4096 \
+      && "$token" =~ ^[A-Za-z0-9._-]+$ ]] \
+    || { unset token; fail 'tunnel token format is invalid'; }
+
+  if ! (
+    kube apply -f "${FOUNDATION_DIR}/20-production-workload-policy.yaml" >/dev/null
+    kube apply -f "$EDGE_GATE_MANIFEST" >/dev/null
+    printf '%s' "$token" \
+      | kube -n "$EDGE_NAMESPACE" create secret generic blindou-cloudflare-tunnel \
+          --from-file=token=/dev/stdin --dry-run=client -o yaml \
+      | kube apply -f - >/dev/null
+    kube apply -f "$EDGE_RUNTIME_MANIFEST" >/dev/null
+    kube -n "$EDGE_NAMESPACE" rollout status deployment/blindou-cloudflared \
+      --timeout=300s >/dev/null
+    verify_edge_connector >/dev/null
+  ); then
+    unset token
+    rollback_edge_connector_internal \
+      || fail 'connector provisioning and automatic rollback both failed'
+    fail 'connector provisioning failed; blocked edge quarantine was restored'
+  fi
+  unset token
+  pass 'Cloudflare connector provisioned without persisting the token outside Kubernetes'
+}
+
+rollback_edge_connector() {
+  [[ "${1:-}" == "$EDGE_CONNECTOR_CONFIRMATION" ]] \
+    || fail "confirmation required: ${EDGE_CONNECTOR_CONFIRMATION}"
+  require_platform_preconditions
+  rollback_edge_connector_internal
+  pass 'Cloudflare connector and its Kubernetes Secret were removed; edge is blocked again'
 }
 
 generate_database_material() {
@@ -977,6 +1098,11 @@ show_status() {
   else
     printf 'current_release=absent\n'
   fi
+  if verify_edge_connector >/dev/null 2>&1; then
+    printf 'cloudflare_connector=ready\n'
+  else
+    printf 'cloudflare_connector=absent_or_unhealthy\n'
+  fi
 }
 
 case "${1:-}" in
@@ -987,6 +1113,18 @@ case "${1:-}" in
   verify-foundation)
     [[ $# -eq 1 ]] || fail 'uso: blindou-deployctl verify-foundation'
     verify_foundation
+    ;;
+  verify-edge-connector)
+    [[ $# -eq 1 ]] || fail 'usage: blindou-deployctl verify-edge-connector'
+    verify_edge_connector
+    ;;
+  provision-edge-connector)
+    [[ $# -eq 2 ]] || fail 'usage: blindou-deployctl provision-edge-connector CONFIRMATION'
+    provision_edge_connector "$2"
+    ;;
+  rollback-edge-connector)
+    [[ $# -eq 2 ]] || fail 'usage: blindou-deployctl rollback-edge-connector CONFIRMATION'
+    rollback_edge_connector "$2"
     ;;
   apply-foundation)
     [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl apply-foundation CONFIRMAÇÃO'
@@ -1040,6 +1178,6 @@ case "${1:-}" in
     metrics
     ;;
   *)
-    fail 'uso: blindou-deployctl {status|verify-foundation|apply-foundation CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|validate-release RELEASE_ID|apply RELEASE_ID|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
+    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|validate-release RELEASE_ID|apply RELEASE_ID|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
     ;;
 esac

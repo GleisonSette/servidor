@@ -35,13 +35,22 @@ import sys
 import yaml
 
 root = Path(sys.argv[1])
+base_paths = [
+    root / "platform/blindou/00-namespaces.yaml",
+    root / "platform/blindou/10-quarantine.yaml",
+    root / "platform/blindou/20-production-workload-policy.yaml",
+    root / "platform/base/service-exposure-policy.yaml",
+]
 paths = sorted((root / "platform/blindou").glob("*.yaml"))
 paths.append(root / "platform/base/service-exposure-policy.yaml")
 docs = []
 for path in paths:
     docs.extend(doc for doc in yaml.safe_load_all(path.read_text(encoding="utf-8")) if doc)
+base_docs = []
+for path in base_paths:
+    base_docs.extend(doc for doc in yaml.safe_load_all(path.read_text(encoding="utf-8")) if doc)
 
-namespaces = {doc["metadata"]["name"]: doc for doc in docs if doc.get("kind") == "Namespace"}
+namespaces = {doc["metadata"]["name"]: doc for doc in base_docs if doc.get("kind") == "Namespace"}
 if set(namespaces) != {"blindou-production", "blindou-edge"}:
     raise SystemExit("namespaces Blindou divergentes")
 for namespace in namespaces.values():
@@ -51,7 +60,7 @@ for namespace in namespaces.values():
     if labels.get("pod-security.kubernetes.io/enforce") != "restricted":
         raise SystemExit("Pod Security deve ser restricted")
 
-quotas = [doc for doc in docs if doc.get("kind") == "ResourceQuota"]
+quotas = [doc for doc in base_docs if doc.get("kind") == "ResourceQuota"]
 if len(quotas) != 2:
     raise SystemExit("eram esperadas duas quotas de quarentena")
 for quota in quotas:
@@ -62,6 +71,41 @@ for quota in quotas:
 
 if any(doc.get("kind") == "Secret" for doc in docs):
     raise SystemExit("fundação não pode conter Secret")
+edge_docs = [
+    doc
+    for path in (
+        root / "platform/blindou/15-edge-connector-gate.yaml",
+        root / "platform/blindou/16-edge-connector-runtime.yaml",
+    )
+    for doc in yaml.safe_load_all(path.read_text(encoding="utf-8"))
+    if doc
+]
+edge_namespace = next(doc for doc in edge_docs if doc.get("kind") == "Namespace")
+if edge_namespace["metadata"]["labels"].get(
+    "platform.servidor.local/deployment-gate"
+) != "connector-only":
+    raise SystemExit("gate dedicado do conector Cloudflare ausente")
+edge_quota = next(doc for doc in edge_docs if doc.get("kind") == "ResourceQuota")
+expected_quota = {
+    "pods": "1",
+    "services": "0",
+    "secrets": "1",
+    "persistentvolumeclaims": "0",
+    "configmaps": "1",
+}
+actual_quota = {key: str(value) for key, value in edge_quota["spec"]["hard"].items()}
+if actual_quota != expected_quota:
+    raise SystemExit("quota dedicada do conector Cloudflare diverge")
+deployment = next(doc for doc in edge_docs if doc.get("kind") == "Deployment")
+pod_spec = deployment["spec"]["template"]["spec"]
+container = pod_spec["containers"][0]
+if not container["image"].startswith("docker.io/cloudflare/cloudflared@sha256:"):
+    raise SystemExit("imagem cloudflared nao esta fixada por digest")
+if pod_spec.get("automountServiceAccountToken") is not False:
+    raise SystemExit("cloudflared nao desabilita token da ServiceAccount")
+if any(doc.get("kind") in {"Secret", "Service", "PersistentVolumeClaim"} for doc in edge_docs):
+    raise SystemExit("manifesto do conector contem objeto proibido")
+
 policies = {doc["metadata"]["name"] for doc in docs if doc.get("kind") == "ValidatingAdmissionPolicy"}
 if not {"managed-production-workload-baseline", "shared-lab-private-services"}.issubset(policies):
     raise SystemExit("políticas de admissão obrigatórias ausentes")
@@ -79,6 +123,14 @@ grep -Fq 'include_if_exists "pg_hba_blindou.conf"' "${REMOTE_DIR}/blindou-deploy
   || fail 'include HBA PostgreSQL válido ausente'
 grep -Fq 'pgrep -x cloudflared' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'detecção exata do processo cloudflared ausente'
+grep -Fq "readonly EDGE_CONNECTOR_CONFIRMATION='blindou-edge-connector'" \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'confirmação fechada do conector ausente'
+grep -Fq "[[ ! -t 0 ]]" "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'token do Tunnel não exige stdin não interativo'
+grep -Fq -- '--from-file=token=/dev/stdin' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'token do Tunnel não entra diretamente no Secret'
+grep -Fq 'rollback_edge_connector_internal' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'rollback do conector Cloudflare ausente'
 if grep -F "printf \"%s\\n\" \"include_if_exists 'pg_hba_blindou.conf'\"" \
     "${REMOTE_DIR}/blindou-deployctl" >/dev/null; then
   fail 'include HBA PostgreSQL usa aspas simples inválidas'

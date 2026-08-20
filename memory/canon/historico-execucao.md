@@ -348,3 +348,22 @@ permanecem bloqueadas.
   `0`. Não havia processo `cloudflared` nem staging plaintext em `/var/tmp`.
 - Cloudflare, Secrets, migrations, workloads e release permaneceram ausentes.
   Receptor externo, retenção, RPO/RTO e credenciais externas continuam em P005.
+
+## 2026-08-20 - Preparação do conector Cloudflare isolado
+
+Resultado: artefatos locais aprovados; ativação viva depende somente da entrada
+humana do token sem exibição.
+
+- Zero Trust foi ativado e o Tunnel remoto `blindou-physical` foi criado no
+  painel Cloudflare mediante autorização do usuário.
+- O controlador ganhou fluxo fechado de `stdin` para criar o único Secret do
+  edge, imagem `cloudflared` por digest, rollout, verificação e rollback
+  automático.
+- O novo gate `connector-only` admite somente um Pod `cloudflared`; quota mantém
+  Services e PVCs em zero e `blindou-production` continua integralmente
+  bloqueado.
+- O script administrativo nunca lê o clipboard por automação: o usuário cola o
+  token em campo oculto e o material não é salvo em disco, argumento ou Git.
+- Sintaxe Bash/PowerShell, YAML, invariantes de segredo, quota e imagem imutável
+  passaram localmente. Nenhuma mudança viva no cluster foi realizada por este
+  registro.

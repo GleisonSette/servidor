@@ -48,6 +48,12 @@ Para o Blindou, Cloudflare Pages e Cloudflare Tunnel foram escolhidos. Durante
 a exceção D013, o conector fica no namespace `blindou-edge` e alcança apenas
 Services ClusterIP. Nenhum projeto abre portas na ONT residencial.
 
+Em 2026-08-20 o usuário autorizou a criação do Zero Trust, do Tunnel
+`blindou-physical` e a vinculação do servidor. O conector pode ser ativado antes
+da aplicação sob gate `connector-only`: exatamente um Pod, um Secret, nenhuma
+porta pública/Service/PVC e sem liberar `blindou-production`. Hostnames apontam
+para respostas fechadas até as origens da aplicação existirem.
+
 ## Resolvida D007 - Baseline privado dos novos namespaces
 
 Os espaços Pixel e SaferWPP iniciam vazios, com Pod Security `restricted`,

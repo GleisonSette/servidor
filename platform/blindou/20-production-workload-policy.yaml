@@ -12,7 +12,15 @@ spec:
         resources: ["pods", "pods/ephemeralcontainers"]
         scope: Namespaced
   validations:
-    - expression: "has(namespaceObject.metadata.labels) && namespaceObject.metadata.labels['platform.servidor.local/deployment-gate'] == 'passed'"
+    - expression: >-
+        has(namespaceObject.metadata.labels) &&
+        (namespaceObject.metadata.labels['platform.servidor.local/deployment-gate'] == 'passed' ||
+        (namespaceObject.metadata.name == 'blindou-edge' &&
+        namespaceObject.metadata.labels['platform.servidor.local/deployment-gate'] == 'connector-only' &&
+        has(object.metadata.labels) &&
+        object.metadata.labels['app.kubernetes.io/name'] == 'blindou-cloudflared' &&
+        object.spec.containers.size() == 1 &&
+        object.spec.containers[0].name == 'cloudflared'))
       message: "O namespace de produção permanece bloqueado até o gate vigente ser atestado."
     - expression: "!has(object.spec.hostNetwork) || object.spec.hostNetwork == false"
       message: "hostNetwork é proibido em produção gerenciada."
