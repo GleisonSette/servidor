@@ -511,6 +511,7 @@ write_database_urls() {
 
 verify_data_foundation() {
   require_root_and_host
+  local hba_rule_count hba_diagnostic
   [[ -f "$DATABASE_CREDENTIALS" && "$(stat -c '%U:%G:%a' "$DATABASE_CREDENTIALS")" == 'root:root:600' ]] \
     || fail 'credenciais do banco ausentes ou expostas'
   [[ -f "${DATABASE_SECRET_DIR}/urls.env" \
@@ -531,9 +532,30 @@ verify_data_foundation() {
     || fail 'associação de papéis Blindou divergente'
   [[ "$(postgres_query -d postgres -Atqc 'SHOW ssl_ca_file')" == "$POSTGRES_CA_FILE" ]] \
     || fail 'PostgreSQL não usa a CA cliente Blindou'
-  [[ "$(postgres_query -d postgres -Atqc \
-    "SELECT count(*) FROM pg_hba_file_rules WHERE database @> ARRAY['blindou'] AND auth_method='scram-sha-256' AND options @> ARRAY['clientcert=verify-ca']")" == '4' ]] \
-    || fail 'HBA não exige TLS, certificado e SCRAM para os quatro logins'
+  hba_rule_count="$(postgres_query -d postgres -Atqc \
+    "SELECT count(*)
+       FROM pg_hba_file_rules
+      WHERE file_name='${POSTGRES_HBA_FILE}'
+        AND type='hostssl'
+        AND database=ARRAY['blindou']::text[]
+        AND user_name <@ ARRAY['blindou_migration_login','blindou_runtime_login','blindou_redirect_login','blindou_ml_login']::text[]
+        AND cardinality(user_name)=1
+        AND address='10.42.0.0'
+        AND netmask='255.255.0.0'
+        AND auth_method='scram-sha-256'
+        AND options @> ARRAY['clientcert=verify-ca']::text[]
+        AND error IS NULL")"
+  if [[ "$hba_rule_count" != '4' ]]; then
+    hba_diagnostic="$(postgres_query -d postgres -Atqc \
+      "SELECT coalesce(string_agg(
+          concat_ws('|', file_name, type, array_to_string(database, ','),
+                    array_to_string(user_name, ','), address, netmask,
+                    auth_method, array_to_string(options, ','), coalesce(error, 'ok')),
+          ';' ORDER BY rule_number), 'nenhuma')
+         FROM pg_hba_file_rules
+        WHERE file_name='${POSTGRES_HBA_FILE}' OR database @> ARRAY['blindou']::text[]")"
+    fail "HBA não exige TLS, certificado e SCRAM para os quatro logins (regras válidas=${hba_rule_count}; observadas=${hba_diagnostic})"
+  fi
   /usr/local/sbin/apiwpp-deployctl verify >/dev/null \
     || fail 'apiwpp regrediu depois do provisionamento do banco'
   pass 'database vazio, quatro logins, TLS cliente e papéis isolados verificados'
