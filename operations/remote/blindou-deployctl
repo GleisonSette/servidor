@@ -16,6 +16,7 @@ readonly FOUNDATION_STATE="${STATE_ROOT}/foundation.state"
 readonly BACKUP_ROOT='/var/backups/blindou'
 readonly FOUNDATION_BACKUP_ROOT="${BACKUP_ROOT}/platform-foundation"
 readonly DATABASE_BACKUP_ROOT="${BACKUP_ROOT}/postgresql"
+readonly DATABASE_PLAINTEXT_TMP_ROOT='/var/tmp'
 readonly BACKUP_EXPORT_ROOT='/home/apiadmin/blindou-backup-outbox'
 readonly DATA_ROOT='/etc/blindou'
 readonly DATABASE_SECRET_DIR="${DATA_ROOT}/database"
@@ -58,6 +59,7 @@ cleanup() {
     case "$resolved" in
       "${RELEASE_CACHE}"/.verify.*|"${DATABASE_BACKUP_ROOT}"/.tmp.*|\
       "${DATABASE_BACKUP_ROOT}"/blindou-*.tmp|\
+      "${DATABASE_PLAINTEXT_TMP_ROOT}"/blindou-backup.*|\
       "${CLIENT_CA_DIR}"/*.tmp|"${CLIENT_CA_DIR}"/client-ext.*|\
       "${CLIENT_CERT_DIR}"/*.tmp|\
       "${POSTGRES_CONFIG_FILE}.tmp"|"${POSTGRES_HBA_FILE}.tmp")
@@ -615,8 +617,10 @@ backup_database() {
   timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
   backup_id="blindou-${timestamp}"
   install -d -o root -g root -m 0700 "$DATABASE_BACKUP_ROOT"
-  temporary_dir="${DATABASE_BACKUP_ROOT}/.tmp.${backup_id}.$$"
-  install -d -o postgres -g postgres -m 0700 "$temporary_dir"
+  temporary_dir="$(mktemp -d --tmpdir="$DATABASE_PLAINTEXT_TMP_ROOT" \
+    "blindou-backup.${backup_id}.XXXXXXXXXX")"
+  chown postgres:postgres "$temporary_dir"
+  chmod 0700 "$temporary_dir"
   cleanup_paths+=("$temporary_dir")
   plain_dump="${temporary_dir}/blindou.dump"
   runuser -u postgres -- pg_dump --dbname=blindou --format=custom \
