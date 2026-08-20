@@ -307,6 +307,9 @@ mudança viva ainda pendentes.
   públicas foram versionadas; as privadas ficaram fora do Git e do servidor.
 - O contrato de release aceitou os manifests reais e recusou uma cópia
   adulterada com `NodePort`.
+- O commit Blindou `18b493e` produziu o mesmo SHA-256 em dois empacotamentos; a
+  assinatura Ed25519 foi aceita pela chave pública versionada e o bundle
+  assinado passou novamente no verificador fechado da plataforma.
 - Sintaxe Bash, Python/PyYAML, YAML, segredo e invariantes da fundação passaram
   localmente. Nenhum namespace, database, login, Secret, workload, Tunnel ou
   credencial externa foi aplicado nesta preparação.
