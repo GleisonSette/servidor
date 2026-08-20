@@ -42,11 +42,14 @@ corpus por padrão.
   reservada ao Blindou. Pixel/CIA e SaferWPP não recebem novos workloads.
 - O firewall externo foi adiado. A primeira aplicação da contenção temporária
   foi revertida porque o gate detectou DNS bloqueado por ordenação de regras
-  UFW preexistentes. A correção está versionada, mas ainda não reinstalada; a
-  contenção não está ativa. Ela não contém `root` e termina no cutover Vultr.
-- A próxima ação é instalar o `blindou-hostctl` corrigido, reaplicar e repetir
-  todos os testes preservando `apiwpp`. Nenhum workload Blindou foi aplicado e
-  `blindou-deployctl` ainda não existe.
+  UFW preexistentes. O controlador corrigido foi instalado e a reaplicação
+  passou em DNS, Internet, bloqueio da ONT, K3s, `apiwpp`, portas e
+  idempotência. A contenção de host está ativa; ela não contém `root` e termina
+  no cutover Vultr.
+- A próxima ação, mediante autorização específica, é preparar
+  `blindou-deployctl`, namespaces/gates, banco, observabilidade e a borda
+  Cloudflare. Nenhum workload Blindou foi aplicado e `blindou-deployctl` ainda
+  não existe.
 - O receptor externo de alertas permanece como decisão D005 e precisa ser
   resolvido antes da primeira release operacional do Blindou.
 

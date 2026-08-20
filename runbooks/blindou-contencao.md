@@ -14,7 +14,7 @@ O serviço `apiwpp` já existente permanece intacto. Nenhum workload Pixel/CIA
 ou SaferWPP será implantado; toda a capacidade restante é reservada ao Blindou.
 O Blindou usa UAZAPI e não reativa o provider APIWPP.
 
-## Estado observado em 2026-08-19
+## Estado observado após a ativação em 2026-08-19
 
 - ONT/gateway: Huawei HG8145V5, perfil `OI2`, `192.168.100.1`;
 - switch: KNUP KP-SW105 não gerenciável, sem VLAN/ACL;
@@ -24,7 +24,9 @@ O Blindou usa UAZAPI e não reativa o provider APIWPP.
 - K3s, UFW, AppArmor, PostgreSQL e `apiwpp` ativos;
 - `cloudflared` ausente;
 - somente TCP 22 e 6443 respondem pela LAN entre as portas verificadas;
-- a contenção descrita abaixo ainda não foi aplicada.
+- `blindou-hostctl` corrigido instalado e contenção de host ativa;
+- IPv6 da `enp2s0` desabilitado, DNS/HTTPS pública preservados e ONT bloqueada;
+- nenhum namespace, Secret, Tunnel ou workload Blindou aplicado.
 
 ## Topologia temporária
 
@@ -73,6 +75,9 @@ exclui redes privadas e a aplicação valida SSRF. Essa é uma limitação aceit
 fase temporária.
 
 ## Bootstrap humano obrigatório
+
+O bootstrap corrigido já foi executado. O procedimento abaixo permanece como
+caminho controlado para reinstalação ou atualização futura do controlador.
 
 O Codex não lê senha nem usa `sudo` genérico. Uma única sessão humana root deve
 instalar o controlador versionado:

@@ -96,8 +96,9 @@ operação temporária.
 
 ## Fase 2C - Contenção local temporária do Blindou
 
-Status: controlador inicial instalado; primeira aplicação revertida com
-sucesso após falha de DNS; correção e nova aplicação vivas pendentes.
+Status: camada de host concluída e verificada em 2026-08-19. A primeira
+aplicação foi revertida após falha de DNS; o controlador corrigido foi
+instalado e a reaplicação passou sem regressão do `apiwpp`.
 
 Concluído no repositório:
 
@@ -112,28 +113,34 @@ Concluído no repositório:
   workloads Pixel/CIA/SaferWPP;
 - risco de `root` e expiração na Vultr registrados.
 
-Próxima ação exata:
+Aceite concluído no host:
 
-1. uma sessão humana root instala o controlador corrigido a partir do novo
-   inbox versionado e validado;
-2. executar `apply-firewall blindou-temporary-host-containment` e `verify`;
-3. validar `apiwpp-deployctl verify` e portas a partir do PC administrativo;
-4. somente depois preparar `blindou-deployctl`, namespaces/gates, domínios,
-   Tunnel, Access/mTLS, Secrets e primeira release.
-
-Aceite pendente:
-
-- controlador root-owned instalado e único caminho sem senha do Blindou;
+- controlador root-owned corrigido e único caminho sem senha do Blindou;
 - UFW e sysctl verificados sem perda de DNS, Internet, SSH, K3s ou `apiwpp`;
-- ONT inacessível a partir do host e sem porta publicada;
+- ONT inacessível a partir do host;
+- somente 22/6443 acessíveis a partir do PC administrativo entre as portas
+  testadas;
+- reaplicação idempotente e zero unit systemd falha.
+
+Próxima ação exata, mediante autorização específica:
+
+1. preparar `blindou-deployctl` e provisionar os namespaces vazios com gates
+   inicialmente bloqueados;
+2. provisionar banco, identidades, backup e observabilidade do Blindou;
+3. configurar domínios, Tunnel, Access/mTLS, Secrets e imagens por digest;
+4. repetir o gate integrado antes da primeira release.
+
+Aceite ainda pendente:
+
+- confirmar na ONT a ausência de DMZ host, UPnP e port forward para o servidor;
 - `cloudflared` somente em `blindou-edge` e token somente no Secret da EDGE;
 - API/redirector apenas ClusterIP e saúde pública validada fora do host;
 - migração Vultr mantida como encerramento obrigatório da exceção.
 
 ## Fase 2D - Plataforma e controlador de deploy do Blindou
 
-Status: pendente; só começa depois do aceite vivo da Fase 2C e de autorização
-específica.
+Status: pendente; a camada viva de host da Fase 2C passou, mas esta fase só
+começa com autorização específica.
 
 Objetivos:
 

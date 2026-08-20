@@ -31,9 +31,11 @@ metadata:
 - Gateway/ONT observado em `192.168.100.1`: Huawei HG8145V5, perfil `OI2`.
 - O servidor e a estação administrativa ainda compartilham
   `192.168.100.0/24`; a rota padrão do host aponta diretamente para a ONT.
-- Não existe firewall externo entre servidor e residência. A exceção temporária
-  UFW/IPv6/Kubernetes foi autorizada, mas ainda não está aplicada; nenhum deploy
-  comercial do Blindou é autorizado no estado atual.
+- Não existe firewall externo entre servidor e residência. A camada de host da
+  exceção temporária está ativa: UFW bloqueia redes privadas e entrada lateral,
+  e o IPv6 da `enp2s0` está desabilitado. Kubernetes/Cloudflare e os gates de
+  aplicação ainda não foram provisionados; nenhum deploy comercial do Blindou
+  é autorizado no estado atual.
 
 - SSH utiliza chave pública permanente, usuário `apiadmin` e identidade de host
   validada. O acesso é limitado ao PC administrativo.
@@ -47,17 +49,18 @@ metadata:
   restritos. `pixel-deployctl` e `saferwpp-deployctl` ainda estão ausentes; por
   isso Pixel e SaferWPP não possuem caminho autorizado de alteração no host.
 - `blindou-deployctl` também está ausente. Os artefatos do Blindou ainda não
-  foram aplicados e o namespace `blindou-production` ainda não foi verificado
-  no runtime.
-- `blindou-hostctl` foi instalado como root em 2026-08-19. A primeira aplicação
-  foi revertida depois que o gate detectou falha de DNS; a contenção temporária
-  não está ativa enquanto a correção versionada aguarda instalação.
-- O inbox do commit `4a2bf78` está validado em
-  `/home/apiadmin/blindou-platform-bootstrap-4a2bf78`; ele é apenas staging no
-  diretório do usuário e foi a fonte do bootstrap inicial. Uma nova versão será
-  staged depois da correção do incidente de DNS.
+  foram aplicados ao K3s e o namespace `blindou-production` ainda não foi
+  verificado no runtime.
+- `blindou-hostctl` corrigido foi instalado como root em 2026-08-19. A primeira
+  aplicação foi revertida depois que o gate detectou falha de DNS; a segunda
+  aplicação passou e deixou a contenção ativa. O controlador confirmou cada
+  marcador UFW e faz rollback automático se instalação ou verificação falhar.
+- O inbox corrigido do commit `7cceebf` está validado em
+  `/home/apiadmin/blindou-platform-bootstrap-7cceebf`; ele é somente staging no
+  diretório do usuário. O controlador instalado possui o mesmo SHA-256 da fonte
+  versionada.
 - Não havia processo nem unit systemd `cloudflared` no host na conferência
-  final de 2026-08-19.
+  final pós-ativação de 2026-08-19.
 
 ## K3s e workloads
 
@@ -109,6 +112,8 @@ metadata:
 - Não há pacote atualizável restante nem reboot requerido após a manutenção.
 - K3s, PostgreSQL, WireGuard, gateway privado, observabilidade e `apiwpp`
   passaram na verificação final; não há unit systemd falha.
+- A contenção temporária passou em DNS, HTTPS pública, bloqueio da ONT, K3s,
+  `apiwpp` e reaplicação idempotente. IPv6 da `enp2s0` está desabilitado.
 - Do PC administrativo, somente TCP 22 e 6443 responderam. TCP 443, 5432,
   8090, 8443, 9090, 9100, 9187 e 30000 permaneceram inacessíveis pela LAN.
 - Não existe nobreak com desligamento controlado.

@@ -269,3 +269,25 @@ Resultado: falha detectada pelo gate; rollback concluído; serviços restaurados
   `192.168.100.59`, confirmação imediata de cada marcador e rollback automático
   em falha de instalação ou verificação. A contenção permanece inativa até a
   versão corrigida ser instalada e aprovada.
+
+## 2026-08-19 - Ativação corrigida da contenção temporária
+
+Resultado: camada de host aplicada e verificada; nenhum workload Blindou foi
+implantado.
+
+- O inbox do commit `7cceebf` foi validado e o bootstrap humano instalou o
+  controlador corrigido. O SHA-256 instalado coincidiu com a fonte versionada.
+- A reaplicação criou backup root-only em
+  `/var/backups/shared-lab/blindou-temporary-containment/20260820T015517Z`.
+- Exceções DNS específicas foram inseridas acima das negações; DNS e HTTPS
+  pública permaneceram funcionais, enquanto a ONT deixou de ser alcançável a
+  partir do host.
+- `blindou-hostctl verify` aprovou UFW, IPv6, DNS, Internet, ONT, K3s e
+  `apiwpp`. O IPv6 da `enp2s0` ficou desabilitado.
+- `apiwpp-deployctl verify` confirmou uma réplica Ready, 18 migrations, API,
+  métricas e gateway privado saudáveis. Não havia unit systemd falha nem
+  processo/unit `cloudflared` no host.
+- Do PC administrativo, TCP 22 e 6443 responderam; 80, 443, 5432, 8090, 8443,
+  9090, 9100, 9187 e 30000 permaneceram fechadas.
+- Uma segunda execução do mesmo `apply-firewall` reconheceu o estado existente,
+  repetiu o gate e comprovou idempotência.
