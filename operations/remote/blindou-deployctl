@@ -427,7 +427,8 @@ hostssl blindou blindou_ml_login        10.42.0.0/16 scram-sha-256 clientcert=ve
 EOF
   install -o postgres -g postgres -m 0640 "${POSTGRES_HBA_FILE}.tmp" "$POSTGRES_HBA_FILE"
   rm -f -- "${POSTGRES_HBA_FILE}.tmp"
-  if ! grep -Fxq "include_if_exists 'pg_hba_blindou.conf'" "$POSTGRES_HBA_MAIN"; then
+  if ! grep -Fxq 'include_if_exists "pg_hba_blindou.conf"' "$POSTGRES_HBA_MAIN" \
+      || grep -Fxq "include_if_exists 'pg_hba_blindou.conf'" "$POSTGRES_HBA_MAIN"; then
     local timestamp hba_tmp
     timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
     install -d -o root -g root -m 0700 "${BACKUP_ROOT}/postgres-config/${timestamp}"
@@ -435,8 +436,9 @@ EOF
       "${BACKUP_ROOT}/postgres-config/${timestamp}/pg_hba.conf"
     hba_tmp="$(mktemp)"
     {
-      printf "%s\n" "include_if_exists 'pg_hba_blindou.conf'"
-      cat "$POSTGRES_HBA_MAIN"
+      printf '%s\n' 'include_if_exists "pg_hba_blindou.conf"'
+      grep -Fvx 'include_if_exists "pg_hba_blindou.conf"' "$POSTGRES_HBA_MAIN" \
+        | grep -Fvx "include_if_exists 'pg_hba_blindou.conf'"
     } >"$hba_tmp"
     install -o postgres -g postgres -m 0640 "$hba_tmp" "$POSTGRES_HBA_MAIN"
     rm -f -- "$hba_tmp"
@@ -591,7 +593,8 @@ SQL
   rm -f -- "$POSTGRES_CONFIG_FILE" "$POSTGRES_HBA_FILE"
   local hba_tmp
   hba_tmp="$(mktemp)"
-  grep -Fvx "include_if_exists 'pg_hba_blindou.conf'" "$POSTGRES_HBA_MAIN" >"$hba_tmp"
+  grep -Fvx 'include_if_exists "pg_hba_blindou.conf"' "$POSTGRES_HBA_MAIN" \
+    | grep -Fvx "include_if_exists 'pg_hba_blindou.conf'" >"$hba_tmp"
   install -o postgres -g postgres -m 0640 "$hba_tmp" "$POSTGRES_HBA_MAIN"
   rm -f -- "$hba_tmp"
   pg_ctlcluster 18 main reload

@@ -75,6 +75,12 @@ grep -Fq '"$source_state" == '\''clean'\''' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'release suja não está bloqueada'
 grep -Fq 'clientcert=verify-ca' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'dupla autenticação PostgreSQL ausente'
+grep -Fq 'include_if_exists "pg_hba_blindou.conf"' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'include HBA PostgreSQL válido ausente'
+if grep -F "printf \"%s\\n\" \"include_if_exists 'pg_hba_blindou.conf'\"" \
+    "${REMOTE_DIR}/blindou-deployctl" >/dev/null; then
+  fail 'include HBA PostgreSQL usa aspas simples inválidas'
+fi
 grep -Fq 'cms -encrypt -binary -stream -aes-256-gcm' \
   "${REMOTE_DIR}/blindou-deployctl" || fail 'backup criptografado forte ausente'
 if grep -RInE '(BEGIN (RSA |OPENSSH )?PRIVATE KEY|(password|token|secret)[[:space:]]*[:=][[:space:]]*["'\'']?[[:alnum:]/+_.-]{12,})' \
