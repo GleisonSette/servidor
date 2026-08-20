@@ -77,6 +77,8 @@ grep -Fq 'clientcert=verify-ca' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'dupla autenticação PostgreSQL ausente'
 grep -Fq 'include_if_exists "pg_hba_blindou.conf"' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'include HBA PostgreSQL válido ausente'
+grep -Fq 'pgrep -x cloudflared' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'detecção exata do processo cloudflared ausente'
 if grep -F "printf \"%s\\n\" \"include_if_exists 'pg_hba_blindou.conf'\"" \
     "${REMOTE_DIR}/blindou-deployctl" >/dev/null; then
   fail 'include HBA PostgreSQL usa aspas simples inválidas'

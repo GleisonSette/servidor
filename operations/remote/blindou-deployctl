@@ -225,7 +225,7 @@ verify_foundation() {
   [[ "$(kube get deployment,statefulset,daemonset -A -o json | jq \
     '[.items[] | select((.metadata.name | ascii_downcase | contains("cloudflared")) or any(.spec.template.spec.containers[]?; .image | ascii_downcase | contains("cloudflared")))] | length')" == '0' ]] \
     || fail 'cloudflared apareceu no cluster antes da configuração externa'
-  pgrep -fa '(^|/|[[:space:]])cloudflared([[:space:]]|$)' >/dev/null \
+  pgrep -x cloudflared >/dev/null \
     && fail 'cloudflared apareceu no host'
   negative_admission_tests
   pass 'namespaces vazios, quarentena, admissão e preservação do apiwpp verificados'
