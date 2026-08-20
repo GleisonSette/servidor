@@ -16,7 +16,6 @@ readonly BACKUP_ROOT='/var/backups/shared-lab/blindou-temporary-containment'
 readonly CONFIRMATION='blindou-temporary-host-containment'
 
 readonly -a RULE_MARKERS=(
-  blindou-deny-lan
   blindou-deny-rfc1918-10
   blindou-deny-rfc1918-172
   blindou-deny-rfc1918-192
@@ -83,6 +82,8 @@ insert_rule_once() {
   else
     ufw insert 1 "$@" comment "$marker" >/dev/null
   fi
+  has_rule "$marker" \
+    || fail "o UFW não efetivou a regra identificada por ${marker}"
 }
 
 containment_rule_count() {
@@ -136,27 +137,10 @@ EOF
   sysctl -q -p "$SYSCTL_FILE"
 }
 
-apply_firewall() {
-  [[ "${1:-}" == "$CONFIRMATION" ]] \
-    || fail "confirmação exigida: ${CONFIRMATION}"
-  require_runtime_preconditions
-  local rule_count
-  rule_count="$(containment_rule_count)"
-  if [[ "$rule_count" -eq "${#RULE_MARKERS[@]}" && -f "$SYSCTL_FILE" ]]; then
-    verify
-    pass 'contenção temporária já estava aplicada'
-    return
-  fi
-  if [[ "$rule_count" -ne 0 || -e "$SYSCTL_FILE" ]]; then
-    fail 'estado parcial detectado; execute rollback antes de reaplicar'
-  fi
-  backup_state
-
+install_firewall_rules() {
   # Negações entram primeiro; as exceções específicas são inseridas depois no
   # topo. UFW preserva tráfego ESTABLISHED, portanto a sessão SSH atual não é
   # interrompida quando as regras são carregadas.
-  insert_rule_once blindou-deny-lan \
-    deny out on "$LAN_INTERFACE" to "$LAN_CIDR"
   insert_rule_once blindou-deny-rfc1918-10 \
     deny out on "$LAN_INTERFACE" to 10.0.0.0/8
   insert_rule_once blindou-deny-rfc1918-172 \
@@ -195,9 +179,11 @@ apply_firewall() {
     allow out on "$LAN_INTERFACE" proto udp \
     from "$SERVER_IPV4" port 68 to "$ONT_IPV4" port 67
   insert_rule_once blindou-allow-dns-udp \
-    allow out on "$LAN_INTERFACE" proto udp to "$ONT_IPV4" port 53
+    allow out on "$LAN_INTERFACE" proto udp \
+    from "$SERVER_IPV4" to "$ONT_IPV4" port 53
   insert_rule_once blindou-allow-dns-tcp \
-    allow out on "$LAN_INTERFACE" proto tcp to "$ONT_IPV4" port 53
+    allow out on "$LAN_INTERFACE" proto tcp \
+    from "$SERVER_IPV4" to "$ONT_IPV4" port 53
   insert_rule_once blindou-deny-lan-inbound \
     deny in on "$LAN_INTERFACE" from "$LAN_CIDR" to "$SERVER_IPV4"
   insert_rule_once blindou-admin-ssh \
@@ -210,7 +196,34 @@ apply_firewall() {
   ufw logging medium >/dev/null
   write_ipv6_containment
   ufw reload >/dev/null
-  verify
+}
+
+apply_firewall() {
+  [[ "${1:-}" == "$CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${CONFIRMATION}"
+  require_runtime_preconditions
+  local rule_count
+  rule_count="$(containment_rule_count)"
+  if [[ "$rule_count" -eq "${#RULE_MARKERS[@]}" && -f "$SYSCTL_FILE" ]]; then
+    verify
+    pass 'contenção temporária já estava aplicada'
+    return
+  fi
+  if [[ "$rule_count" -ne 0 || -e "$SYSCTL_FILE" ]]; then
+    fail 'estado parcial detectado; execute rollback antes de reaplicar'
+  fi
+  backup_state
+
+  if ! ( install_firewall_rules ); then
+    rollback_firewall "$CONFIRMATION" \
+      || fail 'instalação falhou e o rollback automático também falhou'
+    fail 'instalação falhou; rollback automático concluído'
+  fi
+  if ! ( verify ); then
+    rollback_firewall "$CONFIRMATION" \
+      || fail 'verificação falhou e o rollback automático também falhou'
+    fail 'verificação falhou; rollback automático concluído'
+  fi
   pass 'contenção temporária aplicada; apiwpp foi preservado'
 }
 
@@ -228,7 +241,7 @@ verify() {
     || fail 'IPv6 permanece ativo na interface residencial'
   [[ -z "$(ip -6 route show default dev "$LAN_INTERFACE")" ]] \
     || fail 'a interface residencial ainda possui rota IPv6 padrão'
-  resolvectl query cloudflare.com >/dev/null \
+  timeout 8 resolvectl query cloudflare.com >/dev/null \
     || fail 'resolução DNS deixou de funcionar'
   timeout 8 curl --silent --show-error --fail \
     --output /dev/null https://www.cloudflare.com/cdn-cgi/trace \

@@ -40,12 +40,13 @@ corpus por padrão.
   Blindou falham fechados para alterações até receberem controladores próprios.
 - O servidor preserva o serviço `apiwpp`; toda a capacidade restante foi
   reservada ao Blindou. Pixel/CIA e SaferWPP não recebem novos workloads.
-- O firewall externo foi adiado. A contenção temporária UFW/IPv6/Kubernetes e o
-  namespace `blindou-edge` estão preparados, mas ainda não aplicados. Ela não
-  contém `root` e termina no cutover Vultr.
-- A próxima ação é o bootstrap humano do `blindou-hostctl`, aplicação e
-  verificação do firewall temporário, preservando `apiwpp`. Nenhum workload
-  Blindou foi aplicado e `blindou-deployctl` ainda não existe.
+- O firewall externo foi adiado. A primeira aplicação da contenção temporária
+  foi revertida porque o gate detectou DNS bloqueado por ordenação de regras
+  UFW preexistentes. A correção está versionada, mas ainda não reinstalada; a
+  contenção não está ativa. Ela não contém `root` e termina no cutover Vultr.
+- A próxima ação é instalar o `blindou-hostctl` corrigido, reaplicar e repetir
+  todos os testes preservando `apiwpp`. Nenhum workload Blindou foi aplicado e
+  `blindou-deployctl` ainda não existe.
 - O receptor externo de alertas permanece como decisão D005 e precisa ser
   resolvido antes da primeira release operacional do Blindou.
 

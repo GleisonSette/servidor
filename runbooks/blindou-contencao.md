@@ -61,6 +61,12 @@ O controlador root-owned `blindou-hostctl` possui interface fechada e:
 8. remove somente as regras marcadas pelo Blindou no rollback e restaura os
    valores IPv6 capturados antes da aplicação.
 
+As exceções DNS do Blindou incluem a origem fixa `192.168.100.59`, para não
+serem deduplicadas pelas regras históricas mais amplas do `apiwpp`. Cada
+inserção confirma imediatamente seu marcador. Falha durante a instalação ou no
+gate final aciona rollback automático; a senha humana continua necessária para
+um rollback iniciado fora desse fluxo.
+
 Saída pública permanece disponível para Cloudflare, UAZAPI, e-mail,
 marketplaces e atualizações. UFW não é uma allowlist FQDN confiável; o K3s
 exclui redes privadas e a aplicação valida SSRF. Essa é uma limitação aceita da

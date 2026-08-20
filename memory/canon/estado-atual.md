@@ -49,11 +49,13 @@ metadata:
 - `blindou-deployctl` também está ausente. Os artefatos do Blindou ainda não
   foram aplicados e o namespace `blindou-production` ainda não foi verificado
   no runtime.
-- `blindou-hostctl` está preparado no repositório, mas ainda não foi instalado
-  como root nem executou a contenção temporária.
+- `blindou-hostctl` foi instalado como root em 2026-08-19. A primeira aplicação
+  foi revertida depois que o gate detectou falha de DNS; a contenção temporária
+  não está ativa enquanto a correção versionada aguarda instalação.
 - O inbox do commit `4a2bf78` está validado em
   `/home/apiadmin/blindou-platform-bootstrap-4a2bf78`; ele é apenas staging no
-  diretório do usuário e não concede privilégio até o bootstrap humano.
+  diretório do usuário e foi a fonte do bootstrap inicial. Uma nova versão será
+  staged depois da correção do incidente de DNS.
 - Não havia processo nem unit systemd `cloudflared` no host na conferência
   final de 2026-08-19.
 

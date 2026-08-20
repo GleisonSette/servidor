@@ -96,8 +96,8 @@ operação temporária.
 
 ## Fase 2C - Contenção local temporária do Blindou
 
-Status: artefatos e controlador preparados; bootstrap root e aplicação viva
-pendentes.
+Status: controlador inicial instalado; primeira aplicação revertida com
+sucesso após falha de DNS; correção e nova aplicação vivas pendentes.
 
 Concluído no repositório:
 
@@ -114,8 +114,8 @@ Concluído no repositório:
 
 Próxima ação exata:
 
-1. uma sessão humana root executa
-   `/home/apiadmin/blindou-platform-bootstrap-4a2bf78/operations/remote/bootstrap-blindou-hostctl.sh`;
+1. uma sessão humana root instala o controlador corrigido a partir do novo
+   inbox versionado e validado;
 2. executar `apply-firewall blindou-temporary-host-containment` e `verify`;
 3. validar `apiwpp-deployctl verify` e portas a partir do PC administrativo;
 4. somente depois preparar `blindou-deployctl`, namespaces/gates, domínios,

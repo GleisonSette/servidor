@@ -246,3 +246,26 @@ Resultado: inbox versionado preparado; instalação root pendente.
 - Nenhum arquivo foi instalado em `/usr/local/sbin`, `/etc/sudoers.d`,
   `/etc/ufw` ou `/etc/sysctl.d`; firewall, IPv6, K3s e `apiwpp` não foram
   alterados.
+
+## 2026-08-19 - Primeira tentativa e rollback da contenção temporária
+
+Resultado: falha detectada pelo gate; rollback concluído; serviços restaurados.
+
+- O bootstrap humano instalou o controlador e a política sudoers root-owned
+  com os modos esperados.
+- A aplicação criou backup em
+  `/var/backups/shared-lab/blindou-temporary-containment/20260820T014722Z` e
+  instalou as regras novas, mas o gate recusou o estado por ausência do marcador
+  `blindou-deny-lan`.
+- A inspeção mostrou que o UFW deduplicou três regras semanticamente
+  equivalentes já pertencentes ao `apiwpp`. As exceções DNS antigas ficaram
+  abaixo da nova negação `192.168.0.0/16`, bloqueando resolução do host.
+- O rollback humano removeu somente regras `blindou-*`, apagou o sysctl
+  temporário e restaurou os valores IPv6 capturados no baseline.
+- Depois do rollback, DNS e HTTPS pública passaram; `apiwpp-deployctl verify`
+  confirmou uma réplica Ready, 18 migrations, API, métricas e gateway privado
+  saudáveis.
+- A correção passa a exigir exceções DNS específicas com origem
+  `192.168.100.59`, confirmação imediata de cada marcador e rollback automático
+  em falha de instalação ou verificação. A contenção permanece inativa até a
+  versão corrigida ser instalada e aprovada.

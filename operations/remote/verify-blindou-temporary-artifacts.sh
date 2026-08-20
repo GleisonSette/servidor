@@ -10,7 +10,6 @@ bash -n "$CONTROLLER"
 bash -n "$BOOTSTRAP"
 
 for marker in \
-  blindou-deny-lan \
   blindou-deny-rfc1918-10 \
   blindou-deny-rfc1918-172 \
   blindou-deny-rfc1918-192 \
@@ -36,6 +35,9 @@ done
 grep -Fq 'disable_ipv6 = 1' "$CONTROLLER"
 grep -Fq 'rollback-firewall' "$CONTROLLER"
 grep -Fq 'ufw route insert 1' "$CONTROLLER"
+grep -Fq 'o UFW não efetivou a regra identificada' "$CONTROLLER"
+grep -Fq 'rollback automático concluído' "$CONTROLLER"
+grep -Fq 'timeout 8 resolvectl query' "$CONTROLLER"
 grep -Fq "'/usr/local/sbin/blindou-hostctl'" "$BOOTSTRAP"
 grep -Fq 'apply-firewall blindou-temporary-host-containment' "$SUDOERS_POLICY"
 grep -Fq 'visudo -cf' "$BOOTSTRAP"
