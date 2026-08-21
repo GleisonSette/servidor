@@ -201,8 +201,10 @@ sudo /usr/local/sbin/blindou-deployctl \
   rollback-ghcr-pull-credential blindou-ghcr-pull-credential
 ```
 
-Revogar o PAT no GitHub é uma ação externa separada. O GHCR não define onde o
-Rust é compilado; essa decisão continua pertencendo ao repositório Blindou.
+Revogar o PAT no GitHub é uma ação externa separada. Por D015, o Rust é
+compilado/testado no runner efêmero hospedado pelo GitHub e as imagens são
+publicadas por `GITHUB_TOKEN` temporário. Esse pipeline não acessa o host; o
+servidor conserva somente download.
 Depois da primeira instalação, o controlador atual recusa a substituição por
 outro token. A rotação pós-release exige fluxo próprio autorizado que valide a
 nova credencial antes de retirar a anterior.

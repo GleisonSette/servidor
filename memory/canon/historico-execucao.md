@@ -453,3 +453,22 @@ credencial, imagem, Secret Kubernetes, migration ou release foi criada.
   entrega ainda bloqueiam a primeira release operacional.
 - `blindou.com` foi removido do Pages e `app.blindou.com` foi associado; o
   primeiro deployment público continua pendente.
+
+## 2026-08-20 - Autorização do build efêmero e pipeline GHCR
+
+Resultado: pipeline preparado e commitado somente no workspace Blindou; nenhum
+`push`, workflow, pacote ou deploy foi executado.
+
+- O usuário autorizou runner efêmero hospedado pelo GitHub exclusivamente para
+  build, testes e publicação das imagens privadas. D015 registra que o servidor
+  físico permanece consumidor somente leitura do GHCR.
+- O Blindou preparou e validou o workflow manual, toolchain, Dockerfiles,
+  verificadores e documentação no commit
+  `08c35204f4f4d67df8e8065a516efb414d1166d2`.
+- A consulta viva ao host ainda não apresentou estado de credencial GHCR; o
+  provisionamento humano do PAT `read:packages` e a atualização correspondente
+  do controlador permanecem inconclusos.
+- O projeto Cloudflare Pages continua ligado à `main` com implantações
+  automáticas. Antes de qualquer `push`, produção e previews precisam ser
+  desativados e confirmados para preservar a ordem imagens/API Ready antes do
+  painel.

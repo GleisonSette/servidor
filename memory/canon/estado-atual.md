@@ -137,6 +137,9 @@ metadata:
 - O controlador instalado ainda não possui credencial GHCR. O contrato local
   preparado exigirá PAT classic com exatamente `read:packages` e manterá o
   valor root-only fora do Kubernetes até uma release autorizada.
+- O runner GitHub efêmero foi autorizado e o workflow seguro está preparado no
+  commit Blindou `08c35204f4f4d67df8e8065a516efb414d1166d2`. Ele ainda não foi
+  publicado ou executado e não existe pacote Blindou confirmado no GHCR.
 
 ## Manutenção
 

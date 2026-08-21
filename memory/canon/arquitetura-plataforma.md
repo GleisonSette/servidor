@@ -140,6 +140,9 @@ UPnP ou redirecionamento de porta para o servidor.
 - Imagem OCI imutável por digest, SBOM e scan de vulnerabilidade/segredo.
 - Imagens próprias privadas no GHCR; o servidor recebe um PAT classic com
   exatamente `read:packages`, sem `repo`, escrita, exclusão ou workflow.
+- Build/test/publicação usam runner efêmero hospedado pelo GitHub, manual e
+  restrito ao SHA da `main`. O publicador usa `GITHUB_TOKEN` por job, produz
+  SBOM/proveniência e scan; não acessa host, banco ou segredo operacional.
 - Manifesto de release assinado por chave exclusiva do projeto.
 - Controlador root-owned valida assinatura, digest, escopo e lock.
 - O controlador aceita uma interface fechada; não recebe comando shell,

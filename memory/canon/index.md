@@ -60,11 +60,16 @@ corpus por padrão.
 - `blindou.com` foi removido do projeto Pages e `app.blindou.com` foi associado,
   aguardando a primeira release válida.
 - O contrato GHCR privado e o fluxo fechado de credencial `read:packages` estão
-  preparados no repositório, mas o controlador instalado ainda não foi
-  atualizado e nenhuma credencial GHCR foi criada ou transferida.
-- A próxima ação é escolher onde a compilação Rust será executada, ativar a
-  credencial GHCR, UAZAPI, canal de alertas e os demais Secrets antes de
-  preparar a primeira release assinada;
+  preparados. O controlador instalado ainda não foi atualizado e nenhuma
+  credencial GHCR foi criada ou transferida.
+- O build foi decidido em D015: runner efêmero hospedado pelo GitHub, com o
+  workflow manual preparado no commit Blindou
+  `08c35204f4f4d67df8e8065a516efb414d1166d2`; ainda não houve `push`, execução
+  ou pacote publicado.
+- A próxima ação é ativar a credencial GHCR e pausar a produção/previews
+  automáticos do Pages antes de publicar/executar o workflow sob autorizações
+  próprias. UAZAPI, canal de alertas e os demais Secrets ainda precedem a
+  primeira release assinada;
   `blindou-production` permanece bloqueado.
 - O receptor aprovado em D005 é `gleisonsette@gmail.com`; provedor, credencial
   autenticada e teste de entrega ainda bloqueiam a primeira release operacional.

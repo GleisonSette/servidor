@@ -16,6 +16,9 @@
 - A credencial GHCR do servidor é exclusiva para download e deve apresentar
   exatamente o escopo `read:packages`. Token de publicação, `repo`, workflow ou
   administração nunca entra no host.
+- O publicador GHCR usa somente o `GITHUB_TOKEN` efêmero do job hospedado pelo
+  GitHub. Não copiar esse token, cache de login ou credencial de Actions para o
+  servidor.
 
 ## Guias obrigatórios por projeto
 

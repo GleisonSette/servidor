@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-decisoes
   source_path: memory/canon/decisoes.md
   generated_from: decisões do usuário e limites observados do laboratório
-  updated_at: 2026-08-19
+  updated_at: 2026-08-20
   status: canonical
 
 ## Resolvida D001 - Projetos admitidos pela plataforma
@@ -141,3 +141,17 @@ também produz dump lógico separado, valida o catálogo antes de criptografar e
 exporta somente o envelope CMS AES-256-GCM. A chave privada de recuperação e a
 chave de assinatura de release permanecem fora do servidor. Frequência,
 retenção, RPO/RTO e destino offsite continuam pendentes em D005.
+
+## Resolvida D015 - Build efêmero e servidor somente leitura no GHCR
+
+Em 2026-08-20 o usuário autorizou que compilação, testes e publicação das
+imagens Blindou usem runner efêmero hospedado pelo GitHub. O workflow é manual,
+restrito a `main`, SHA completo e confirmação fechada; testes usam PostgreSQL
+descartável e precedem qualquer publicação.
+
+O job publicador usa `GITHUB_TOKEN` temporário com `packages: write`. O servidor
+físico nunca recebe essa autoridade: conserva somente PAT classic com exatamente
+`read:packages`, root-only, e materializa o pull secret apenas durante release
+autorizada. Build, publicação de candidato e deploy são efeitos separados.
+`push`, disparo do workflow e promoção dos digests continuam exigindo
+autorizações próprias.

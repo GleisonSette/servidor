@@ -149,6 +149,9 @@ O contrato de imagens próprias escolheu GHCR privado. O controlador e o
 verificador locais já estão preparados para recusar qualquer token diferente
 de `read:packages`, mas essa atualização ainda não foi instalada no host e a
 credencial ainda não foi criada.
+O conflito de compilação foi resolvido em D015: o workflow manual do commit
+Blindou `08c35204f4f4d67df8e8065a516efb414d1166d2` usa runner efêmero hospedado
+pelo GitHub; nenhum `push`, execução ou pacote ocorreu.
 
 Objetivos:
 
@@ -171,21 +174,26 @@ Aceite:
 
 Próxima ação exata:
 
-1. decidir se a compilação Rust permanece exclusivamente no workspace isolado
-   do servidor ou passa a aceitar runner efêmero do GitHub; o GHCR é somente o
-   registro e não resolve esse conflito;
-2. atualizar o controlador e provisionar por `stdin` o PAT classic com somente
+1. atualizar o controlador e provisionar por `stdin` o PAT classic com somente
    `read:packages`; nenhuma imagem ou Secret Kubernetes nasce nessa etapa;
-3. manter a cota global da aplicação em 90 custom hostnames e revalidar a
+2. antes de qualquer `push`, obter autorização externa e desativar no projeto
+   Pages as implantações automáticas da produção e de previews; confirmar o
+   estado para impedir que `main` publique o painel antes da API;
+3. somente mediante autorização de `push`, publicar o commit Blindou e, sob
+   autorização própria de execução, disparar o workflow pelo SHA exato;
+4. confirmar os dois pacotes privados, scans aprovados e digests antes de
+   qualquer bundle assinado;
+5. manter a cota global da aplicação em 90 custom hostnames e revalidar a
    origem de fallback já ativa depois que a API tiver origem publicada, antes
    do primeiro fluxo autorizado de domínio por conta/tenant;
-4. integrar o receptor aprovado `gleisonsette@gmail.com`, UAZAPI e os demais
+6. integrar o receptor aprovado `gleisonsette@gmail.com`, UAZAPI e os demais
    Secrets antes da primeira release;
-5. somente mediante nova autorização de `push`, publicar a sequência segura:
-   imagens/API Ready antes do primeiro build Pages em `app.blindou.com`;
-6. somente mediante nova autorização de deploy, copiar as credenciais
+7. somente mediante nova autorização de deploy, copiar as credenciais
    necessárias para os Secrets do runtime, liberar o gate completo, executar
-   migrations e aplicar a primeira release assinada na Fase 2E.
+   migrations e aplicar a primeira release assinada na Fase 2E;
+8. somente com a API compatível Ready e autorização externa, reativar a
+   produção Pages e promover o painel da mesma release; previews permanecem
+   desativados até decisão explícita.
 
 ## Fase 2E - Primeira release e capacidade do Blindou
 
