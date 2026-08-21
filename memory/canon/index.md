@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-indice-canonico
   source_path: memory/canon/index.md
   generated_from: decisão do usuário e auditoria do servidor em 2026-08-15
-  updated_at: 2026-08-20
+  updated_at: 2026-08-21
   status: canonical
 
 ## Regra de entrada
@@ -66,10 +66,9 @@ corpus por padrão.
   workflow manual preparado no commit Blindou
   `08c35204f4f4d67df8e8065a516efb414d1166d2`; ainda não houve `push`, execução
   ou pacote publicado.
-- A próxima ação é ativar a credencial GHCR e pausar a produção/previews
-  automáticos do Pages antes de publicar/executar o workflow sob autorizações
-  próprias. UAZAPI, canal de alertas e os demais Secrets ainda precedem a
-  primeira release assinada;
+- Por D016, o Pages permanece automático: o `push` autorizado pode publicar o
+  painel enquanto o workflow de imagens é acompanhado. UAZAPI, canal de alertas
+  e os demais Secrets ainda precedem a primeira release operacional;
   `blindou-production` permanece bloqueado.
 - O receptor aprovado em D005 é `gleisonsette@gmail.com`; provedor, credencial
   autenticada e teste de entrega ainda bloqueiam a primeira release operacional.

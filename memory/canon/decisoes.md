@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-decisoes
   source_path: memory/canon/decisoes.md
   generated_from: decisões do usuário e limites observados do laboratório
-  updated_at: 2026-08-20
+  updated_at: 2026-08-21
   status: canonical
 
 ## Resolvida D001 - Projetos admitidos pela plataforma
@@ -155,3 +155,15 @@ físico nunca recebe essa autoridade: conserva somente PAT classic com exatament
 autorizada. Build, publicação de candidato e deploy são efeitos separados.
 `push`, disparo do workflow e promoção dos digests continuam exigindo
 autorizações próprias.
+
+## Resolvida D016 - Cloudflare Pages permanece automático no primeiro push
+
+Em 2026-08-21 o usuário decidiu manter ativa a integração automática da branch
+`main` com o Cloudflare Pages. O primeiro `push` autorizado pode publicar o
+painel antes que a API compatível esteja Ready; a indisponibilidade temporária
+dos fluxos integrados foi aceita.
+
+O build e o deployment do painel devem ser acompanhados, mas sucesso do Pages
+não libera o gate do servidor, migrations ou deploy. A release só é
+considerada operacional depois que API e frontend compatíveis passam na
+validação integrada.

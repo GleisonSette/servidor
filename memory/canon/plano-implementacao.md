@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-plano-implementacao
   source_path: memory/canon/plano-implementacao.md
   generated_from: plano aprovado pelo usuário em 2026-08-15
-  updated_at: 2026-08-20
+  updated_at: 2026-08-21
   status: canonical
 
 ## Regra de continuidade
@@ -176,11 +176,10 @@ Próxima ação exata:
 
 1. atualizar o controlador e provisionar por `stdin` o PAT classic com somente
    `read:packages`; nenhuma imagem ou Secret Kubernetes nasce nessa etapa;
-2. antes de qualquer `push`, obter autorização externa e desativar no projeto
-   Pages as implantações automáticas da produção e de previews; confirmar o
-   estado para impedir que `main` publique o painel antes da API;
-3. somente mediante autorização de `push`, publicar o commit Blindou e, sob
+2. somente mediante autorização de `push`, publicar o commit Blindou e, sob
    autorização própria de execução, disparar o workflow pelo SHA exato;
+3. por D016, acompanhar o deployment Pages automático sem tratá-lo como release
+   operacional enquanto a API compatível não estiver Ready;
 4. confirmar os dois pacotes privados, scans aprovados e digests antes de
    qualquer bundle assinado;
 5. manter a cota global da aplicação em 90 custom hostnames e revalidar a
@@ -191,9 +190,8 @@ Próxima ação exata:
 7. somente mediante nova autorização de deploy, copiar as credenciais
    necessárias para os Secrets do runtime, liberar o gate completo, executar
    migrations e aplicar a primeira release assinada na Fase 2E;
-8. somente com a API compatível Ready e autorização externa, reativar a
-   produção Pages e promover o painel da mesma release; previews permanecem
-   desativados até decisão explícita.
+8. somente com a API compatível Ready, validar o painel já publicado contra a
+   mesma release antes de declarar a operação pronta.
 
 ## Fase 2E - Primeira release e capacidade do Blindou
 

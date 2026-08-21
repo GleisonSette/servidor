@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-historico-execucao
   source_path: memory/canon/historico-execucao.md
   generated_from: auditorias e implementações autorizadas no laboratório
-  updated_at: 2026-08-20
+  updated_at: 2026-08-21
   status: canonical
 
 ## Regra de registro
@@ -472,3 +472,15 @@ Resultado: pipeline preparado e commitado somente no workspace Blindou; nenhum
   automáticas. Antes de qualquer `push`, produção e previews precisam ser
   desativados e confirmados para preservar a ordem imagens/API Ready antes do
   painel.
+
+## 2026-08-21 - Pages automático mantido por decisão do usuário
+
+Resultado: a recomendação operacional anterior de pausar o Pages foi
+substituída; nenhuma configuração Cloudflare foi alterada neste registro.
+
+- O usuário autorizou o `push` do Blindou e decidiu manter automática a
+  integração da `main` com o Pages.
+- A indisponibilidade temporária do painel enquanto a API compatível ainda não
+  estiver Ready foi aceita. O build deve ser acompanhado.
+- O deployment estático não libera o namespace `blindou-production`, migrations
+  ou release da API; esses efeitos continuam separados.
