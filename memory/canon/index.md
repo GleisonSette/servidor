@@ -57,11 +57,17 @@ corpus por padrão.
   validado e está em cofre root-only fora do Kubernetes. A origem de fallback
   `domains.blindou.com` está ativa, nenhum hostname de cliente foi criado e a
   cota operacional da aplicação permanece em 90.
-- A próxima ação é resolver P005, UAZAPI, Secrets e as autorizações de
-  push/deploy pendentes antes de preparar a primeira release assinada;
+- `blindou.com` foi removido do projeto Pages e `app.blindou.com` foi associado,
+  aguardando a primeira release válida.
+- O contrato GHCR privado e o fluxo fechado de credencial `read:packages` estão
+  preparados no repositório, mas o controlador instalado ainda não foi
+  atualizado e nenhuma credencial GHCR foi criada ou transferida.
+- A próxima ação é escolher onde a compilação Rust será executada, ativar a
+  credencial GHCR, UAZAPI, canal de alertas e os demais Secrets antes de
+  preparar a primeira release assinada;
   `blindou-production` permanece bloqueado.
-- O receptor externo de alertas permanece como decisão D005 e precisa ser
-  resolvido antes da primeira release operacional do Blindou.
+- O receptor aprovado em D005 é `gleisonsette@gmail.com`; provedor, credencial
+  autenticada e teste de entrega ainda bloqueiam a primeira release operacional.
 
 ## Precedência
 

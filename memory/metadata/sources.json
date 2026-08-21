@@ -21,14 +21,14 @@
       "title": "Arquitetura da plataforma compartilhada",
       "canon_path": "memory/canon/arquitetura-plataforma.md",
       "status": "canonical",
-      "tags": ["arquitetura", "namespaces", "isolamento", "deploy", "rede"]
+      "tags": ["arquitetura", "namespaces", "isolamento", "deploy", "rede", "ghcr", "read:packages"]
     },
     {
       "source_id": "plano-implementacao",
       "title": "Plano de implementação da plataforma",
       "canon_path": "memory/canon/plano-implementacao.md",
       "status": "canonical",
-      "tags": ["plano", "fase", "proximo-passo", "aceite", "rollback"]
+      "tags": ["plano", "fase", "proximo-passo", "aceite", "rollback", "ghcr"]
     },
     {
       "source_id": "historico-execucao",
@@ -42,7 +42,7 @@
       "title": "Decisões da plataforma local",
       "canon_path": "memory/canon/decisoes.md",
       "status": "canonical",
-      "tags": ["decisao", "pendencia", "alerta", "borda-publica"]
+      "tags": ["decisao", "pendencia", "alerta", "borda-publica", "ghcr"]
     }
   ]
 }

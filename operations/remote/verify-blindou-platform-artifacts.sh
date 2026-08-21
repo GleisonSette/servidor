@@ -145,6 +145,22 @@ grep -Fq '| curl --config -' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'token SaaS seria exposto nos argumentos do curl'
 grep -Fq 'CLOUDFLARE_SAAS_API_TOKEN' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'gate de release não exige o token SaaS'
+grep -Fq "readonly GHCR_PULL_TOKEN_FILE=\"\${GHCR_SECRET_DIR}/pull-token\"" \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'cofre root-only do GHCR ausente'
+grep -Fq "readonly GHCR_PULL_CONFIRMATION='blindou-ghcr-pull-credential'" \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'confirmação fechada do GHCR ausente'
+grep -Fq 'GHCR credential must arrive through non-interactive stdin' \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'credencial GHCR não exige stdin fechado'
+grep -Fq "[[ \"\$scopes\" == 'read:packages' ]]" \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'escopo GHCR não está fechado em read:packages'
+grep -Fq -- '--type=kubernetes.io/dockerconfigjson' \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'pull secret GHCR não usa o tipo Kubernetes esperado'
+grep -Fq -- '--from-file=.dockerconfigjson=/dev/stdin' \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'credencial GHCR não entra diretamente no Secret'
+grep -Fq 'ensure_ghcr_pull_secret' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'release não materializa o pull secret pelo controlador'
+grep -Fq 'GHCR_PULL_SECRET = "blindou-ghcr-pull"' \
+  "${REMOTE_DIR}/blindou-release-verify.py" || fail 'verificador não fixa o pull secret GHCR'
 [[ "$(grep -Fc 'if ( verify_edge_connector >/dev/null 2>&1 ); then' \
   "${REMOTE_DIR}/blindou-deployctl")" == '2' ]] \
   || fail 'sondagem do conector precisa isolar falha esperada em subshell'

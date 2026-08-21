@@ -145,6 +145,10 @@ Zero Trust e o Tunnel remoto `blindou-physical` estão saudáveis; somente
 migrations e release continuam bloqueados. Cloudflare for SaaS está ativado no
 plano da zona e sua credencial restrita foi validada e guardada fora do
 runtime; nenhum custom hostname de cliente foi criado.
+O contrato de imagens próprias escolheu GHCR privado. O controlador e o
+verificador locais já estão preparados para recusar qualquer token diferente
+de `read:packages`, mas essa atualização ainda não foi instalada no host e a
+credencial ainda não foi criada.
 
 Objetivos:
 
@@ -167,13 +171,19 @@ Aceite:
 
 Próxima ação exata:
 
-1. publicar o código no GitHub somente após autorização de `push`, concluir o
-   primeiro build Pages e associar `app.blindou.com`;
-2. manter a cota global da aplicação em 90 custom hostnames e revalidar a
+1. decidir se a compilação Rust permanece exclusivamente no workspace isolado
+   do servidor ou passa a aceitar runner efêmero do GitHub; o GHCR é somente o
+   registro e não resolve esse conflito;
+2. atualizar o controlador e provisionar por `stdin` o PAT classic com somente
+   `read:packages`; nenhuma imagem ou Secret Kubernetes nasce nessa etapa;
+3. manter a cota global da aplicação em 90 custom hostnames e revalidar a
    origem de fallback já ativa depois que a API tiver origem publicada, antes
    do primeiro fluxo autorizado de domínio por conta/tenant;
-3. resolver P005, UAZAPI e os demais Secrets antes da primeira release;
-4. somente mediante nova autorização de deploy, copiar as credenciais
+4. integrar o receptor aprovado `gleisonsette@gmail.com`, UAZAPI e os demais
+   Secrets antes da primeira release;
+5. somente mediante nova autorização de `push`, publicar a sequência segura:
+   imagens/API Ready antes do primeiro build Pages em `app.blindou.com`;
+6. somente mediante nova autorização de deploy, copiar as credenciais
    necessárias para os Secrets do runtime, liberar o gate completo, executar
    migrations e aplicar a primeira release assinada na Fase 2E.
 

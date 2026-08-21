@@ -132,7 +132,11 @@ metadata:
 - O coletor `stat_bgwriter`, incompatível com PostgreSQL 18 no exporter 0.15,
   foi desabilitado. Exporter e gateway privado agora acompanham o restart de
   PostgreSQL e K3s por `PartOf`.
-- Ainda não existe destino externo para notificações de alerta.
+- O destino externo aprovado para notificações é `gleisonsette@gmail.com`, mas
+  ainda não existe provedor autenticado, credencial nem teste real de entrega.
+- O controlador instalado ainda não possui credencial GHCR. O contrato local
+  preparado exigirá PAT classic com exatamente `read:packages` e manterá o
+  valor root-only fora do Kubernetes até uma release autorizada.
 
 ## Manutenção
 

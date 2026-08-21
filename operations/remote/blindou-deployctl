@@ -25,6 +25,11 @@ readonly DATA_ROOT='/etc/blindou'
 readonly CLOUDFLARE_SAAS_SECRET_DIR="${DATA_ROOT}/cloudflare-saas"
 readonly CLOUDFLARE_SAAS_TOKEN_FILE="${CLOUDFLARE_SAAS_SECRET_DIR}/api-token"
 readonly CLOUDFLARE_SAAS_ZONE_ID='e0bb5f20a8e4f928d008cb8dc7876202'
+readonly GHCR_SECRET_DIR="${DATA_ROOT}/ghcr"
+readonly GHCR_PULL_TOKEN_FILE="${GHCR_SECRET_DIR}/pull-token"
+readonly GHCR_REGISTRY='ghcr.io'
+readonly GHCR_USERNAME='GleisonSette'
+readonly GHCR_PULL_SECRET='blindou-ghcr-pull'
 readonly DATABASE_SECRET_DIR="${DATA_ROOT}/database"
 readonly DATABASE_CREDENTIALS="${DATABASE_SECRET_DIR}/credentials.env"
 readonly CLIENT_CA_DIR="${DATA_ROOT}/postgres-ca"
@@ -47,6 +52,7 @@ readonly RELEASE_PATTERN='^[0-9a-f]{40}$'
 readonly FOUNDATION_CONFIRMATION='blindou-platform-foundation'
 readonly EDGE_CONNECTOR_CONFIRMATION='blindou-edge-connector'
 readonly CLOUDFLARE_SAAS_TOKEN_CONFIRMATION='blindou-cloudflare-saas-token'
+readonly GHCR_PULL_CONFIRMATION='blindou-ghcr-pull-credential'
 readonly DATA_CONFIRMATION='blindou-data-foundation'
 readonly DATA_ROLLBACK_CONFIRMATION='blindou-empty-data-foundation'
 readonly BACKUP_CONFIRMATION='blindou-database-backup'
@@ -71,6 +77,8 @@ cleanup() {
       "${CLIENT_CA_DIR}"/*.tmp|"${CLIENT_CA_DIR}"/client-ext.*|\
       "${CLIENT_CERT_DIR}"/*.tmp|\
       "${CLOUDFLARE_SAAS_TOKEN_FILE}.tmp."*|\
+      "${GHCR_PULL_TOKEN_FILE}.tmp."*|\
+      /var/tmp/blindou-ghcr-headers.*|\
       "${POSTGRES_CONFIG_FILE}.tmp"|"${POSTGRES_HBA_FILE}.tmp")
         rm -rf -- "$resolved"
         ;;
@@ -573,6 +581,144 @@ rollback_cloudflare_saas_token() {
   pass 'Cloudflare for SaaS token removed from the root-only provider store'
 }
 
+ghcr_token_format_is_valid() {
+  local token="$1"
+  [[ ${#token} -ge 40 && ${#token} -le 255 \
+      && "$token" =~ ^ghp_[A-Za-z0-9]+$ ]]
+}
+
+ghcr_token_file_is_secure() {
+  [[ -f "$GHCR_PULL_TOKEN_FILE" \
+      && ! -L "$GHCR_PULL_TOKEN_FILE" \
+      && "$(stat -c '%U:%G:%a' "$GHCR_PULL_TOKEN_FILE" 2>/dev/null)" == 'root:root:600' \
+      && "$(wc -l <"$GHCR_PULL_TOKEN_FILE")" == '1' ]] \
+    || return 1
+  local token
+  IFS= read -r token <"$GHCR_PULL_TOKEN_FILE" || return 1
+  ghcr_token_format_is_valid "$token"
+}
+
+ghcr_token_has_read_only_packages_scope() {
+  local token="$1" headers response login scopes
+  headers="$(mktemp /var/tmp/blindou-ghcr-headers.XXXXXX)"
+  cleanup_paths+=("$headers")
+  response="$({
+    printf '%s\n' \
+      'silent' \
+      'show-error' \
+      'fail-with-body' \
+      'proto = "=https"' \
+      'tlsv1.2' \
+      'connect-timeout = 10' \
+      'max-time = 30' \
+      "header = \"Authorization: Bearer ${token}\"" \
+      'header = "Accept: application/vnd.github+json"' \
+      'header = "X-GitHub-Api-Version: 2022-11-28"' \
+      "dump-header = \"${headers}\"" \
+      'url = "https://api.github.com/user"'
+  } | curl --config -)" || { rm -f -- "$headers"; return 1; }
+
+  login="$(jq -r '.login // empty' <<<"$response")"
+  unset response
+  [[ "${login,,}" == "${GHCR_USERNAME,,}" ]] \
+    || { rm -f -- "$headers"; return 1; }
+  scopes="$(awk -F: 'tolower($1) == "x-oauth-scopes" {sub(/^[^:]*:[[:space:]]*/, ""); gsub(/\r/, ""); print}' \
+    "$headers" | tail -n 1 | tr -d '[:space:]')"
+  rm -f -- "$headers"
+  [[ "$scopes" == 'read:packages' ]]
+}
+
+verify_ghcr_pull_credential() {
+  require_platform_preconditions
+  ghcr_token_file_is_secure \
+    || fail 'GHCR pull credential file is absent or insecure'
+  local token
+  IFS= read -r token <"$GHCR_PULL_TOKEN_FILE" \
+    || fail 'GHCR pull credential could not be read'
+  if ! ghcr_token_has_read_only_packages_scope "$token"; then
+    unset token
+    fail 'GHCR credential is inactive, belongs to another actor or is not exactly read:packages'
+  fi
+  unset token
+  pass 'GHCR credential is active, root-only and limited to read:packages'
+}
+
+provision_ghcr_pull_credential() {
+  [[ "${1:-}" == "$GHCR_PULL_CONFIRMATION" ]] \
+    || fail "confirmation required: ${GHCR_PULL_CONFIRMATION}"
+  require_platform_preconditions
+  assert_namespace_labels "$APP_NAMESPACE" application blocked
+  assert_quarantine_namespace "$APP_NAMESPACE"
+  [[ ! -f "$CURRENT_RELEASE" ]] \
+    || fail 'GHCR credential provisioning is closed after a release exists'
+  [[ ! -t 0 ]] || fail 'GHCR credential must arrive through non-interactive stdin'
+
+  local token existing temporary
+  IFS= read -r token || fail 'GHCR credential was not received'
+  ghcr_token_format_is_valid "$token" \
+    || { unset token; fail 'GHCR credential must be a current classic personal access token'; }
+  ghcr_token_has_read_only_packages_scope "$token" \
+    || { unset token; fail 'GHCR credential must belong to GleisonSette and have exactly read:packages'; }
+
+  if [[ -e "$GHCR_PULL_TOKEN_FILE" || -L "$GHCR_PULL_TOKEN_FILE" ]]; then
+    ghcr_token_file_is_secure \
+      || { unset token; fail 'existing GHCR credential file is insecure'; }
+    IFS= read -r existing <"$GHCR_PULL_TOKEN_FILE"
+    [[ "$existing" == "$token" ]] \
+      || { unset token existing; fail 'a different GHCR credential is already provisioned'; }
+    unset token existing
+    verify_ghcr_pull_credential >/dev/null
+    pass 'GHCR pull credential was already provisioned and remains read-only'
+    return
+  fi
+
+  install -d -o root -g root -m 0700 "$GHCR_SECRET_DIR"
+  temporary="$(mktemp "${GHCR_PULL_TOKEN_FILE}.tmp.XXXXXX")"
+  cleanup_paths+=("$temporary")
+  printf '%s\n' "$token" >"$temporary"
+  unset token
+  install -o root -g root -m 0600 "$temporary" "$GHCR_PULL_TOKEN_FILE"
+  rm -f -- "$temporary"
+  verify_ghcr_pull_credential >/dev/null
+  pass 'GHCR read-only credential provisioned in the root-only store; runtime remains blocked'
+}
+
+rollback_ghcr_pull_credential() {
+  [[ "${1:-}" == "$GHCR_PULL_CONFIRMATION" ]] \
+    || fail "confirmation required: ${GHCR_PULL_CONFIRMATION}"
+  require_platform_preconditions
+  assert_namespace_labels "$APP_NAMESPACE" application blocked
+  assert_quarantine_namespace "$APP_NAMESPACE"
+  [[ ! -f "$CURRENT_RELEASE" ]] \
+    || fail 'GHCR credential rollback is closed after a release exists'
+  rm -f -- "$GHCR_PULL_TOKEN_FILE"
+  pass 'GHCR pull credential removed from the root-only provider store'
+}
+
+ensure_ghcr_pull_secret() {
+  verify_ghcr_pull_credential >/dev/null
+  local token auth
+  IFS= read -r token <"$GHCR_PULL_TOKEN_FILE" \
+    || fail 'GHCR pull credential could not be read'
+  auth="$(printf '%s:%s' "$GHCR_USERNAME" "$token" | base64 -w 0)"
+  unset token
+  {
+    printf '{"auths":{"%s":{"username":"%s","auth":"' \
+      "$GHCR_REGISTRY" "$GHCR_USERNAME"
+    printf '%s' "$auth"
+    printf '"}}}'
+  } | kube -n "$APP_NAMESPACE" create secret generic "$GHCR_PULL_SECRET" \
+      --type=kubernetes.io/dockerconfigjson \
+      --from-file=.dockerconfigjson=/dev/stdin \
+      --dry-run=client -o yaml \
+    | kube apply -f - >/dev/null
+  unset auth
+  [[ "$(kube -n "$APP_NAMESPACE" get secret "$GHCR_PULL_SECRET" \
+    -o jsonpath='{.type}')" == 'kubernetes.io/dockerconfigjson' ]] \
+    || fail 'GHCR pull Secret has an unexpected Kubernetes type'
+  secret_has_keys "$APP_NAMESPACE" "$GHCR_PULL_SECRET" .dockerconfigjson
+}
+
 generate_database_material() {
   install -d -o root -g root -m 0700 \
     "$DATABASE_SECRET_DIR" "$CLIENT_CA_DIR" "$CLIENT_CERT_DIR"
@@ -1057,6 +1203,7 @@ require_release_gates() {
       fail "quota de quarentena ainda existe em ${namespace}"
     fi
   done
+  ensure_ghcr_pull_secret
   secret_has_keys "$APP_NAMESPACE" blindou-core-secrets \
     DATABASE_URL PASSWORD_PEPPER_CURRENT TOKEN_HASH_SECRET JWT_SECRET \
     TOTP_ENCRYPTION_KEY SESSION_ENCRYPTION_KEY AUTH_SECURITY_CODE_HASH_SECRET \
@@ -1165,7 +1312,7 @@ apply_release() {
 
 metrics() {
   require_root_and_host
-  local foundation=0 data=0 latest_backup=0 gate_app=0 gate_edge=0 cloudflare_saas_token=0
+  local foundation=0 data=0 latest_backup=0 gate_app=0 gate_edge=0 cloudflare_saas_token=0 ghcr_pull_credential=0
   if ( verify_foundation >/dev/null 2>&1 ); then foundation=1; fi
   if ( verify_data_foundation >/dev/null 2>&1 ); then data=1; fi
   if [[ -f "${DATABASE_BACKUP_ROOT}/latest" ]]; then
@@ -1179,6 +1326,7 @@ metrics() {
   [[ "$(namespace_label "$APP_NAMESPACE" 'platform\.servidor\.local/deployment-gate' 2>/dev/null || true)" == 'passed' ]] && gate_app=1
   [[ "$(namespace_label "$EDGE_NAMESPACE" 'platform\.servidor\.local/deployment-gate' 2>/dev/null || true)" == 'passed' ]] && gate_edge=1
   if cloudflare_saas_token_file_is_secure; then cloudflare_saas_token=1; fi
+  if ghcr_token_file_is_secure; then ghcr_pull_credential=1; fi
   cat <<EOF
 # HELP blindou_platform_foundation_up Fundação Kubernetes bloqueada e íntegra.
 # TYPE blindou_platform_foundation_up gauge
@@ -1196,6 +1344,9 @@ blindou_namespace_deployment_gate{namespace="${EDGE_NAMESPACE}"} ${gate_edge}
 # HELP blindou_cloudflare_saas_token_secure Root-only Cloudflare for SaaS token is present with the expected local format.
 # TYPE blindou_cloudflare_saas_token_secure gauge
 blindou_cloudflare_saas_token_secure ${cloudflare_saas_token}
+# HELP blindou_ghcr_pull_credential_secure Root-only GHCR credential is present with the expected local format.
+# TYPE blindou_ghcr_pull_credential_secure gauge
+blindou_ghcr_pull_credential_secure ${ghcr_pull_credential}
 EOF
 }
 
@@ -1235,6 +1386,11 @@ show_status() {
   else
     printf 'cloudflare_saas_credential_state=absent_or_insecure\n'
   fi
+  if ghcr_token_file_is_secure; then
+    printf 'ghcr_pull_credential_state=secure_local_store\n'
+  else
+    printf 'ghcr_pull_credential_state=absent_or_insecure\n'
+  fi
 }
 
 case "${1:-}" in
@@ -1253,6 +1409,18 @@ case "${1:-}" in
   verify-cloudflare-saas-token)
     [[ $# -eq 1 ]] || fail 'usage: blindou-deployctl verify-cloudflare-saas-token'
     verify_cloudflare_saas_token
+    ;;
+  verify-ghcr-pull-credential)
+    [[ $# -eq 1 ]] || fail 'usage: blindou-deployctl verify-ghcr-pull-credential'
+    verify_ghcr_pull_credential
+    ;;
+  provision-ghcr-pull-credential)
+    [[ $# -eq 2 ]] || fail 'usage: blindou-deployctl provision-ghcr-pull-credential CONFIRMATION'
+    provision_ghcr_pull_credential "$2"
+    ;;
+  rollback-ghcr-pull-credential)
+    [[ $# -eq 2 ]] || fail 'usage: blindou-deployctl rollback-ghcr-pull-credential CONFIRMATION'
+    rollback_ghcr_pull_credential "$2"
     ;;
   provision-cloudflare-saas-token)
     [[ $# -eq 2 ]] || fail 'usage: blindou-deployctl provision-cloudflare-saas-token CONFIRMATION'
@@ -1322,6 +1490,6 @@ case "${1:-}" in
     metrics
     ;;
   *)
-    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|validate-release RELEASE_ID|apply RELEASE_ID|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
+    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|provision-ghcr-pull-credential CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|validate-release RELEASE_ID|apply RELEASE_ID|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
     ;;
 esac

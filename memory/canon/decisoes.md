@@ -34,13 +34,13 @@ workloads. O Blindou poderá ser o primeiro uso operacional limitado do host,
 sem alegação de alta disponibilidade, somente depois que os gates temporários
 de D013 passarem.
 
-## Pendente D005 - Destino externo de alertas
+## Resolvida parcialmente D005 - Destino externo de alertas
 
-É necessário escolher um receptor autenticado independente do servidor e do
-WhatsApp monitorado. A escolha afeta credencial, custo, privacidade, entrega e
-runbook. Até a decisão, Alertmanager pode ser preparado e validado localmente,
-mas a Fase 2 registra o gate como pendente e a primeira release operacional do
-Blindou permanece bloqueada.
+O usuário escolheu `gleisonsette@gmail.com` como receptor externo, independente
+do servidor e do WhatsApp monitorado. A decisão do endereço está concluída. O
+gate operacional continua pendente até existir canal autenticado, credencial
+restrita, teste real de entrega e runbook de falha. A integração prevista é por
+e-mail; não inventar webhook, WhatsApp ou destino alternativo.
 
 ## Resolvida parcialmente D006 - Borda pública
 

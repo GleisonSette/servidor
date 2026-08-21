@@ -138,12 +138,17 @@ UPnP ou redirecionamento de porta para o servidor.
 
 - Build reproduzível e verificado antes do servidor.
 - Imagem OCI imutável por digest, SBOM e scan de vulnerabilidade/segredo.
+- Imagens próprias privadas no GHCR; o servidor recebe um PAT classic com
+  exatamente `read:packages`, sem `repo`, escrita, exclusão ou workflow.
 - Manifesto de release assinado por chave exclusiva do projeto.
 - Controlador root-owned valida assinatura, digest, escopo e lock.
 - O controlador aceita uma interface fechada; não recebe comando shell,
   caminho arbitrário, kubeconfig root ou manifesto fora do contrato.
 - Migration é bloqueante e usa papel separado.
 - Rollout, smoke test e rollback preservam a versão anterior.
+- A credencial GHCR permanece root-only fora do Kubernetes enquanto o runtime
+  está bloqueado. O controlador materializa `blindou-ghcr-pull` apenas durante
+  release autorizada e somente `blindou-runtime` pode referenciá-lo.
 - Alteração manual no cluster deve ser evitada e posteriormente reconciliada no
   repositório quando uma resposta emergencial for necessária.
 

@@ -65,6 +65,7 @@ ALLOWED_SECRET_NAMES = {
     "blindou-redirect-secrets",
     "blindou-redis-auth",
 }
+GHCR_PULL_SECRET = "blindou-ghcr-pull"
 
 
 def fail(message: str) -> None:
@@ -236,6 +237,18 @@ def validate_documents(documents: list[dict[str, Any]], release_id: str) -> None
             "networking.k8s.io/v1",
         }:
             fail(f"apiVersion fora da allowlist em {resource}")
+
+        if kind == "ServiceAccount":
+            pull_secrets = document.get("imagePullSecrets", []) or []
+            if name == "blindou-runtime":
+                if namespace != "blindou-production":
+                    fail("ServiceAccount blindou-runtime fora de blindou-production")
+                if document.get("automountServiceAccountToken") is not False:
+                    fail("ServiceAccount blindou-runtime permite token Kubernetes")
+                if pull_secrets != [{"name": GHCR_PULL_SECRET}]:
+                    fail("ServiceAccount blindou-runtime não usa exclusivamente o pull secret GHCR")
+            elif pull_secrets:
+                fail(f"imagePullSecrets inesperado em {resource}")
 
         if kind == "Service":
             spec = document.get("spec", {})

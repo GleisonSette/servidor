@@ -160,6 +160,53 @@ Revogar o token no painel Cloudflare é uma etapa externa separada. Depois que o
 runtime existir, rotação e revogação exigirão um fluxo próprio que preserve a
 credencial anterior até a nova ser validada.
 
+## Credencial privada do GHCR
+
+As imagens próprias do Blindou são privadas em `ghcr.io/GleisonSette`. O host
+recebe um PAT classic exclusivo com exatamente `read:packages`. O controlador
+recusa token de outro usuário ou que possua qualquer escopo adicional, inclusive
+`repo`, `write:packages`, `delete:packages` ou `workflow`.
+
+Criar o PAT pela sessão autenticada do GitHub sem copiar o valor para arquivo,
+chat ou linha de comando. Depois, no computador administrativo, executar:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\operations\Invoke-BlindouGhcrPullCredential.ps1
+```
+
+O script atualiza o controlador por bootstrap humano, recebe o PAT em campo
+oculto e o envia somente pelo `stdin` do SSH. O controlador valida identidade e
+escopo na API oficial do GitHub e grava `/etc/blindou/ghcr/pull-token` como
+`root:root 0600`, dentro de diretório `0700`. Nenhum Secret Kubernetes é criado
+enquanto `blindou-production` permanecer bloqueado.
+
+Verificação sem revelar o valor:
+
+```bash
+sudo -n /usr/local/sbin/blindou-deployctl verify-ghcr-pull-credential
+sudo -n /usr/local/sbin/blindou-deployctl status
+```
+
+Durante uma release autorizada, depois que os gates e a quarentena forem
+removidos, o controlador materializa `blindou-production/blindou-ghcr-pull` do
+tipo `kubernetes.io/dockerconfigjson`. O Secret não faz parte do bundle assinado
+e somente a `ServiceAccount` `blindou-runtime` pode referenciá-lo.
+
+Rollback da credencial exige senha humana e só é aceito antes da primeira
+release:
+
+```bash
+sudo /usr/local/sbin/blindou-deployctl \
+  rollback-ghcr-pull-credential blindou-ghcr-pull-credential
+```
+
+Revogar o PAT no GitHub é uma ação externa separada. O GHCR não define onde o
+Rust é compilado; essa decisão continua pertencendo ao repositório Blindou.
+Depois da primeira instalação, o controlador atual recusa a substituição por
+outro token. A rotação pós-release exige fluxo próprio autorizado que valide a
+nova credencial antes de retirar a anterior.
+
 ## Fundação de dados
 
 ```bash

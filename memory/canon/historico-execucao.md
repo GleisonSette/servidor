@@ -432,3 +432,24 @@ nenhuma configuração externa foi alterada.
   fallback com status `Ativo` e manteve a lista com zero custom hostnames.
 - O runtime da aplicação, migrations, Secrets e release continuaram ausentes;
   somente o canon, o plano e o índice foram corrigidos.
+
+## 2026-08-20 - Contrato privado de imagens e receptor externo
+
+Resultado: suporte GHCR somente leitura preparado no repositório; nenhuma
+credencial, imagem, Secret Kubernetes, migration ou release foi criada.
+
+- O usuário aprovou GHCR privado e acesso do servidor limitado a download. O
+  controlador preparado recebe PAT classic somente por `stdin`, valida o ator
+  `GleisonSette` e exige exatamente `read:packages`.
+- O token ficará no cofre root-only fora do Kubernetes enquanto o runtime
+  permanecer bloqueado. `blindou-ghcr-pull` só será materializado durante uma
+  release autorizada, e o verificador exige sua referência exclusiva pela
+  `ServiceAccount` `blindou-runtime`.
+- O local de compilação não foi alterado: GHCR é o registro. Usar GitHub Actions
+  para compilar conflita com a regra atual de Rust somente no servidor isolado e
+  aguarda decisão explícita.
+- O usuário definiu `gleisonsette@gmail.com` como receptor externo. D005 deixou
+  de ser escolha pendente, mas provedor autenticado, credencial e teste de
+  entrega ainda bloqueiam a primeira release operacional.
+- `blindou.com` foi removido do Pages e `app.blindou.com` foi associado; o
+  primeiro deployment público continua pendente.

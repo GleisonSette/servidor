@@ -13,6 +13,9 @@
   root-only por provider e finalidade. Sua transferência usa `stdin` fechado;
   o controlador valida o provider antes de instalar e nunca aceita o segredo em
   argumento. O Secret Kubernetes só nasce em uma fase de release autorizada.
+- A credencial GHCR do servidor é exclusiva para download e deve apresentar
+  exatamente o escopo `read:packages`. Token de publicação, `repo`, workflow ou
+  administração nunca entra no host.
 
 ## Guias obrigatórios por projeto
 
