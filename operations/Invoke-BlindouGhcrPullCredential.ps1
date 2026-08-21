@@ -71,7 +71,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Falha ao enviar o pacote único." }
     & ssh.exe @sshArgs $server (
         "install -d -m 0700 $remoteRoot && " +
-        "tar --extract --gzip --file $remoteArchive --directory $remoteRoot"
+        "tar --extract --gzip --file $remoteArchive --directory $remoteRoot && " +
+        "chmod 0755 " +
+        "$remoteRoot/operations/remote/bootstrap-blindou-hostctl.sh " +
+        "$remoteRoot/operations/remote/bootstrap-blindou-deployctl.sh"
     )
     if ($LASTEXITCODE -ne 0) { throw "Falha ao extrair o pacote remoto." }
 }
