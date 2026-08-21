@@ -57,15 +57,14 @@ corpus por padrão.
   validado e está em cofre root-only fora do Kubernetes. A origem de fallback
   `domains.blindou.com` está ativa, nenhum hostname de cliente foi criado e a
   cota operacional da aplicação permanece em 90.
-- `blindou.com` foi removido do projeto Pages e `app.blindou.com` foi associado,
-  aguardando a primeira release válida.
+- `blindou.com` foi removido do projeto Pages. `app.blindou.com` publicou o SHA
+  `83e7f387` e serve o painel; a API compatível ainda não está Ready.
 - O contrato GHCR privado e o fluxo fechado de credencial `read:packages` estão
   preparados. O controlador instalado ainda não foi atualizado e nenhuma
   credencial GHCR foi criada ou transferida.
-- O build foi decidido em D015: runner efêmero hospedado pelo GitHub, com o
-  workflow manual preparado no commit Blindou
-  `08c35204f4f4d67df8e8065a516efb414d1166d2`; ainda não houve `push`, execução
-  ou pacote publicado.
+- O workflow `32442604845` executou o SHA Blindou `83e7f387` duas vezes:
+  fmt/check/Clippy passaram, mas `rust-lld` caiu com `Bus error` ao ligar testes
+  grandes diferentes. O job de imagens foi pulado e não publicou candidatas.
 - Por D016, o Pages permanece automático: o `push` autorizado pode publicar o
   painel enquanto o workflow de imagens é acompanhado. UAZAPI, canal de alertas
   e os demais Secrets ainda precedem a primeira release operacional;

@@ -149,9 +149,11 @@ O contrato de imagens próprias escolheu GHCR privado. O controlador e o
 verificador locais já estão preparados para recusar qualquer token diferente
 de `read:packages`, mas essa atualização ainda não foi instalada no host e a
 credencial ainda não foi criada.
-O conflito de compilação foi resolvido em D015: o workflow manual do commit
-Blindou `08c35204f4f4d67df8e8065a516efb414d1166d2` usa runner efêmero hospedado
-pelo GitHub; nenhum `push`, execução ou pacote ocorreu.
+O conflito de local de compilação foi resolvido em D015. A `main` Blindou foi
+publicada no SHA `83e7f387f3fd5477d5882d292532fb2151d68d14`; o Pages está vivo.
+O workflow `32442604845` passou fmt/check/Clippy duas vezes, mas `rust-lld`
+falhou com `Bus error` ao ligar testes grandes diferentes. O job de imagens foi
+pulado e nenhuma candidata foi publicada.
 
 Objetivos:
 
@@ -174,14 +176,13 @@ Aceite:
 
 Próxima ação exata:
 
-1. atualizar o controlador e provisionar por `stdin` o PAT classic com somente
-   `read:packages`; nenhuma imagem ou Secret Kubernetes nasce nessa etapa;
-2. somente mediante autorização de `push`, publicar o commit Blindou e, sob
-   autorização própria de execução, disparar o workflow pelo SHA exato;
-3. por D016, acompanhar o deployment Pages automático sem tratá-lo como release
-   operacional enquanto a API compatível não estiver Ready;
-4. confirmar os dois pacotes privados, scans aprovados e digests antes de
+1. corrigir o perfil/linkagem da suíte no runner GitHub sem reduzir cobertura;
+2. mediante autorização de `push` e execução, publicar a correção e repetir o
+   workflow pelo novo SHA exato;
+3. confirmar os dois pacotes privados, scans aprovados e digests antes de
    qualquer bundle assinado;
+4. atualizar o controlador e provisionar por `stdin` o PAT classic com somente
+   `read:packages`; nenhuma imagem ou Secret Kubernetes nasce nessa etapa;
 5. manter a cota global da aplicação em 90 custom hostnames e revalidar a
    origem de fallback já ativa depois que a API tiver origem publicada, antes
    do primeiro fluxo autorizado de domínio por conta/tenant;

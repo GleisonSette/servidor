@@ -484,3 +484,20 @@ substituída; nenhuma configuração Cloudflare foi alterada neste registro.
   estiver Ready foi aceita. O build deve ser acompanhado.
 - O deployment estático não libera o namespace `blindou-production`, migrations
   ou release da API; esses efeitos continuam separados.
+
+## 2026-08-21 - Primeiro push, Pages e gate remoto do Blindou
+
+Resultado: painel publicado; pipeline de imagens bloqueado antes da publicação;
+nenhuma mudança foi aplicada ao host neste evento.
+
+- A `main` Blindou foi enviada ao GitHub no SHA
+  `83e7f387f3fd5477d5882d292532fb2151d68d14`.
+- O Cloudflare Pages concluiu o deployment
+  `e9ed9cde-328c-40f8-9ef1-60c162fb65e2` em 1m10s. Raiz e `/relatorios`
+  responderam HTTP 200 com os headers de segurança esperados; a API permaneceu
+  ausente.
+- O workflow `32442604845` executou duas tentativas em runners novos. Ambas
+  passaram autorização, checkout, toolchain, fmt/check/Clippy e falharam quando
+  `rust-lld` recebeu sinal 7 (`Bus error`) ao ligar testes grandes diferentes.
+- O job de build/scan/publicação de imagens ficou `skipped`. Nenhum digest foi
+  produzido e nenhum deploy, migration ou Secret de runtime foi autorizado.

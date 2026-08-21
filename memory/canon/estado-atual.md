@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-estado-atual
   source_path: memory/canon/estado-atual.md
   generated_from: auditoria SSH, runtime K3s, Prometheus e repositórios locais
-  updated_at: 2026-08-20
+  updated_at: 2026-08-21
   status: canonical
 
 ## Host verificado
@@ -137,9 +137,13 @@ metadata:
 - O controlador instalado ainda não possui credencial GHCR. O contrato local
   preparado exigirá PAT classic com exatamente `read:packages` e manterá o
   valor root-only fora do Kubernetes até uma release autorizada.
-- O runner GitHub efêmero foi autorizado e o workflow seguro está preparado no
-  commit Blindou `08c35204f4f4d67df8e8065a516efb414d1166d2`. Ele ainda não foi
-  publicado ou executado e não existe pacote Blindou confirmado no GHCR.
+- A `main` Blindou foi publicada no SHA
+  `83e7f387f3fd5477d5882d292532fb2151d68d14`. O Pages concluiu a produção e
+  `app.blindou.com` serve a raiz e rotas profundas; a API continua ausente.
+- O workflow GitHub `32442604845` passou fmt/check/Clippy em duas tentativas,
+  mas `rust-lld` terminou com `Bus error` ao ligar testes grandes diferentes.
+  O job de imagens foi pulado e nenhuma candidata foi publicada por essa
+  execução.
 
 ## Manutenção
 
