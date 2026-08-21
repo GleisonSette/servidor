@@ -205,6 +205,9 @@ apply_firewall() {
   local rule_count
   rule_count="$(containment_rule_count)"
   if [[ "$rule_count" -eq "${#RULE_MARKERS[@]}" && -f "$SYSCTL_FILE" ]]; then
+    # systemd-networkd pode recriar a interface depois de systemd-sysctl no
+    # boot. Reaplicar o arquivo conhecido restaura o estado sem tocar no UFW.
+    write_ipv6_containment
     verify
     pass 'contenção temporária já estava aplicada'
     return

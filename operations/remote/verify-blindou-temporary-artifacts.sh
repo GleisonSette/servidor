@@ -5,9 +5,11 @@ readonly REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 readonly CONTROLLER="$REPOSITORY_ROOT/operations/remote/blindou-hostctl"
 readonly BOOTSTRAP="$REPOSITORY_ROOT/operations/remote/bootstrap-blindou-hostctl.sh"
 readonly SUDOERS_POLICY="$REPOSITORY_ROOT/operations/remote/blindou-hostctl.sudoers"
+readonly SERVICE="$REPOSITORY_ROOT/operations/remote/blindou-temporary-containment.service"
 
 bash -n "$CONTROLLER"
 bash -n "$BOOTSTRAP"
+[[ -f "$SERVICE" && ! -L "$SERVICE" ]]
 
 for marker in \
   blindou-deny-rfc1918-10 \
@@ -33,12 +35,17 @@ for marker in \
 done
 
 grep -Fq 'disable_ipv6 = 1' "$CONTROLLER"
+grep -Fq 'write_ipv6_containment' "$CONTROLLER"
 grep -Fq 'rollback-firewall' "$CONTROLLER"
 grep -Fq 'ufw route insert 1' "$CONTROLLER"
 grep -Fq 'o UFW não efetivou a regra identificada' "$CONTROLLER"
 grep -Fq 'rollback automático concluído' "$CONTROLLER"
 grep -Fq 'timeout 8 resolvectl query' "$CONTROLLER"
 grep -Fq "'/usr/local/sbin/blindou-hostctl'" "$BOOTSTRAP"
+grep -Fq 'systemctl enable blindou-temporary-containment.service' "$BOOTSTRAP"
+grep -Fq 'After=systemd-sysctl.service systemd-networkd.service network-online.target' "$SERVICE"
+grep -Fq 'Before=k3s.service apiwpp-private-gateway.service' "$SERVICE"
+grep -Fq 'ExecStart=/usr/sbin/sysctl --quiet --load=/etc/sysctl.d/90-blindou-temporary-network.conf' "$SERVICE"
 grep -Fq 'apply-firewall blindou-temporary-host-containment' "$SUDOERS_POLICY"
 grep -Fq 'visudo -cf' "$BOOTSTRAP"
 if grep -Eq '^apiadmin .*NOPASSWD:.*rollback-firewall' "$SUDOERS_POLICY"; then
@@ -64,8 +71,7 @@ import yaml
 
 root = Path(sys.argv[1])
 paths = [
-    root / "platform/base/namespaces.yaml",
-    root / "platform/base/blindou-edge-space.yaml",
+    root / "platform/blindou/00-namespaces.yaml",
     root / "platform/security/blindou-edge-policy.yaml",
 ]
 documents = []

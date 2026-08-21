@@ -1,0 +1,16 @@
+[Unit]
+Description=Restaura a contenção IPv6 temporária do Blindou após a rede
+Wants=network-online.target
+After=systemd-sysctl.service systemd-networkd.service network-online.target
+Before=k3s.service apiwpp-private-gateway.service
+ConditionPathExists=/etc/sysctl.d/90-blindou-temporary-network.conf
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/sysctl --quiet --load=/etc/sysctl.d/90-blindou-temporary-network.conf
+RemainAfterExit=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

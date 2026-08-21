@@ -23,6 +23,10 @@ if (-not (Test-Path -LiteralPath $knownHosts -PathType Leaf)) {
 }
 
 $files = @(
+    @{ Local = "operations/remote/blindou-hostctl"; Remote = "operations/remote/" },
+    @{ Local = "operations/remote/blindou-hostctl.sudoers"; Remote = "operations/remote/" },
+    @{ Local = "operations/remote/blindou-temporary-containment.service"; Remote = "operations/remote/" },
+    @{ Local = "operations/remote/bootstrap-blindou-hostctl.sh"; Remote = "operations/remote/" },
     @{ Local = "operations/remote/blindou-deployctl"; Remote = "operations/remote/" },
     @{ Local = "operations/remote/blindou-deployctl.sudoers"; Remote = "operations/remote/" },
     @{ Local = "operations/remote/blindou-release-verify.py"; Remote = "operations/remote/" },
@@ -56,9 +60,12 @@ foreach ($file in $files) {
     if ($LASTEXITCODE -ne 0) { throw "Falha ao enviar $($file.Local)." }
 }
 
-Write-Host "Digite a senha de sudo para instalar o controlador atualizado." -ForegroundColor Yellow
+Write-Host "Digite a senha de sudo para restaurar a contenção e instalar os controladores atualizados." -ForegroundColor Yellow
 & ssh.exe -t @sshArgs $server (
-    "cd $remoteRoot && sudo ./operations/remote/bootstrap-blindou-deployctl.sh"
+    "cd $remoteRoot && " +
+    "sudo ./operations/remote/bootstrap-blindou-hostctl.sh && " +
+    "sudo ./operations/remote/bootstrap-blindou-deployctl.sh && " +
+    "sudo -n /usr/local/sbin/blindou-hostctl verify"
 )
 if ($LASTEXITCODE -ne 0) { throw "Bootstrap remoto falhou." }
 

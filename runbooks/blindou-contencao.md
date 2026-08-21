@@ -63,6 +63,13 @@ O controlador root-owned `blindou-hostctl` possui interface fechada e:
 8. remove somente as regras marcadas pelo Blindou no rollback e restaura os
    valores IPv6 capturados antes da aplicação.
 
+No boot, `systemd-networkd` configura a interface depois do primeiro
+`systemd-sysctl`. A unidade root-owned
+`blindou-temporary-containment.service` reaplica somente o arquivo sysctl do
+Blindou depois de `network-online.target` e antes de K3s e do gateway privado.
+O controlador também restaura esse valor em uma reaplicação idempotente. Isso
+fecha a janela observada após reboot sem alterar as regras do `apiwpp`.
+
 As exceções DNS do Blindou incluem a origem fixa `192.168.100.59`, para não
 serem deduplicadas pelas regras históricas mais amplas do `apiwpp`. Cada
 inserção confirma imediatamente seu marcador. Falha durante a instalação ou no
