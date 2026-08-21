@@ -6,6 +6,7 @@ $server = "apiadmin@192.168.100.59"
 $identity = Join-Path $env:LOCALAPPDATA "apiwpp\ssh\apiwpp_admin_ed25519"
 $knownHosts = Join-Path $env:LOCALAPPDATA "apiwpp\ssh\known_hosts"
 $remoteRoot = "/home/apiadmin/blindou-platform-bootstrap-ghcr"
+$remoteArchive = "/home/apiadmin/blindou-platform-bootstrap-ghcr.tar.gz"
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $sshArgs = @(
     "-F", "NUL",
@@ -44,20 +45,40 @@ $files = @(
     @{ Local = "platform/base/service-exposure-policy.yaml"; Remote = "platform/base/" }
 )
 
-Write-Host "Preparando o cofre fechado da credencial GHCR somente leitura." -ForegroundColor Cyan
-& ssh.exe @sshArgs $server (
-    "install -d -m 0700 " +
-    "$remoteRoot/operations/remote $remoteRoot/platform/blindou $remoteRoot/platform/base"
-)
-if ($LASTEXITCODE -ne 0) { throw "Falha ao preparar o diretório remoto." }
+$temporaryBase = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+$temporaryRoot = [IO.Path]::GetFullPath((
+    Join-Path $temporaryBase ("blindou-ghcr-bootstrap-" + [guid]::NewGuid().ToString("N"))
+))
+if (-not $temporaryRoot.StartsWith($temporaryBase, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Diretório temporário escapou da raiz esperada."
+}
+$archivePath = Join-Path $temporaryRoot "bootstrap.tar.gz"
 
-foreach ($file in $files) {
-    $localPath = Join-Path $repositoryRoot $file.Local
-    if (-not (Test-Path -LiteralPath $localPath -PathType Leaf)) {
-        throw "Artefato local ausente: $($file.Local)"
+Write-Host "Preparando o cofre fechado da credencial GHCR somente leitura." -ForegroundColor Cyan
+try {
+    [void](New-Item -ItemType Directory -Path $temporaryRoot)
+    foreach ($file in $files) {
+        $localPath = Join-Path $repositoryRoot $file.Local
+        if (-not (Test-Path -LiteralPath $localPath -PathType Leaf)) {
+            throw "Artefato local ausente: $($file.Local)"
+        }
     }
-    & scp.exe @sshArgs $localPath "${server}:$remoteRoot/$($file.Remote)"
-    if ($LASTEXITCODE -ne 0) { throw "Falha ao enviar $($file.Local)." }
+    $archiveFiles = @($files | ForEach-Object { $_.Local })
+    & tar.exe -czf $archivePath -C $repositoryRoot @archiveFiles
+    if ($LASTEXITCODE -ne 0) { throw "Falha ao empacotar os controladores." }
+
+    & scp.exe @sshArgs $archivePath "${server}:$remoteArchive"
+    if ($LASTEXITCODE -ne 0) { throw "Falha ao enviar o pacote único." }
+    & ssh.exe @sshArgs $server (
+        "install -d -m 0700 $remoteRoot && " +
+        "tar --extract --gzip --file $remoteArchive --directory $remoteRoot"
+    )
+    if ($LASTEXITCODE -ne 0) { throw "Falha ao extrair o pacote remoto." }
+}
+finally {
+    if (Test-Path -LiteralPath $temporaryRoot) {
+        Remove-Item -LiteralPath $temporaryRoot -Recurse -Force
+    }
 }
 
 Write-Host "Digite a senha de sudo para restaurar a contenção e instalar os controladores atualizados." -ForegroundColor Yellow
@@ -65,7 +86,8 @@ Write-Host "Digite a senha de sudo para restaurar a contenção e instalar os co
     "cd $remoteRoot && " +
     "sudo ./operations/remote/bootstrap-blindou-hostctl.sh && " +
     "sudo ./operations/remote/bootstrap-blindou-deployctl.sh && " +
-    "sudo -n /usr/local/sbin/blindou-hostctl verify"
+    "sudo -n /usr/local/sbin/blindou-hostctl verify && " +
+    "rm -f $remoteArchive"
 )
 if ($LASTEXITCODE -ne 0) { throw "Bootstrap remoto falhou." }
 
