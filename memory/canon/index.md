@@ -54,8 +54,9 @@ corpus por padrão.
   `blindou-physical` está saudável com um único Pod e Secret exclusivos da
   EDGE; nenhum workload de aplicação, migration ou release foi aplicado.
 - Cloudflare for SaaS está ativo para `blindou.com`; o API token mínimo foi
-  validado e está em cofre root-only fora do Kubernetes. Nenhum hostname de
-  cliente foi criado e a cota operacional da aplicação permanece em 90.
+  validado e está em cofre root-only fora do Kubernetes. A origem de fallback
+  `domains.blindou.com` está ativa, nenhum hostname de cliente foi criado e a
+  cota operacional da aplicação permanece em 90.
 - A próxima ação é resolver P005, UAZAPI, Secrets e as autorizações de
   push/deploy pendentes antes de preparar a primeira release assinada;
   `blindou-production` permanece bloqueado.

@@ -169,9 +169,9 @@ Próxima ação exata:
 
 1. publicar o código no GitHub somente após autorização de `push`, concluir o
    primeiro build Pages e associar `app.blindou.com`;
-2. manter a cota global da aplicação em 90 custom hostnames e, depois que a API
-   tiver origem publicada, configurar e validar a origem de fallback antes do
-   primeiro fluxo autorizado de domínio por conta/tenant;
+2. manter a cota global da aplicação em 90 custom hostnames e revalidar a
+   origem de fallback já ativa depois que a API tiver origem publicada, antes
+   do primeiro fluxo autorizado de domínio por conta/tenant;
 3. resolver P005, UAZAPI e os demais Secrets antes da primeira release;
 4. somente mediante nova autorização de deploy, copiar as credenciais
    necessárias para os Secrets do runtime, liberar o gate completo, executar

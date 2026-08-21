@@ -419,3 +419,16 @@ permaneceu bloqueado.
 - O painel confirmou a lista vazia de custom hostnames e informou que a origem
   de fallback ainda não está ativa. Ela só será configurada depois que a origem
   da API estiver publicada e validada em fase autorizada.
+
+## 2026-08-20 - Correção do estado da origem de fallback SaaS
+
+Resultado: registro anterior corrigido por nova evidência visual completa;
+nenhuma configuração externa foi alterada.
+
+- O primeiro snapshot do painel ainda não havia carregado o formulário e o
+  estado da origem de fallback, levando à conclusão prematura registrada na
+  seção anterior.
+- Um novo snapshot completo exibiu `domains.blindou.com` como origem de
+  fallback com status `Ativo` e manteve a lista com zero custom hostnames.
+- O runtime da aplicação, migrations, Secrets e release continuaram ausentes;
+  somente o canon, o plano e o índice foram corrigidos.
