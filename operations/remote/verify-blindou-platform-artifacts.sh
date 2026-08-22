@@ -25,6 +25,11 @@ bash -n "$EMERGENCY_CONTROLLER"
 grep -Fq 'cmdline" == "bash ${CONTROLLER} apply ${release_id} "' \
   "$EMERGENCY_CONTROLLER" \
   || fail 'contenção emergencial não fixa o processo apply exato'
+grep -Fq 'pgrep -f "^bash ${CONTROLLER} apply ${release_id}$"' \
+  "$EMERGENCY_CONTROLLER" \
+  || fail 'contenção emergencial não seleciona um único apply por cmdline'
+grep -Fq 'if flock --nonblock 8; then' "$EMERGENCY_CONTROLLER" \
+  || fail 'contenção emergencial não comprova que o apply segura o lock'
 grep -Fq "'platform.servidor.local/deployment-gate=secrets-only'" \
   "$EMERGENCY_CONTROLLER" \
   || fail 'contenção emergencial não restaura secrets-only'

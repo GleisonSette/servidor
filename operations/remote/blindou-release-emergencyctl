@@ -45,10 +45,14 @@ contain_stuck_first_release() {
     || fail "confirmação exigida: ${CONFIRMATION}"
   [[ -e "$LOCK_FILE" && ! -L "$LOCK_FILE" ]] || fail 'lock do controlador ausente ou simbólico'
 
-  read -r -a holders <<<"$(fuser "$LOCK_FILE" 2>/dev/null || true)"
+  mapfile -t holders < <(pgrep -f "^bash ${CONTROLLER} apply ${release_id}$" || true)
   [[ "${#holders[@]}" -eq 1 && "${holders[0]}" =~ ^[0-9]+$ ]] \
-    || fail 'não existe um único processo segurando o lock'
+    || fail 'não existe um único processo apply exato para a release'
   holder="${holders[0]}"
+  exec 8>"$LOCK_FILE"
+  if flock --nonblock 8; then
+    fail 'o processo apply existe, mas não está segurando o lock do controlador'
+  fi
   [[ "$(stat -c '%U' "/proc/${holder}")" == root ]] || fail 'processo do lock não pertence a root'
   cmdline="$(tr '\0' ' ' <"/proc/${holder}/cmdline")"
   [[ "$cmdline" == "bash ${CONTROLLER} apply ${release_id} " ]] \

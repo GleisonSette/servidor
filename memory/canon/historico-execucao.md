@@ -733,3 +733,6 @@ a execução viva ainda precisava ser comprovada ao registrar esta entrada.
   objeto operacional na aplicação.
 - O sudoers admite apenas a interface fechada com confirmação literal; `sudo`
   genérico continua proibido.
+- A primeira chamada viva foi recusada sem alterar estado porque `fuser` não
+  entregou os PIDs pelo canal esperado; a seleção passou a combinar `pgrep` com
+  cmdline exata e prova independente de lock ocupado.
