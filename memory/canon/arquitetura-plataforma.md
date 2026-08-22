@@ -20,6 +20,10 @@ isolamento forte contra comprometimento do kernel/root.
 - Uma chave de assinatura de release por projeto.
 - Um controlador de deploy restrito por projeto; nenhuma automação recebe shell
   administrativo genérico.
+- D018 permite que o helper local versionado entregue `KEY_SERVIDOR` por
+  `stdin` somente aos bootstraps fechados dos controladores Blindou. O helper
+  fixa host, staging e nomes dos instaladores e não aceita comando livre nem
+  rollback destrutivo.
 - Uma ServiceAccount por workload, com token desabilitado quando não necessário.
 - Secrets, credenciais de banco e certificados separados por finalidade.
 

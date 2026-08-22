@@ -4,6 +4,7 @@ set -Eeuo pipefail
 readonly REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 readonly REMOTE_DIR="${REPOSITORY_ROOT}/operations/remote"
 readonly PULL_PROOF_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouGhcrCandidatePullProof.ps1"
+readonly SUDO_BOOTSTRAP_MODULE="${REPOSITORY_ROOT}/operations/Blindou.SudoBootstrap.psm1"
 
 fail() {
   printf '[verify-blindou-platform-artifacts] ERRO: %s\n' "$*" >&2
@@ -12,12 +13,49 @@ fail() {
 
 [[ -f "$PULL_PROOF_SCRIPT" && ! -L "$PULL_PROOF_SCRIPT" ]] \
   || fail 'orquestrador da prova GHCR ausente ou simbólico'
+[[ -f "$SUDO_BOOTSTRAP_MODULE" && ! -L "$SUDO_BOOTSTRAP_MODULE" ]] \
+  || fail 'módulo fechado de bootstrap sudo ausente ou simbólico'
+grep -Fq "[ValidateSet('DeployController', 'HostAndDeployControllers')]" \
+  "$SUDO_BOOTSTRAP_MODULE" || fail 'bootstrap sudo aceita conjunto não fechado'
+grep -Fq "if (\$Server -cne 'apiadmin@192.168.100.59')" \
+  "$SUDO_BOOTSTRAP_MODULE" || fail 'bootstrap sudo não fixa o servidor aprovado'
+grep -Fq "sudo -S -p '' -- ./operations/remote/bootstrap-blindou-deployctl.sh" \
+  "$SUDO_BOOTSTRAP_MODULE" || fail 'bootstrap sudo do deployctl não usa stdin'
+grep -Fq "sudo -S -p '' -- ./operations/remote/bootstrap-blindou-hostctl.sh" \
+  "$SUDO_BOOTSTRAP_MODULE" || fail 'bootstrap sudo do hostctl não usa stdin'
+grep -Fq "Join-Path \$repositoryRoot '.env'" \
+  "$SUDO_BOOTSTRAP_MODULE" || fail 'bootstrap sudo não fixa o arquivo temporário local'
+if grep -Eq 'Write-(Host|Output|Verbose|Debug).*(password|KEY_SERVIDOR)' \
+    "$SUDO_BOOTSTRAP_MODULE"; then
+  fail 'bootstrap sudo pode revelar a senha'
+fi
 grep -Fq '[string]$BundleDirectory' "$PULL_PROOF_SCRIPT" \
   || fail 'orquestrador não exige o diretório do bundle assinado'
 grep -Fq 'sudo -n /usr/local/sbin/blindou-deployctl validate-release $ReleaseId' \
   "$PULL_PROOF_SCRIPT" || fail 'orquestrador não valida a release antes do pull'
 grep -Fq "'release.manifest.sig'" "$PULL_PROOF_SCRIPT" \
   || fail 'orquestrador não fecha os três artefatos da release'
+grep -Fq 'Invoke-BlindouSudoBootstrap' "$PULL_PROOF_SCRIPT" \
+  || fail 'orquestrador não usa o bootstrap sudo fechado'
+for orchestrator in \
+  Invoke-BlindouCloudflareConnector.ps1 \
+  Invoke-BlindouCloudflareSaasToken.ps1 \
+  Invoke-BlindouGhcrPullCredential.ps1 \
+  Invoke-BlindouGhcrCandidatePullProof.ps1; do
+  grep -Fq "Import-Module (Join-Path \$PSScriptRoot 'Blindou.SudoBootstrap.psm1') -Force" \
+    "${REPOSITORY_ROOT}/operations/${orchestrator}" \
+    || fail "orquestrador não importa helper sudo: ${orchestrator}"
+  grep -Fq 'Invoke-BlindouSudoBootstrap' \
+    "${REPOSITORY_ROOT}/operations/${orchestrator}" \
+    || fail "orquestrador não usa helper sudo: ${orchestrator}"
+done
+for orchestrator in \
+  Invoke-BlindouCloudflareConnector.ps1 \
+  Invoke-BlindouCloudflareSaasToken.ps1; do
+  grep -Fq 'operations/remote/blindou-ghcr-pull-verify.py' \
+    "${REPOSITORY_ROOT}/operations/${orchestrator}" \
+    || fail "orquestrador não transporta verificador GHCR: ${orchestrator}"
+done
 
 for script in \
   blindou-deployctl bootstrap-blindou-deployctl.sh blindou-platform-metrics; do

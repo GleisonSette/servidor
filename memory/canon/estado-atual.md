@@ -53,11 +53,13 @@ metadata:
   restritos. `pixel-deployctl` e `saferwpp-deployctl` ainda estão ausentes; por
   isso Pixel e SaferWPP não possuem caminho autorizado de alteração no host.
 - `blindou-deployctl` está instalado como root com suporte fechado ao conector,
-  às credenciais Cloudflare for SaaS/GHCR e à release assinada. O SHA-256 da
+  às credenciais Cloudflare for SaaS/GHCR, à release assinada e à prova de pull
+  das quatro imagens privadas. O SHA-256 da
   fonte final é
-  `2f433a869db8ea4eac367f874e2bf56f752895a3a78c3310cc9d9f67c2de5dc6`.
+  `e6e06d77aa83558e1911424e3c7b7389d628281fa685fd1f4ff37f83bdc16d70`.
   A interface sudo sem senha continua restrita às operações fechadas do
-  controlador; rollbacks destrutivos exigem autenticação humana.
+  controlador; rollbacks destrutivos continuam fora da automação. D018 permite
+  usar a senha local somente nos dois bootstraps versionados e fechados.
 - `blindou-hostctl` corrigido está instalado como root com SHA-256
   `b51278e6b490a87483156b66968e381593b23a9b5b48a784756549f151e284be`.
   A primeira aplicação de 2026-08-19 foi revertida depois que o gate detectou
@@ -155,9 +157,13 @@ metadata:
   `current_release` continua ausente, os gates permanecem `blocked` e nenhum
   workload, Secret Kubernetes ou migration foi aplicado.
 - A candidata Blindou `0ba8384` passou nos gates de publicação e no scan
-  fechado `32550929031`, mas o bundle novo ainda não está no cache do host. A
-  versão local do controlador e o orquestrador estão preparados para quatro
-  imagens privadas; o bootstrap e a prova viva ainda não aconteceram.
+  fechado `32550929031`. O bundle assinado está validado no cache do host e a
+  prova integral comprovou backend, redirector, NATS e `cloudflared`: quatro
+  imagens, 24 blobs e 111.683.519 bytes. O recibo root-only registra
+  `ghcr_candidate_pull_proof=0ba83846102a480ae79d44fce971de13b91f9d04`.
+  `current_release` permanece ausente, `blindou-production` continua `blocked`
+  com zero objetos operacionais, e nenhum Secret Kubernetes, migration ou
+  workload foi criado.
 
 ## Manutenção
 

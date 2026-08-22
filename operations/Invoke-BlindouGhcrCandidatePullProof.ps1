@@ -15,6 +15,7 @@ $remoteRoot = "/home/apiadmin/blindou-platform-bootstrap-pull-proof/$ReleaseId"
 $remoteArchive = "/home/apiadmin/blindou-platform-bootstrap-pull-proof-$ReleaseId.tar.gz"
 $remoteInbox = "/home/apiadmin/blindou-deploy-inbox/$ReleaseId"
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
+Import-Module (Join-Path $PSScriptRoot 'Blindou.SudoBootstrap.psm1') -Force
 $sshArgs = @(
     '-F', 'NUL',
     '-i', $identity,
@@ -120,11 +121,15 @@ finally {
     }
 }
 
-Write-Host 'Digite a senha de sudo uma vez para instalar o controlador versionado.' -ForegroundColor Yellow
-Write-Host 'Depois, o servidor validará a release e as quatro imagens privadas sem iniciar workloads.' -ForegroundColor Cyan
-& ssh.exe -t @sshArgs $server (
-    "cd $remoteRoot && " +
-    'sudo ./operations/remote/bootstrap-blindou-deployctl.sh && ' +
+Write-Host 'Carregando a senha temporária somente em memória para o bootstrap fechado.' -ForegroundColor Cyan
+Invoke-BlindouSudoBootstrap `
+    -ControllerSet DeployController `
+    -SshArguments $sshArgs `
+    -Server $server `
+    -RemoteRoot $remoteRoot
+
+Write-Host 'Validando a release e as quatro imagens privadas sem iniciar workloads.' -ForegroundColor Cyan
+& ssh.exe @sshArgs $server (
     "sudo -n /usr/local/sbin/blindou-deployctl validate-release $ReleaseId && " +
     "sudo -n /usr/local/sbin/blindou-deployctl verify-ghcr-candidate-pull $ReleaseId && " +
     'sudo -n /usr/local/sbin/blindou-deployctl status && ' +
@@ -137,4 +142,3 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host 'Prova concluída. Volte ao Codex.' -ForegroundColor Green
-Read-Host 'Pressione ENTER para fechar'

@@ -181,3 +181,26 @@ commit ou memória. A exceção foi consumida com a instalação bem-sucedida e 
 altera D011 nem o runbook normal: operações futuras voltam a usar somente os
 controladores root-owned ou bootstrap humano. O arquivo temporário deve ser
 apagado pelo operador após esta entrega.
+
+Esta decisão permanece como histórico da exceção consumida e foi substituída
+para operações futuras por D018 em 2026-08-22.
+
+## Resolvida D018 - Senha local somente para bootstraps fechados do Blindou
+
+Em 2026-08-22, depois da apresentação explícita do conflito com D011/D017, o
+usuário autorizou permanentemente os orquestradores versionados da plataforma a
+carregar `KEY_SERVIDOR` do `.env` local ignorado. A finalidade é exclusivamente
+autenticar os bootstraps previamente fechados do `blindou-hostctl` e do
+`blindou-deployctl` no servidor físico aprovado.
+
+Somente `operations/Blindou.SudoBootstrap.psm1` pode ler a chave. O arquivo deve
+ser regular, pequeno e conter exatamente uma ocorrência; o valor permanece em
+memória somente durante o processo, segue por `stdin` para `sudo -S` e nunca
+entra em argumento, variável de ambiente, arquivo derivado, log, resposta,
+Git, memória RAG ou índice. O helper fixa host, staging e os dois nomes de
+bootstrap aceitos. Ele não recebe comando arbitrário e não automatiza rollback
+destrutivo.
+
+D011 continua proibindo `sudo` genérico e shell administrativo automatizado.
+O `.env` é uma credencial temporária da estação, não um cofre permanente; ao
+terminar o trabalho dependente dela, o operador deve apagá-lo.

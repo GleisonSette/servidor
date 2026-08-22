@@ -60,9 +60,10 @@ corpus por padrão.
 - `blindou.com` foi removido do projeto Pages. `app.blindou.com` publicou o SHA
   `83e7f387` e serve o painel; a API compatível ainda não está Ready.
 - A credencial GHCR `read:packages` está validada em cofre root-only. O
-  controlador instalado ainda precede a extensão para quatro imagens; a nova
-  candidata `0ba8384` passou nos gates e no scan fechado, mas o bundle ainda
-  não foi validado no cache nem submetido à prova viva no host.
+  controlador instalado aceita as quatro imagens privadas; a candidata
+  `0ba8384` passou nos gates, no scan fechado, na validação do bundle no cache e
+  na prova integral viva do host. A prova confirmou quatro imagens, 24 blobs e
+  111.683.519 bytes sem criar Secret, migration ou workload.
 - O workflow `32442604845` executou o SHA Blindou `83e7f387` duas vezes:
   fmt/check/Clippy passaram, mas `rust-lld` caiu com `Bus error` ao ligar testes
   grandes diferentes. O job de imagens foi pulado e não publicou candidatas.

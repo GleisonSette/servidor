@@ -7,6 +7,7 @@ $identity = Join-Path $env:LOCALAPPDATA "apiwpp\ssh\apiwpp_admin_ed25519"
 $knownHosts = Join-Path $env:LOCALAPPDATA "apiwpp\ssh\known_hosts"
 $remoteRoot = "/home/apiadmin/blindou-platform-bootstrap-cloudflare"
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
+Import-Module (Join-Path $PSScriptRoot 'Blindou.SudoBootstrap.psm1') -Force
 $sshArgs = @(
     "-F", "NUL",
     "-i", $identity,
@@ -26,6 +27,7 @@ $files = @(
     @{ Local = "operations/remote/blindou-deployctl"; Remote = "operations/remote/" },
     @{ Local = "operations/remote/blindou-deployctl.sudoers"; Remote = "operations/remote/" },
     @{ Local = "operations/remote/blindou-release-verify.py"; Remote = "operations/remote/" },
+    @{ Local = "operations/remote/blindou-ghcr-pull-verify.py"; Remote = "operations/remote/" },
     @{ Local = "operations/remote/blindou-platform-metrics"; Remote = "operations/remote/" },
     @{ Local = "operations/remote/blindou-platform-metrics.service"; Remote = "operations/remote/" },
     @{ Local = "operations/remote/blindou-platform-metrics.timer"; Remote = "operations/remote/" },
@@ -56,11 +58,12 @@ foreach ($file in $files) {
     if ($LASTEXITCODE -ne 0) { throw "Falha ao enviar $($file.Local)." }
 }
 
-Write-Host "Digite a senha de sudo para instalar o controlador atualizado." -ForegroundColor Yellow
-& ssh.exe -t @sshArgs $server (
-    "cd $remoteRoot && sudo ./operations/remote/bootstrap-blindou-deployctl.sh"
-)
-if ($LASTEXITCODE -ne 0) { throw "Bootstrap remoto falhou." }
+Write-Host "Carregando a senha temporária somente em memória para o bootstrap fechado." -ForegroundColor Cyan
+Invoke-BlindouSudoBootstrap `
+    -ControllerSet DeployController `
+    -SshArguments $sshArgs `
+    -Server $server `
+    -RemoteRoot $remoteRoot
 
 Write-Host "No Chrome, clique em 'Copiar token' no Tunnel blindou-physical." -ForegroundColor Cyan
 Write-Host "Depois cole abaixo. O conteúdo não aparecerá e não será salvo." -ForegroundColor Yellow

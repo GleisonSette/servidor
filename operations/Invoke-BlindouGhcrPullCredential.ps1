@@ -8,6 +8,7 @@ $knownHosts = Join-Path $env:LOCALAPPDATA "apiwpp\ssh\known_hosts"
 $remoteRoot = "/home/apiadmin/blindou-platform-bootstrap-ghcr"
 $remoteArchive = "/home/apiadmin/blindou-platform-bootstrap-ghcr.tar.gz"
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
+Import-Module (Join-Path $PSScriptRoot 'Blindou.SudoBootstrap.psm1') -Force
 $sshArgs = @(
     "-F", "NUL",
     "-i", $identity,
@@ -84,15 +85,16 @@ finally {
     }
 }
 
-Write-Host "Digite a senha de sudo para restaurar a contenção e instalar os controladores atualizados." -ForegroundColor Yellow
-& ssh.exe -t @sshArgs $server (
-    "cd $remoteRoot && " +
-    "sudo ./operations/remote/bootstrap-blindou-hostctl.sh && " +
-    "sudo ./operations/remote/bootstrap-blindou-deployctl.sh && " +
-    "sudo -n /usr/local/sbin/blindou-hostctl verify && " +
-    "rm -f $remoteArchive"
+Write-Host "Carregando a senha temporária somente em memória para os bootstraps fechados." -ForegroundColor Cyan
+Invoke-BlindouSudoBootstrap `
+    -ControllerSet HostAndDeployControllers `
+    -SshArguments $sshArgs `
+    -Server $server `
+    -RemoteRoot $remoteRoot
+& ssh.exe @sshArgs $server (
+    "sudo -n /usr/local/sbin/blindou-hostctl verify && rm -f $remoteArchive"
 )
-if ($LASTEXITCODE -ne 0) { throw "Bootstrap remoto falhou." }
+if ($LASTEXITCODE -ne 0) { throw "Verificação posterior ao bootstrap falhou." }
 
 Write-Host "Cole o PAT classic do GitHub com somente read:packages." -ForegroundColor Cyan
 Write-Host "O conteúdo não aparecerá nem será salvo nesta máquina." -ForegroundColor Yellow

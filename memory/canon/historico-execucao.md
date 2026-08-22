@@ -591,3 +591,25 @@ Resultado: orquestração preparada no repositório; host ainda não alterado.
   depois `verify-ghcr-candidate-pull` para as quatro imagens.
 - Nenhum Secret Kubernetes, gate, migration, workload ou release corrente foi
   criado nesta preparação.
+
+## 2026-08-22 - Bootstrap automatizado fechado e prova integral da candidata
+
+Resultado: controlador atualizado e candidata comprovada no host; runtime
+permaneceu bloqueado e o `apiwpp` saudável.
+
+- Após o protocolo de conflito, D018 autorizou o helper versionado a carregar
+  `KEY_SERVIDOR` do `.env` ignorado somente em memória e enviá-la por `stdin`
+  aos bootstraps fechados. Host, staging e instaladores são fixos; `sudo`
+  genérico e rollback destrutivo continuam proibidos.
+- O `blindou-deployctl` instalado coincidiu com a fonte local no SHA-256
+  `e6e06d77aa83558e1911424e3c7b7389d628281fa685fd1f4ff37f83bdc16d70`.
+- O bundle assinado `0ba83846102a480ae79d44fce971de13b91f9d04` passou em
+  `validate-release` e foi armazenado no cache root-only.
+- A prova GHCR baixou e verificou quatro imagens privadas, 24 blobs e
+  111.683.519 bytes. O recibo sem segredo ficou associado ao mesmo release ID.
+- A verificação independente aprovou fundação, conector EDGE, credencial GHCR,
+  dados, backup, UFW/IPv6/DNS/Internet/ONT/K3s e `apiwpp`; zero unit systemd
+  estava falha.
+- `current_release` permaneceu ausente; `blindou-production` continuou
+  `blocked` e com zero objetos operacionais. Nenhum Secret Kubernetes,
+  migration ou workload foi criado.

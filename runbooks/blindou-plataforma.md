@@ -81,6 +81,21 @@ sudo /usr/local/sbin/blindou-deployctl \
 O rollback restaura as políticas de admissão capturadas antes da aplicação e o
 label anterior do nó. Ele recusa remover namespace que possua objeto operacional.
 
+## Autenticação dos bootstraps Blindou
+
+Os orquestradores versionados usam exclusivamente
+`operations/Blindou.SudoBootstrap.psm1` para instalar ou atualizar os
+controladores. O helper carrega `KEY_SERVIDOR` do `.env` ignorado na raiz deste
+repositório, sem exibir seu conteúdo, e envia o valor apenas por `stdin` para
+`sudo -S`. Ele fixa o host aprovado, o staging Blindou e os instaladores
+`bootstrap-blindou-hostctl.sh` e `bootstrap-blindou-deployctl.sh`.
+
+O helper não aceita comando `sudo` livre, outro host, rollback destrutivo ou
+operação de outro projeto. O arquivo `.env` é temporário e deve ser apagado pelo
+operador quando a atividade que depende da senha terminar. Token Cloudflare,
+PAT GHCR e demais segredos continuam usando seus canais próprios e nunca podem
+ser colocados nesse arquivo por conveniência.
+
 ## Conector Cloudflare isolado
 
 No computador administrativo, executar:
@@ -90,8 +105,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\operations\Invoke-BlindouCloudflareConnector.ps1
 ```
 
-O script atualiza o controlador por bootstrap humano, pede o token em campo
-oculto e o envia somente pelo `stdin` do SSH. O token nunca entra em argumento,
+O script atualiza o controlador pelo helper fechado, pede o token em campo
+oculto e o envia somente pelo `stdin` do SSH. A senha e o token nunca entram em argumento,
 arquivo local, Git ou log. O controlador grava diretamente o Secret
 `blindou-edge/blindou-cloudflare-tunnel`, aplica a imagem imutável do
 `cloudflared` e espera a réplica ficar disponível.
@@ -177,7 +192,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\operations\Invoke-BlindouGhcrPullCredential.ps1
 ```
 
-O script atualiza o controlador por bootstrap humano, recebe o PAT em campo
+O script atualiza o controlador pelo helper fechado, recebe o PAT em campo
 oculto e o envia somente pelo `stdin` do SSH. O controlador valida identidade e
 escopo na API oficial do GitHub e grava `/etc/blindou/ghcr/pull-token` como
 `root:root 0600`, dentro de diretório `0700`. Nenhum Secret Kubernetes é criado
@@ -215,7 +230,7 @@ nova credencial antes de retirar a anterior.
 
 A validação de escopo do PAT não prova sozinha que os quatro pacotes privados da
 candidata podem ser baixados. Antes de liberar o gate da aplicação, atualizar o
-controlador pelo bootstrap humano versionado e executar:
+controlador pelo bootstrap versionado fechado e executar:
 
 ```bash
 sudo -n /usr/local/sbin/blindou-deployctl \
@@ -250,9 +265,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 
 Esse script transfere no mesmo archive os artefatos versionados do controlador
 e exatamente `release.manifest`, `release.manifest.sig` e `rendered.tar.gz`.
-Ele pede a senha humana uma vez para o bootstrap, valida a release no cache e
-usa depois apenas a interface sem senha fechada para comprovar o pull. Ele não
-lê novamente o PAT.
+Ele carrega a senha temporária pelo helper fechado para o bootstrap, valida a
+release no cache e usa depois apenas a interface sem senha fechada para
+comprovar o pull. Ele não lê novamente o PAT.
 
 ## Fundação de dados
 
