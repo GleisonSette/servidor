@@ -19,6 +19,7 @@ RELEASE_RE = re.compile(r"^[0-9a-f]{40}$")
 IMAGE_RE = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 NAME_RE = re.compile(r"^blindou-[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
 WORKER_RE = re.compile(r"^blindou-worker-[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
+EXPECTED_WORKER_COUNT = 18
 ALLOWED_NETWORK_POLICIES = {
     "default-deny",
     "allow-dns",
@@ -301,8 +302,10 @@ def validate_documents(documents: list[dict[str, Any]], release_id: str) -> None
     }
     if not required_deployments.issubset(deployment_names):
         fail("deployments centrais ausentes")
-    if len(worker_names) != 19:
-        fail("eram esperados 19 deployments de workers")
+    if len(worker_names) != EXPECTED_WORKER_COUNT:
+        fail(
+            f"eram esperados {EXPECTED_WORKER_COUNT} deployments de workers"
+        )
     if cloudflared_deployments != 1:
         fail("deve existir exatamente um Deployment cloudflared")
     if migration_jobs != 1:
@@ -330,8 +333,11 @@ def main() -> None:
     if not REQUIRED_FILES.issubset(relative):
         fail("archive não contém todos os manifests obrigatórios")
     worker_files = {path for path in relative if path.startswith("workers/")}
-    if len(worker_files) != 19:
-        fail("archive deve conter exatamente 19 manifests em workers/")
+    if len(worker_files) != EXPECTED_WORKER_COUNT:
+        fail(
+            "archive deve conter exatamente "
+            f"{EXPECTED_WORKER_COUNT} manifests em workers/"
+        )
     allowed = REQUIRED_FILES | worker_files
     if relative != allowed:
         fail("archive contém arquivo fora do contrato")

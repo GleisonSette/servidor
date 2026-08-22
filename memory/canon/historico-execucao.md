@@ -637,3 +637,18 @@ nenhuma mudança viva desta etapa foi aplicada ao host.
 - Sintaxe Bash e PowerShell, testes do verificador GHCR, verificador de
   artefatos e diff check passaram. Commit, bootstrap vivo, Secrets, gates,
   migrations, deploy e usuário continuam pendentes nesta entrada.
+
+## 2026-08-22 - Correção do contrato da candidata com 2FA desabilitado
+
+Resultado: a primeira tentativa de validar a nova candidata falhou fechada e
+não iniciou workload; o contrato do servidor foi alinhado à decisão D027.
+
+- O bundle assinado continha os 18 workers aprovados e omitia somente
+  `auth-whatsapp-delivery`, como exigido enquanto não existe sender UAZAPI de
+  segurança e `AUTH_REQUIRE_2FA=false`.
+- O verificador do servidor ainda continha a contagem histórica de 19 workers;
+  ele recusou o archive antes de criar release, migration, Secret ou workload.
+- A contagem passou a ter uma única constante normativa de 18 workers, usada
+  tanto na estrutura do archive quanto nos Deployments extraídos.
+- Assinatura, SHA-256, escopo de recursos, imagens por digest e demais gates
+  permanecem inalterados.
