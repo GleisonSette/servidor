@@ -2167,11 +2167,60 @@ require_release_gates() {
   verify_runtime_material
 }
 
+redact_migration_diagnostics() {
+  sed -E \
+    -e 's#(postgres(ql)?://)[^[:space:]]+#\1[REDACTED]#gI' \
+    -e 's#((password|token|secret|private[_-]?key)=)[^[:space:]]+#\1[REDACTED]#gI'
+}
+
+emit_migration_diagnostics() {
+  local migration_job="$1" logs
+  printf '[blindou-deployctl] diagnóstico sanitizado do Job %s:\n' \
+    "$migration_job" >&2
+  logs="$(
+    kube -n "$APP_NAMESPACE" logs "job/${migration_job}" \
+      --container=migrate --tail=100 2>&1 || true
+  )"
+  if [[ -n "$logs" ]]; then
+    printf '%s\n' "$logs" | redact_migration_diagnostics >&2
+  else
+    printf '[blindou-deployctl] nenhum log de migration disponível\n' >&2
+  fi
+  unset logs
+}
+
+wait_migration_job() {
+  local migration_job="$1" deadline complete failed
+  deadline=$((SECONDS + 600))
+  while (( SECONDS < deadline )); do
+    complete="$(
+      kube -n "$APP_NAMESPACE" get job "$migration_job" \
+        -o 'jsonpath={.status.conditions[?(@.type=="Complete")].status}' \
+        2>/dev/null || true
+    )"
+    [[ "$complete" == 'True' ]] && return 0
+    failed="$(
+      kube -n "$APP_NAMESPACE" get job "$migration_job" \
+        -o 'jsonpath={.status.conditions[?(@.type=="Failed")].status}' \
+        2>/dev/null || true
+    )"
+    if [[ "$failed" == 'True' ]]; then
+      emit_migration_diagnostics "$migration_job"
+      printf '[blindou-deployctl] ERRO: Job de migration falhou\n' >&2
+      return 1
+    fi
+    sleep 2
+  done
+  emit_migration_diagnostics "$migration_job"
+  printf '[blindou-deployctl] ERRO: Job de migration excedeu 600 segundos\n' >&2
+  return 1
+}
+
 wait_release() {
   local release_id="$1" rendered="$2" migration_job="blindou-migrate-${release_id:0:12}"
   kube -n "$APP_NAMESPACE" rollout status statefulset/blindou-nats --timeout=300s
   kube -n "$APP_NAMESPACE" rollout status statefulset/blindou-redis --timeout=300s
-  kube -n "$APP_NAMESPACE" wait --for=condition=complete "job/${migration_job}" --timeout=600s
+  wait_migration_job "$migration_job"
   local deployment
   for deployment in blindou-backend blindou-ml-affiliate-connector blindou-redirector; do
     kube -n "$APP_NAMESPACE" rollout status "deployment/${deployment}" --timeout=600s
@@ -2197,8 +2246,7 @@ apply_cached_release() {
   kube -n "$APP_NAMESPACE" rollout status statefulset/blindou-nats --timeout=300s
   kube -n "$APP_NAMESPACE" rollout status statefulset/blindou-redis --timeout=300s
   kube apply -f "$rendered/40-workloads.yaml" -l 'blindou.io/tier=migration' >/dev/null
-  kube -n "$APP_NAMESPACE" wait --for=condition=complete \
-    "job/blindou-migrate-${release_id:0:12}" --timeout=600s
+  wait_migration_job "blindou-migrate-${release_id:0:12}"
   kube apply -f "$rendered/40-workloads.yaml" -l 'blindou.io/tier=app' >/dev/null
   kube apply -f "$rendered/workers" >/dev/null
   kube apply -f "$rendered/60-cloudflared.yaml" >/dev/null

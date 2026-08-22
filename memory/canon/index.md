@@ -73,7 +73,11 @@ corpus por padrão.
   configuração de UAZAPI, Resend e Pagar.me. O modo inicial exige os três
   provedores sem credenciais e explicitamente desabilitados; o canal externo de
   alertas fica adiado até a aprovação visual. `blindou-production` ainda
-  permanece bloqueado porque a candidata corrigida não foi implantada.
+  permanece em `secrets-only`: a candidata `794d922` passou nos gates e na
+  prova de pull, mas o Job de migration não concluiu em 600 segundos. O rollback
+  removeu os workloads, manteve `current_release` ausente e restaurou o
+  conector. O próximo passo é instalar o diagnóstico fail-fast do Job e repetir
+  a tentativa para obter e corrigir a causa real.
 
 ## Precedência
 

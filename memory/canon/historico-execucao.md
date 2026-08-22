@@ -754,3 +754,28 @@ SCP e validar o conjunto fechado localmente.
   exatamente três arquivos regulares, sem link simbólico nem conteúdo extra.
 - O backup `blindou-20260822T222900Z` foi confirmado offsite antes da nova
   candidata; nenhuma credencial de provedor participou do fluxo.
+
+## 2026-08-22 - Timeout fail-closed do primeiro Job de migration
+
+Resultado: a candidata chegou pela primeira vez ao Job de migration, não
+concluiu em 600 segundos e foi integralmente contida; o controlador foi
+corrigido no repositório para distinguir falha terminal de espera real.
+
+- O workflow `32602526360` concluiu testes Rust/PostgreSQL e publicação das
+  imagens da candidata `794d92235ea5ad14a001bac103f23435bb32fcf0` em 25
+  minutos e 38 segundos.
+- A assinatura local, a prova integral das quatro imagens e o backup offsite
+  `blindou-20260822T225840Z` passaram antes da ativação dos gates.
+- NATS e Redis ficaram Ready. O Job `blindou-migrate-794d92235ea5` não recebeu
+  condição `Complete` em 600 segundos; o controlador removeu os workloads e
+  Services, restaurou `secrets-only`/`connector-only`, manteve
+  `current_release` ausente e o conector voltou a Ready.
+- A espera anterior observava somente `Complete`, portanto consumia o timeout
+  mesmo quando o Kubernetes já pudesse ter marcado `Failed` e removia o Job
+  antes da coleta da causa.
+- A fonte passa a observar `Complete` e `Failed` a cada dois segundos, mantém o
+  limite de 600 segundos e emite antes do rollback somente as últimas linhas do
+  container de migration após redaction explícita de URL PostgreSQL, senha,
+  token, segredo e chave privada. O verificador inclui exercício dinâmico dessa
+  sanitização.
+- UAZAPI, Resend e Pagar.me permaneceram ausentes durante toda a tentativa.

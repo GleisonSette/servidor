@@ -207,9 +207,11 @@ Próxima ação exata:
 
 ## Fase 2E - Primeira release e capacidade do Blindou
 
-Status: em preparação para a revisão inicial da UI conforme D019; deploy e
-migrations já foram autorizados, mas ainda dependem da nova candidata assinada
-e dos gates técnicos.
+Status: candidata `794d922` assinada, comprovada e autorizada; a primeira
+tentativa chegou ao Job de migration e falhou fechada por timeout. Antes da
+repetição, o controlador precisa instalar a observação de `Failed` com
+diagnóstico sanitizado, identificar a causa real, corrigi-la e repetir os gates
+sem introduzir credenciais de UAZAPI, Resend ou Pagar.me.
 
 Objetivos:
 

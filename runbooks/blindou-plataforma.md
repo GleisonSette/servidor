@@ -377,6 +377,14 @@ reativado e só então captura o código para decidir rollback. Não envolver
 nas funções chamadas nesse contexto e pode continuar após uma recusa do
 Kubernetes.
 
+O Job de migration é observado por estado terminal, não somente por
+`Complete`. `Failed` encerra a espera imediatamente; ausência de estado
+terminal continua limitada a 600 segundos. Antes do rollback, o controlador
+emite as últimas linhas do único container `migrate` por um filtro que remove
+URLs PostgreSQL e valores associados a senha, token, segredo ou chave privada.
+Não substituir esse fluxo por espera exclusiva de `Complete`, pois um Job já
+falho consumiria todo o timeout e perderia o diagnóstico ao ser removido.
+
 Se uma versão anterior já carregada em memória permanecer presa depois de uma
 falha de primeira release, não usar `sudo kill` nem editar objetos manualmente.
 O controlador independente `blindou-release-emergencyctl` aceita somente

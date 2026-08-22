@@ -91,8 +91,12 @@ metadata:
 - Uma ValidatingAdmissionPolicy recusa Service `NodePort`, `LoadBalancer` e
   `externalIPs` nos namespaces gerenciados; o teste server-side de NodePort foi
   recusado.
-- `blindou-production` permanece vazio, com Pod Security `restricted`, default
-  deny, quota de quarentena, gate `blocked` e zero objetos operacionais.
+- `blindou-production` permanece sem workloads, com Pod Security `restricted`,
+  default deny e gate `secrets-only`; contém somente Secrets, ConfigMaps e
+  controles admitidos por esse gate. A candidata `794d922` iniciou NATS, Redis
+  e o Job de migration, mas o Job não marcou conclusão em 600 segundos. O
+  rollback de primeira release removeu workloads e Services, restaurou a
+  contenção e manteve `current_release` ausente.
   `blindou-edge` está em gate `connector-only` e contém somente os três objetos
   permitidos do Tunnel: um Deployment com um Pod Ready, ServiceAccount e Secret
   exclusivos. Não existe Service, PVC, release Blindou corrente nem outro
@@ -164,6 +168,13 @@ metadata:
   `current_release` permanece ausente, `blindou-production` continua `blocked`
   com zero objetos operacionais, e nenhum Secret Kubernetes, migration ou
   workload foi criado.
+- A candidata `794d92235ea5ad14a001bac103f23435bb32fcf0` passou no workflow
+  `32602526360`, na assinatura e na prova integral das quatro imagens. O backup
+  offsite `blindou-20260822T225840Z` foi confirmado antes do `apply`. NATS e
+  Redis ficaram prontos, mas o Job `blindou-migrate-794d92235ea5` não concluiu
+  em 600 segundos; o rollback automático restaurou `secrets-only` e
+  `connector-only`, o conector voltou a Ready e a API pública permaneceu em
+  `502`. UAZAPI, Resend e Pagar.me continuam ausentes.
 
 ## Manutenção
 

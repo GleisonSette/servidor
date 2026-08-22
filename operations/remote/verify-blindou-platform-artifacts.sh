@@ -336,6 +336,50 @@ grep -Fq 'set +e' <<<"$apply_release_function" \
 if grep -Fq 'if ! apply_cached_release' <<<"$apply_release_function"; then
   fail 'apply ainda suprime errexit no corpo da release'
 fi
+migration_wait_function="$(sed -n '/^wait_migration_job()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+grep -Fq 'deadline=$((SECONDS + 600))' <<<"$migration_wait_function" \
+  && grep -Fq 'type=="Complete"' <<<"$migration_wait_function" \
+  && grep -Fq 'type=="Failed"' <<<"$migration_wait_function" \
+  && grep -Fq 'emit_migration_diagnostics "$migration_job"' <<<"$migration_wait_function" \
+  || fail 'espera da migration não distingue sucesso, falha e timeout'
+if grep -Fq 'wait --for=condition=complete' "${REMOTE_DIR}/blindou-deployctl"; then
+  fail 'controlador ainda aguarda apenas Complete e pode mascarar Job Failed'
+fi
+grep -Fq "postgres(ql)?://)[^[:space:]]+" "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq "password|token|secret|private[_-]?key" "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'diagnóstico da migration não possui redaction explícita'
+migration_redactor_function="$(sed -n '/^redact_migration_diagnostics()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+migration_diagnostics_function="$(sed -n '/^emit_migration_diagnostics()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+(
+  eval "$migration_redactor_function"
+  eval "$migration_diagnostics_function"
+  eval "$migration_wait_function"
+  APP_NAMESPACE='blindou-test'
+  sensitive_sample='sensitive-sample-value'
+  diagnostic_test_log="$(mktemp)"
+  trap 'rm -f -- "$diagnostic_test_log"' EXIT
+  kube() {
+    if [[ "$*" == *' get job '* && "$*" == *'type=="Failed"'* ]]; then
+      printf 'True'
+    elif [[ "$*" == *' logs '* ]]; then
+      printf 'connection postgresql://migration:%s@database/blindou failed\n' \
+        "$sensitive_sample"
+      printf 'password=%s token=%s secret=%s private_key=%s\n' \
+        "$sensitive_sample" "$sensitive_sample" "$sensitive_sample" "$sensitive_sample"
+    fi
+  }
+  if wait_migration_job blindou-migrate-test >"$diagnostic_test_log" 2>&1; then
+    fail 'Job Failed foi aceito como migration concluída'
+  fi
+  grep -Fq 'postgresql://[REDACTED]' "$diagnostic_test_log" \
+    || fail 'URL da migration não foi sanitizada'
+  if grep -Fq "$sensitive_sample" "$diagnostic_test_log"; then
+    fail 'diagnóstico da migration expôs valor sensível'
+  fi
+) || fail 'teste dinâmico da falha sanitizada de migration falhou'
 grep -Fq "readonly SUPERADMIN_EMAIL='gleisonsette@gmail.com'" \
   "${REMOTE_DIR}/blindou-deployctl" || fail 'identidade fixa do superadmin ausente'
 grep -Fq 'provision-runtime-secrets blindou-runtime-secrets' \
