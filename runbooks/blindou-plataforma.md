@@ -372,6 +372,15 @@ reativado e só então captura o código para decidir rollback. Não envolver
 nas funções chamadas nesse contexto e pode continuar após uma recusa do
 Kubernetes.
 
+Se uma versão anterior já carregada em memória permanecer presa depois de uma
+falha de primeira release, não usar `sudo kill` nem editar objetos manualmente.
+O controlador independente `blindou-release-emergencyctl` aceita somente
+`contain-stuck-first-release <sha> blindou-stuck-first-release`: ele exige um
+único holder root do lock cujo `cmdline` seja exatamente o `apply` daquele SHA,
+encerra sua árvore, remove workloads e Services parciais, restaura
+`secrets-only`/`connector-only` e confirma `current_release` ausente. Qualquer
+divergência recusa a contenção.
+
 ## Observabilidade
 
 `blindou-platform-metrics.timer` grava no textfile collector do Node Exporter:

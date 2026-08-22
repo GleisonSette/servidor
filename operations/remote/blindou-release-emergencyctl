@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+umask 077
+
+readonly EXPECTED_HOSTNAME='apiwpp'
+readonly APP_NAMESPACE='blindou-production'
+readonly EDGE_NAMESPACE='blindou-edge'
+readonly CONTROLLER='/usr/local/sbin/blindou-deployctl'
+readonly LOCK_FILE='/run/lock/blindou-deployctl.lock'
+readonly STATE_ROOT='/var/lib/blindou-platform'
+readonly CURRENT_RELEASE="${STATE_ROOT}/current-release"
+readonly RELEASE_GATE_RECEIPT="${STATE_ROOT}/release-gate.state"
+readonly FOUNDATION_DIR='/usr/local/lib/blindou-platform/foundation'
+readonly EDGE_GATE_MANIFEST="${FOUNDATION_DIR}/15-edge-connector-gate.yaml"
+readonly EDGE_RUNTIME_MANIFEST="${FOUNDATION_DIR}/16-edge-connector-runtime.yaml"
+readonly CONFIRMATION='blindou-stuck-first-release'
+readonly RELEASE_PATTERN='^[0-9a-f]{40}$'
+
+fail() {
+  printf '[blindou-release-emergencyctl] ERRO: %s\n' "$*" >&2
+  exit 1
+}
+
+kube() {
+  /usr/local/bin/k3s kubectl "$@"
+}
+
+descendants_postorder() {
+  local parent="$1" child
+  while IFS= read -r child; do
+    [[ "$child" =~ ^[0-9]+$ ]] || continue
+    descendants_postorder "$child"
+    printf '%s\n' "$child"
+  done < <(pgrep -P "$parent" || true)
+}
+
+contain_stuck_first_release() {
+  local release_id="$1" confirmation="$2" holder cmdline pid
+  local -a holders=()
+  [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
+  [[ "$confirmation" == "$CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${CONFIRMATION}"
+  [[ -e "$LOCK_FILE" && ! -L "$LOCK_FILE" ]] || fail 'lock do controlador ausente ou simbólico'
+
+  read -r -a holders <<<"$(fuser "$LOCK_FILE" 2>/dev/null || true)"
+  [[ "${#holders[@]}" -eq 1 && "${holders[0]}" =~ ^[0-9]+$ ]] \
+    || fail 'não existe um único processo segurando o lock'
+  holder="${holders[0]}"
+  [[ "$(stat -c '%U' "/proc/${holder}")" == root ]] || fail 'processo do lock não pertence a root'
+  cmdline="$(tr '\0' ' ' <"/proc/${holder}/cmdline")"
+  [[ "$cmdline" == "bash ${CONTROLLER} apply ${release_id} " ]] \
+    || fail "processo do lock não é o apply exato da release solicitada"
+  if [[ -f "$CURRENT_RELEASE" ]]; then
+    [[ "$(<"$CURRENT_RELEASE")" == "$release_id" ]] \
+      || fail 'outra release já é a autoridade atual; contenção recusada'
+  fi
+
+  while IFS= read -r pid; do
+    kill -TERM "$pid" 2>/dev/null || true
+  done < <(descendants_postorder "$holder")
+  kill -TERM "$holder" 2>/dev/null || true
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    [[ ! -d "/proc/${holder}" ]] && break
+    sleep 1
+  done
+  if [[ -d "/proc/${holder}" ]]; then
+    while IFS= read -r pid; do
+      kill -KILL "$pid" 2>/dev/null || true
+    done < <(descendants_postorder "$holder")
+    kill -KILL "$holder" 2>/dev/null || true
+  fi
+
+  kube -n "$APP_NAMESPACE" delete deployment,statefulset,daemonset,job,cronjob \
+    --all --ignore-not-found --wait=true >/dev/null
+  kube -n "$APP_NAMESPACE" delete service --all --ignore-not-found --wait=true >/dev/null
+  kube -n "$EDGE_NAMESPACE" delete deployment blindou-cloudflared \
+    --ignore-not-found --wait=true >/dev/null
+  kube -n "$EDGE_NAMESPACE" delete secret blindou-ghcr-pull \
+    --ignore-not-found --wait=true >/dev/null
+  kube label namespace "$APP_NAMESPACE" \
+    'platform.servidor.local/deployment-gate=secrets-only' --overwrite >/dev/null
+  kube annotate namespace "$APP_NAMESPACE" \
+    'platform.servidor.local/gate-reason=first-release-emergency-contained' --overwrite >/dev/null
+  kube apply -f "$EDGE_GATE_MANIFEST" >/dev/null
+  kube apply -f "$EDGE_RUNTIME_MANIFEST" >/dev/null
+  rm -f -- "$RELEASE_GATE_RECEIPT"
+  if [[ -f "$CURRENT_RELEASE" && "$(<"$CURRENT_RELEASE")" == "$release_id" ]]; then
+    rm -f -- "$CURRENT_RELEASE"
+  fi
+
+  [[ "$(kube get namespace "$APP_NAMESPACE" \
+      -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}')" == 'secrets-only' ]] \
+    || fail 'namespace da aplicação não voltou a secrets-only'
+  [[ "$(kube get namespace "$EDGE_NAMESPACE" \
+      -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}')" == 'connector-only' ]] \
+    || fail 'namespace EDGE não voltou a connector-only'
+  [[ "$(kube -n "$APP_NAMESPACE" get deployment,statefulset,daemonset,job,cronjob,service \
+      -o name 2>/dev/null | wc -l)" -eq 0 ]] \
+    || fail 'workload ou Service parcial permaneceu na aplicação'
+  [[ ! -f "$CURRENT_RELEASE" ]] || fail 'current_release permaneceu após contenção'
+  printf '[blindou-release-emergencyctl] OK: release presa %s contida; aplicação em secrets-only\n' \
+    "$release_id"
+}
+
+[[ "${EUID}" -eq 0 ]] || fail 'execute como root'
+[[ "$(hostname)" == "$EXPECTED_HOSTNAME" ]] || fail 'hostname inesperado'
+[[ $# -eq 3 && "$1" == 'contain-stuck-first-release' ]] \
+  || fail 'operação fechada inválida'
+contain_stuck_first_release "$2" "$3"

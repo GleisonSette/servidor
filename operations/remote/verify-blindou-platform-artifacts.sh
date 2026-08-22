@@ -6,6 +6,7 @@ readonly REMOTE_DIR="${REPOSITORY_ROOT}/operations/remote"
 readonly PULL_PROOF_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouGhcrCandidatePullProof.ps1"
 readonly SUDO_BOOTSTRAP_MODULE="${REPOSITORY_ROOT}/operations/Blindou.SudoBootstrap.psm1"
 readonly FIRST_RELEASE_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouFirstRelease.ps1"
+readonly EMERGENCY_CONTROLLER="${REMOTE_DIR}/blindou-release-emergencyctl"
 
 fail() {
   printf '[verify-blindou-platform-artifacts] ERRO: %s\n' "$*" >&2
@@ -18,6 +19,25 @@ fail() {
   || fail 'módulo fechado de bootstrap sudo ausente ou simbólico'
 [[ -f "$FIRST_RELEASE_SCRIPT" && ! -L "$FIRST_RELEASE_SCRIPT" ]] \
   || fail 'orquestrador fechado da primeira release ausente ou simbólico'
+[[ -f "$EMERGENCY_CONTROLLER" && ! -L "$EMERGENCY_CONTROLLER" ]] \
+  || fail 'controlador fechado de contenção emergencial ausente ou simbólico'
+bash -n "$EMERGENCY_CONTROLLER"
+grep -Fq 'cmdline" == "bash ${CONTROLLER} apply ${release_id} "' \
+  "$EMERGENCY_CONTROLLER" \
+  || fail 'contenção emergencial não fixa o processo apply exato'
+grep -Fq "'platform.servidor.local/deployment-gate=secrets-only'" \
+  "$EMERGENCY_CONTROLLER" \
+  || fail 'contenção emergencial não restaura secrets-only'
+grep -Fq 'workload ou Service parcial permaneceu na aplicação' \
+  "$EMERGENCY_CONTROLLER" \
+  || fail 'contenção emergencial não verifica ausência de workload parcial'
+grep -Fq 'blindou-release-emergencyctl contain-stuck-first-release * blindou-stuck-first-release' \
+  "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  || fail 'sudoers não limita a contenção emergencial ao contrato fechado'
+grep -Fq 'EMERGENCY_CONTROLLER_SOURCE' "${REMOTE_DIR}/bootstrap-blindou-deployctl.sh" \
+  || fail 'bootstrap não instala o controlador emergencial'
+grep -Fq "'operations/remote/blindou-release-emergencyctl'" "$PULL_PROOF_SCRIPT" \
+  || fail 'bootstrap administrativo não transporta o controlador emergencial'
 grep -Fq "[ValidateSet('DeployController', 'HostAndDeployControllers')]" \
   "$SUDO_BOOTSTRAP_MODULE" || fail 'bootstrap sudo aceita conjunto não fechado'
 grep -Fq "if (\$Server -cne 'apiadmin@192.168.100.59')" \

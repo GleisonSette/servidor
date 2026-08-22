@@ -32,6 +32,7 @@ foreach ($required in @($identity, $knownHosts)) {
 
 $files = @(
     'operations/remote/blindou-deployctl',
+    'operations/remote/blindou-release-emergencyctl',
     'operations/remote/blindou-deployctl.sudoers',
     'operations/remote/blindou-release-verify.py',
     'operations/remote/blindou-ghcr-pull-verify.py',

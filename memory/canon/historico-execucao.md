@@ -717,3 +717,19 @@ esta entrada.
   primeira falha.
 - A correção do manifesto pertence ao repositório Blindou e exige novo SHA;
   editar ou reassinar o bundle recusado continua proibido.
+
+## 2026-08-22 - Contenção fechada de apply legado preso
+
+Resultado: preparada no repositório uma operação emergencial de escopo único;
+a execução viva ainda precisava ser comprovada ao registrar esta entrada.
+
+- A sessão SSH foi interrompida, mas o `sudo` remoto manteve o controlador
+  antigo órfão e preso em timeouts posteriores à falha conhecida.
+- O helper independente só encerra um único holder root cujo `cmdline` seja o
+  `apply` exato do SHA informado e cuja autoridade atual seja ausente ou o mesmo
+  SHA.
+- Depois do término, ele remove somente workloads e Services do Blindou,
+  restaura os gates temporários, remove o recibo da candidata e exige zero
+  objeto operacional na aplicação.
+- O sudoers admite apenas a interface fechada com confirmação literal; `sudo`
+  genérico continua proibido.

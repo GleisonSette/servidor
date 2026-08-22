@@ -9,6 +9,7 @@ readonly EXPECTED_HOSTNAME='apiwpp'
 readonly SOURCE_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly REPOSITORY_ROOT="$(cd "${SOURCE_DIRECTORY}/../.." && pwd)"
 readonly CONTROLLER_SOURCE="${SOURCE_DIRECTORY}/blindou-deployctl"
+readonly EMERGENCY_CONTROLLER_SOURCE="${SOURCE_DIRECTORY}/blindou-release-emergencyctl"
 readonly VERIFIER_SOURCE="${SOURCE_DIRECTORY}/blindou-release-verify.py"
 readonly GHCR_PULL_VERIFIER_SOURCE="${SOURCE_DIRECTORY}/blindou-ghcr-pull-verify.py"
 readonly METRICS_SOURCE="${SOURCE_DIRECTORY}/blindou-platform-metrics"
@@ -20,6 +21,7 @@ readonly RECIPIENT_SOURCE="${SOURCE_DIRECTORY}/blindou-backup-recipient.crt"
 readonly PLATFORM_SOURCE="${REPOSITORY_ROOT}/platform/blindou"
 readonly SERVICE_POLICY_SOURCE="${REPOSITORY_ROOT}/platform/base/service-exposure-policy.yaml"
 readonly CONTROLLER_TARGET='/usr/local/sbin/blindou-deployctl'
+readonly EMERGENCY_CONTROLLER_TARGET='/usr/local/sbin/blindou-release-emergencyctl'
 readonly METRICS_TARGET='/usr/local/sbin/blindou-platform-metrics'
 readonly LIBRARY_TARGET='/usr/local/lib/blindou-platform'
 readonly FOUNDATION_TARGET="${LIBRARY_TARGET}/foundation"
@@ -34,7 +36,8 @@ fail() {
 [[ "${EUID}" -eq 0 ]] || fail 'execute como root'
 [[ "$(hostname)" == "$EXPECTED_HOSTNAME" ]] || fail 'hostname inesperado'
 for source in \
-  "$CONTROLLER_SOURCE" "$VERIFIER_SOURCE" "$GHCR_PULL_VERIFIER_SOURCE" "$METRICS_SOURCE" \
+  "$CONTROLLER_SOURCE" "$EMERGENCY_CONTROLLER_SOURCE" "$VERIFIER_SOURCE" \
+  "$GHCR_PULL_VERIFIER_SOURCE" "$METRICS_SOURCE" \
   "$METRICS_SERVICE_SOURCE" "$METRICS_TIMER_SOURCE" "$SUDOERS_SOURCE" \
   "$SIGNERS_SOURCE" "$RECIPIENT_SOURCE" "$SERVICE_POLICY_SOURCE" \
   "${PLATFORM_SOURCE}/00-namespaces.yaml" \
@@ -46,6 +49,7 @@ for source in \
 done
 
 bash -n "$CONTROLLER_SOURCE"
+bash -n "$EMERGENCY_CONTROLLER_SOURCE"
 bash -n "$METRICS_SOURCE"
 python3 - "$VERIFIER_SOURCE" <<'PY'
 from pathlib import Path
@@ -89,6 +93,8 @@ install -d -o root -g root -m 0755 "$LIBRARY_TARGET"
 install -d -o root -g root -m 0755 "$FOUNDATION_TARGET"
 install -d -o root -g root -m 0700 "${DATA_ROOT}/deploy" "${DATA_ROOT}/backup"
 install -o root -g root -m 0755 "$CONTROLLER_SOURCE" "$CONTROLLER_TARGET"
+install -o root -g root -m 0755 "$EMERGENCY_CONTROLLER_SOURCE" \
+  "$EMERGENCY_CONTROLLER_TARGET"
 install -o root -g root -m 0755 "$VERIFIER_SOURCE" "${LIBRARY_TARGET}/blindou-release-verify.py"
 install -o root -g root -m 0755 "$GHCR_PULL_VERIFIER_SOURCE" \
   "${LIBRARY_TARGET}/blindou-ghcr-pull-verify.py"
