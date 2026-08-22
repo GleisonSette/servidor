@@ -56,7 +56,7 @@ metadata:
   às credenciais Cloudflare for SaaS/GHCR, à release assinada e à prova de pull
   das quatro imagens privadas. O SHA-256 da
   fonte final é
-  `e6e06d77aa83558e1911424e3c7b7389d628281fa685fd1f4ff37f83bdc16d70`.
+  `2851f28073b22840c3d52c4ea602a3b82498522bb94472744053f87f8a2306d8`.
   A interface sudo sem senha continua restrita às operações fechadas do
   controlador; rollbacks destrutivos continuam fora da automação. D018 permite
   usar a senha local somente nos dois bootstraps versionados e fechados.
@@ -180,8 +180,11 @@ metadata:
   `blindou_migration_login` por menor privilégio. A contenção foi novamente
   restaurada. A correção preparada mantém a extensão administrativa na
   fundação, sob owner `postgres`, e remove sua criação/comentário do baseline da
-  aplicação antes da primeira migration concluída. Ainda exige novo SHA e nova
-  candidata Blindou.
+  aplicação antes da primeira migration concluída. O controlador `5aaae67` foi
+  instalado, `provision-data` criou a extensão com owner `postgres`,
+  `verify-data` passou e o status confirmou `migration_history_count=0` e
+  `pg_stat_statements=present`. O novo SHA Blindou `ccc4edd` está no workflow
+  externo `32605412093`; ainda não existe release corrente.
 
 ## Manutenção
 

@@ -211,9 +211,12 @@ Status: candidata `794d922` assinada, comprovada e autorizada; a primeira
 tentativa chegou ao Job de migration e falhou fechada por timeout. Antes da
 repetição, o controlador instalou a observação de `Failed` com diagnóstico
 sanitizado e identificou `pg_stat_statements` como pré-requisito administrativo.
-O próximo passo é publicar a fundação que cria/verifica essa extensão, publicar
-novo SHA Blindou sem a extensão em `0001` e repetir os gates sem introduzir
-credenciais de UAZAPI, Resend ou Pagar.me.
+A fundação corrigida foi publicada e instalada; a extensão está presente e o
+histórico SQLx continua vazio. O SHA Blindou `ccc4edd` foi publicado e o
+workflow `32605412093` está executando os gates. O próximo passo é, após sucesso,
+assinar e comprovar essa candidata, criar backup offsite recente, repetir o
+`apply` e criar o superadmin sem introduzir credenciais de UAZAPI, Resend ou
+Pagar.me.
 
 Objetivos:
 

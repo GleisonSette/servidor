@@ -78,8 +78,10 @@ corpus por padrão.
   removeu os workloads, manteve `current_release` ausente e restaurou o
   conector. O diagnóstico fail-fast identificou a criação administrativa de
   `pg_stat_statements` dentro de `0001`. A correção mantém a role de migration
-  sem superuser: a plataforma provisiona a extensão e uma nova candidata remove
-  sua criação e comentário do baseline da aplicação.
+  sem superuser: a plataforma provisionou e verificou a extensão com owner
+  `postgres`, enquanto o histórico SQLx continua vazio. A nova candidata
+  `ccc4edd` remove sua criação e comentário do baseline da aplicação e está nos
+  gates externos do workflow `32605412093`.
 
 ## Precedência
 

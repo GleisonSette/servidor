@@ -800,3 +800,26 @@ aplicação; a correção foi preparada sem elevar a role de migration.
   migration.
 - A mudança do schema embutido exige novo commit, suíte externa, imagens,
   assinatura e bundle; a candidata `794d922` não será alterada ou promovida.
+
+## 2026-08-22 - Pré-requisito PostgreSQL instalado sem elevar migration
+
+Resultado: a fronteira administrativa corrigida foi aplicada ao host e
+verificada; o database está pronto para a nova candidata, ainda sem migration
+aplicada.
+
+- O commit de plataforma `5aaae67` foi publicado e o bootstrap fechado instalou
+  o controlador com SHA-256
+  `2851f28073b22840c3d52c4ea602a3b82498522bb94472744053f87f8a2306d8`.
+- Antes da mudança, o status confirmou `migration_history_count=0` e
+  `pg_stat_statements=absent`, provando que o baseline antigo não havia sido
+  aceito.
+- `provision-data blindou-data-foundation` criou a extensão no database
+  `blindou`; `verify-data` confirmou quatro logins não administrativos, TLS,
+  SCRAM, schema `public` e owner `postgres`.
+- Depois da mudança, o status confirmou `migration_history_count=0`,
+  `pg_stat_statements=present`, `current_release=absent`, aplicação em
+  `secrets-only` e conector em `connector-only` Ready.
+- O `apiwpp` permaneceu com uma réplica Ready, 18 migrations, API, métricas e
+  gateway privado saudáveis. Nenhum provedor externo do Blindou foi configurado.
+- O SHA Blindou `ccc4edd6a85e87b4c15100afbc5ec386bf94aac5` foi publicado e o
+  workflow `32605412093` iniciado para gerar uma candidata integral nova.
