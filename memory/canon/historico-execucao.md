@@ -543,3 +543,20 @@ bloqueado e o `apiwpp` continuou saudável.
 - Continuam pendentes antes do primeiro deploy: scan operacional das imagens
   terceiras fixadas, Secrets de runtime, alertas externos, gates `passed` e
   autorização específica de migration/deploy.
+
+## 2026-08-21 - Preparação da prova integral de pull GHCR
+
+Resultado: controlador e testes preparados no repositório; instalação viva
+pendente de bootstrap humano.
+
+- O controlador ganhou uma operação fechada que aceita somente uma release já
+  validada no cache e descobre nela backend e redirector pelos repositórios
+  privados fixos do Blindou.
+- O verificador dedicado recebe o PAT por `stdin`, desabilita proxy herdado,
+  limita tempo e bytes, remove autorização em redirect para outro host HTTPS e
+  valida manifesto, config e todas as camadas por SHA-256.
+- Os bytes baixados usam workspace temporário autoclean; somente um recibo
+  root-only sem segredo permanece e alimenta status/métrica.
+- Cinco testes determinísticos e o verificador de artefatos passaram sem rede e
+  sem usar credencial. Nenhum Secret Kubernetes, gate, migration ou workload
+  foi alterado nesta preparação.

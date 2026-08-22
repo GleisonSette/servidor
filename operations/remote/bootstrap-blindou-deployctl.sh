@@ -10,6 +10,7 @@ readonly SOURCE_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly REPOSITORY_ROOT="$(cd "${SOURCE_DIRECTORY}/../.." && pwd)"
 readonly CONTROLLER_SOURCE="${SOURCE_DIRECTORY}/blindou-deployctl"
 readonly VERIFIER_SOURCE="${SOURCE_DIRECTORY}/blindou-release-verify.py"
+readonly GHCR_PULL_VERIFIER_SOURCE="${SOURCE_DIRECTORY}/blindou-ghcr-pull-verify.py"
 readonly METRICS_SOURCE="${SOURCE_DIRECTORY}/blindou-platform-metrics"
 readonly METRICS_SERVICE_SOURCE="${SOURCE_DIRECTORY}/blindou-platform-metrics.service"
 readonly METRICS_TIMER_SOURCE="${SOURCE_DIRECTORY}/blindou-platform-metrics.timer"
@@ -33,7 +34,7 @@ fail() {
 [[ "${EUID}" -eq 0 ]] || fail 'execute como root'
 [[ "$(hostname)" == "$EXPECTED_HOSTNAME" ]] || fail 'hostname inesperado'
 for source in \
-  "$CONTROLLER_SOURCE" "$VERIFIER_SOURCE" "$METRICS_SOURCE" \
+  "$CONTROLLER_SOURCE" "$VERIFIER_SOURCE" "$GHCR_PULL_VERIFIER_SOURCE" "$METRICS_SOURCE" \
   "$METRICS_SERVICE_SOURCE" "$METRICS_TIMER_SOURCE" "$SUDOERS_SOURCE" \
   "$SIGNERS_SOURCE" "$RECIPIENT_SOURCE" "$SERVICE_POLICY_SOURCE" \
   "${PLATFORM_SOURCE}/00-namespaces.yaml" \
@@ -47,6 +48,13 @@ done
 bash -n "$CONTROLLER_SOURCE"
 bash -n "$METRICS_SOURCE"
 python3 - "$VERIFIER_SOURCE" <<'PY'
+from pathlib import Path
+import sys
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+compile(source, sys.argv[1], "exec")
+PY
+python3 - "$GHCR_PULL_VERIFIER_SOURCE" <<'PY'
 from pathlib import Path
 import sys
 
@@ -82,6 +90,8 @@ install -d -o root -g root -m 0755 "$FOUNDATION_TARGET"
 install -d -o root -g root -m 0700 "${DATA_ROOT}/deploy" "${DATA_ROOT}/backup"
 install -o root -g root -m 0755 "$CONTROLLER_SOURCE" "$CONTROLLER_TARGET"
 install -o root -g root -m 0755 "$VERIFIER_SOURCE" "${LIBRARY_TARGET}/blindou-release-verify.py"
+install -o root -g root -m 0755 "$GHCR_PULL_VERIFIER_SOURCE" \
+  "${LIBRARY_TARGET}/blindou-ghcr-pull-verify.py"
 install -o root -g root -m 0755 "$METRICS_SOURCE" "$METRICS_TARGET"
 install -o root -g root -m 0644 \
   "${PLATFORM_SOURCE}/00-namespaces.yaml" "${FOUNDATION_TARGET}/00-namespaces.yaml"

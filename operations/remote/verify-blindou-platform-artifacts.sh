@@ -29,6 +29,14 @@ import sys
 source = Path(sys.argv[1]).read_text(encoding="utf-8")
 compile(source, sys.argv[1], "exec")
 PY
+"$python_command" - "${REMOTE_DIR}/blindou-ghcr-pull-verify.py" <<'PY'
+from pathlib import Path
+import sys
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+compile(source, sys.argv[1], "exec")
+PY
+"$python_command" "${REMOTE_DIR}/test-blindou-ghcr-pull-verify.py"
 "$python_command" - "$REPOSITORY_ROOT" <<'PY'
 from pathlib import Path
 import sys
@@ -159,6 +167,29 @@ grep -Fq -- '--from-file=.dockerconfigjson=/dev/stdin' \
   "${REMOTE_DIR}/blindou-deployctl" || fail 'credencial GHCR não entra diretamente no Secret'
 grep -Fq 'ensure_ghcr_pull_secret' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'release não materializa o pull secret pelo controlador'
+grep -Fq "readonly GHCR_PULL_VERIFIER='/usr/local/lib/blindou-platform/blindou-ghcr-pull-verify.py'" \
+  "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'verificador root-owned do pull GHCR ausente'
+grep -Fq 'verify-ghcr-candidate-pull)' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'operação fechada de pull da candidata ausente'
+grep -Fq 'python3 "$GHCR_PULL_VERIFIER"' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'pull GHCR não usa o verificador dedicado'
+grep -Fq '| python3 "$GHCR_PULL_VERIFIER"' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'credencial GHCR não chega ao verificador por stdin'
+grep -Fq 'verify-ghcr-candidate-pull *' "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  || fail 'sudoers não libera somente a interface fechada de prova GHCR'
+grep -Fq 'blindou_ghcr_candidate_pull_verified' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'métrica da prova GHCR ausente'
+grep -Fq 'GHCR_PULL_VERIFIER_SOURCE' "${REMOTE_DIR}/bootstrap-blindou-deployctl.sh" \
+  || fail 'bootstrap não instala o verificador de pull GHCR'
+grep -Fq 'urllib.request.ProxyHandler({})' "${REMOTE_DIR}/blindou-ghcr-pull-verify.py" \
+  || fail 'verificador GHCR não desabilita proxy herdado'
+grep -Fq 'redirected.remove_header("Authorization")' \
+  "${REMOTE_DIR}/blindou-ghcr-pull-verify.py" \
+  || fail 'redirect de blob pode encaminhar autorização a outro host'
+grep -Fq 'TemporaryDirectory(prefix="blindou-ghcr-pull."' \
+  "${REMOTE_DIR}/blindou-ghcr-pull-verify.py" \
+  || fail 'bytes baixados não usam workspace temporário autoclean'
 grep -Fq 'GHCR_PULL_SECRET = "blindou-ghcr-pull"' \
   "${REMOTE_DIR}/blindou-release-verify.py" || fail 'verificador não fixa o pull secret GHCR'
 [[ "$(grep -Fc 'if ( verify_edge_connector >/dev/null 2>&1 ); then' \

@@ -152,6 +152,11 @@ UPnP ou redirecionamento de porta para o servidor.
 - A credencial GHCR permanece root-only fora do Kubernetes enquanto o runtime
   está bloqueado. O controlador materializa `blindou-ghcr-pull` apenas durante
   release autorizada e somente `blindou-runtime` pode referenciá-lo.
+- Antes de liberar uma candidata, a operação fechada
+  `verify-ghcr-candidate-pull` baixa integralmente backend e redirector da
+  release já validada no cache, confere manifestos e blobs por SHA-256 e remove
+  os bytes temporários. Ela usa a credencial somente por memória/stdin, guarda
+  apenas recibo root-only e não cria Secret, imagem no containerd ou workload.
 - Alteração manual no cluster deve ser evitada e posteriormente reconciliada no
   repositório quando uma resposta emergencial for necessária.
 

@@ -14,6 +14,7 @@ readonly EDGE_GATE_MANIFEST="${FOUNDATION_DIR}/15-edge-connector-gate.yaml"
 readonly EDGE_RUNTIME_MANIFEST="${FOUNDATION_DIR}/16-edge-connector-runtime.yaml"
 readonly EDGE_CONNECTOR_IMAGE='docker.io/cloudflare/cloudflared@sha256:18626b1baac4450214535cd5bc40ef44c0635244d585ebf707749c22b6f3408f'
 readonly RELEASE_VERIFIER='/usr/local/lib/blindou-platform/blindou-release-verify.py'
+readonly GHCR_PULL_VERIFIER='/usr/local/lib/blindou-platform/blindou-ghcr-pull-verify.py'
 readonly STATE_ROOT='/var/lib/blindou-platform'
 readonly FOUNDATION_STATE="${STATE_ROOT}/foundation.state"
 readonly BACKUP_ROOT='/var/backups/blindou'
@@ -47,6 +48,8 @@ readonly RELEASE_INBOX='/home/apiadmin/blindou-deploy-inbox'
 readonly RELEASE_CACHE="${STATE_ROOT}/deploy-cache"
 readonly RELEASE_HISTORY="${STATE_ROOT}/deploy-history"
 readonly CURRENT_RELEASE="${STATE_ROOT}/current-release"
+readonly GHCR_PULL_PROOF_ROOT="${STATE_ROOT}/ghcr-pull-proofs"
+readonly GHCR_PULL_PROOF_LATEST="${STATE_ROOT}/ghcr-pull-proof-latest"
 readonly ALLOWED_SIGNERS="${DATA_ROOT}/deploy/allowed_signers"
 readonly RELEASE_PATTERN='^[0-9a-f]{40}$'
 readonly FOUNDATION_CONFIRMATION='blindou-platform-foundation'
@@ -79,6 +82,8 @@ cleanup() {
       "${CLOUDFLARE_SAAS_TOKEN_FILE}.tmp."*|\
       "${GHCR_PULL_TOKEN_FILE}.tmp."*|\
       /var/tmp/blindou-ghcr-headers.*|\
+      "${GHCR_PULL_PROOF_ROOT}"/.tmp.*|\
+      "${GHCR_PULL_PROOF_LATEST}.tmp."*|\
       "${POSTGRES_CONFIG_FILE}.tmp"|"${POSTGRES_HBA_FILE}.tmp")
         rm -rf -- "$resolved"
         ;;
@@ -641,6 +646,126 @@ verify_ghcr_pull_credential() {
   fi
   unset token
   pass 'GHCR credential is active, root-only and limited to read:packages'
+}
+
+cached_release_ghcr_images() {
+  local release_id="$1" rendered
+  local -a images=()
+  [[ "$release_id" =~ $RELEASE_PATTERN ]] || return 1
+  rendered="${RELEASE_CACHE}/${release_id}/rendered"
+  [[ -d "$rendered" && ! -L "$rendered" ]] || return 1
+  mapfile -t images < <(
+    grep -hER '^[[:space:]]+image:[[:space:]]+ghcr\.io/gleisonsette/blindou-(backend|redirector)@sha256:[0-9a-f]{64}[[:space:]]*$' \
+      "$rendered" \
+      | awk '{print $2}' \
+      | sort -u
+  )
+  [[ "${#images[@]}" -eq 2 ]] || return 1
+  [[ "${images[0]}" =~ ^ghcr\.io/gleisonsette/blindou-(backend|redirector)@sha256:[0-9a-f]{64}$ ]] \
+    || return 1
+  [[ "${images[1]}" =~ ^ghcr\.io/gleisonsette/blindou-(backend|redirector)@sha256:[0-9a-f]{64}$ ]] \
+    || return 1
+  [[ "${images[0]}" != "${images[1]}" ]] || return 1
+  printf '%s\n' "${images[@]}"
+}
+
+ghcr_pull_proof_file_is_secure() {
+  local release_id="$1" proof
+  local image component
+  local -a expected_images=()
+  proof="${GHCR_PULL_PROOF_ROOT}/${release_id}.env"
+  [[ "$release_id" =~ $RELEASE_PATTERN \
+      && -f "$proof" \
+      && ! -L "$proof" \
+      && "$(stat -c '%U:%G:%a' "$proof" 2>/dev/null)" == 'root:root:600' \
+      && "$(wc -l <"$proof")" == '16' ]] \
+    || return 1
+  grep -Fxq 'schema=1' "$proof" || return 1
+  grep -Fxq "release_id=${release_id}" "$proof" || return 1
+  grep -Eq '^verified_at=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' "$proof" \
+    || return 1
+  grep -Fxq 'registry=ghcr.io' "$proof" || return 1
+  grep -Fxq 'platform=linux/amd64' "$proof" || return 1
+  grep -Fxq 'images=2' "$proof" || return 1
+  grep -Eq '^blobs=[1-9][0-9]*$' "$proof" || return 1
+  grep -Eq '^bytes=[1-9][0-9]*$' "$proof" || return 1
+  grep -Eq '^backend_image=ghcr\.io/gleisonsette/blindou-backend@sha256:[0-9a-f]{64}$' "$proof" \
+    || return 1
+  grep -Eq '^redirector_image=ghcr\.io/gleisonsette/blindou-redirector@sha256:[0-9a-f]{64}$' "$proof" \
+    || return 1
+  mapfile -t expected_images < <(cached_release_ghcr_images "$release_id")
+  [[ "${#expected_images[@]}" -eq 2 ]] || return 1
+  for image in "${expected_images[@]}"; do
+    case "$image" in
+      ghcr.io/gleisonsette/blindou-backend@*) component='backend' ;;
+      ghcr.io/gleisonsette/blindou-redirector@*) component='redirector' ;;
+      *) return 1 ;;
+    esac
+    grep -Fxq "${component}_image=${image}" "$proof" || return 1
+  done
+  local prefix
+  for prefix in backend redirector; do
+    grep -Eq "^${prefix}_platform_digest=sha256:[0-9a-f]{64}$" "$proof" || return 1
+    grep -Eq "^${prefix}_blobs=[1-9][0-9]*$" "$proof" || return 1
+    grep -Eq "^${prefix}_bytes=[1-9][0-9]*$" "$proof" || return 1
+  done
+}
+
+ghcr_pull_latest_proof_is_secure() {
+  [[ -f "$GHCR_PULL_PROOF_LATEST" \
+      && ! -L "$GHCR_PULL_PROOF_LATEST" \
+      && "$(stat -c '%U:%G:%a' "$GHCR_PULL_PROOF_LATEST" 2>/dev/null)" == 'root:root:600' \
+      && "$(wc -l <"$GHCR_PULL_PROOF_LATEST")" == '1' ]] \
+    || return 1
+  local release_id
+  IFS= read -r release_id <"$GHCR_PULL_PROOF_LATEST" || return 1
+  ghcr_pull_proof_file_is_secure "$release_id"
+}
+
+verify_ghcr_candidate_pull() {
+  local release_id="$1" token receipt latest_tmp
+  local -a images=()
+  [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
+  require_platform_preconditions
+  verify_ghcr_pull_credential >/dev/null
+  mapfile -t images < <(cached_release_ghcr_images "$release_id")
+  [[ "${#images[@]}" -eq 2 ]] \
+    || fail 'release validada não contém exatamente backend e redirector privados'
+  [[ -f "$GHCR_PULL_VERIFIER" \
+      && ! -L "$GHCR_PULL_VERIFIER" \
+      && "$(stat -c '%U:%G:%a' "$GHCR_PULL_VERIFIER" 2>/dev/null)" == 'root:root:755' ]] \
+    || fail 'verificador root-owned do pull GHCR está ausente ou inseguro'
+
+  install -d -o root -g root -m 0700 "$GHCR_PULL_PROOF_ROOT"
+  receipt="$(mktemp "${GHCR_PULL_PROOF_ROOT}/.tmp.${release_id}.XXXXXX")"
+  cleanup_paths+=("$receipt")
+  chmod 0600 "$receipt"
+  IFS= read -r token <"$GHCR_PULL_TOKEN_FILE" \
+    || fail 'GHCR pull credential could not be read'
+  if ! printf '%s\n' "$token" \
+      | python3 "$GHCR_PULL_VERIFIER" \
+          --release-id "$release_id" \
+          --output "$receipt" \
+          --image "${images[0]}" \
+          --image "${images[1]}"; then
+    unset token
+    fail 'o pull integral da candidata privada falhou'
+  fi
+  unset token
+  install -o root -g root -m 0600 "$receipt" \
+    "${GHCR_PULL_PROOF_ROOT}/${release_id}.env"
+  rm -f -- "$receipt"
+  ghcr_pull_proof_file_is_secure "$release_id" \
+    || fail 'recibo do pull GHCR não passou no contrato fechado'
+
+  latest_tmp="$(mktemp "${GHCR_PULL_PROOF_LATEST}.tmp.XXXXXX")"
+  cleanup_paths+=("$latest_tmp")
+  printf '%s\n' "$release_id" >"$latest_tmp"
+  install -o root -g root -m 0600 "$latest_tmp" "$GHCR_PULL_PROOF_LATEST"
+  rm -f -- "$latest_tmp"
+  ghcr_pull_latest_proof_is_secure \
+    || fail 'ponteiro do recibo GHCR não passou no contrato fechado'
+  pass "pull integral das imagens privadas comprovado sem criar Secret ou workload: ${release_id}"
 }
 
 provision_ghcr_pull_credential() {
@@ -1312,7 +1437,7 @@ apply_release() {
 
 metrics() {
   require_root_and_host
-  local foundation=0 data=0 latest_backup=0 gate_app=0 gate_edge=0 cloudflare_saas_token=0 ghcr_pull_credential=0
+  local foundation=0 data=0 latest_backup=0 gate_app=0 gate_edge=0 cloudflare_saas_token=0 ghcr_pull_credential=0 ghcr_candidate_pull=0
   if ( verify_foundation >/dev/null 2>&1 ); then foundation=1; fi
   if ( verify_data_foundation >/dev/null 2>&1 ); then data=1; fi
   if [[ -f "${DATABASE_BACKUP_ROOT}/latest" ]]; then
@@ -1327,6 +1452,7 @@ metrics() {
   [[ "$(namespace_label "$EDGE_NAMESPACE" 'platform\.servidor\.local/deployment-gate' 2>/dev/null || true)" == 'passed' ]] && gate_edge=1
   if cloudflare_saas_token_file_is_secure; then cloudflare_saas_token=1; fi
   if ghcr_token_file_is_secure; then ghcr_pull_credential=1; fi
+  if ghcr_pull_latest_proof_is_secure; then ghcr_candidate_pull=1; fi
   cat <<EOF
 # HELP blindou_platform_foundation_up Fundação Kubernetes bloqueada e íntegra.
 # TYPE blindou_platform_foundation_up gauge
@@ -1347,6 +1473,9 @@ blindou_cloudflare_saas_token_secure ${cloudflare_saas_token}
 # HELP blindou_ghcr_pull_credential_secure Root-only GHCR credential is present with the expected local format.
 # TYPE blindou_ghcr_pull_credential_secure gauge
 blindou_ghcr_pull_credential_secure ${ghcr_pull_credential}
+# HELP blindou_ghcr_candidate_pull_verified A candidata privada mais recente foi integralmente baixada e validada no host.
+# TYPE blindou_ghcr_candidate_pull_verified gauge
+blindou_ghcr_candidate_pull_verified ${ghcr_candidate_pull}
 EOF
 }
 
@@ -1391,6 +1520,11 @@ show_status() {
   else
     printf 'ghcr_pull_credential_state=absent_or_insecure\n'
   fi
+  if ghcr_pull_latest_proof_is_secure; then
+    printf 'ghcr_candidate_pull_proof=%s\n' "$(<"$GHCR_PULL_PROOF_LATEST")"
+  else
+    printf 'ghcr_candidate_pull_proof=absent_or_insecure\n'
+  fi
 }
 
 case "${1:-}" in
@@ -1413,6 +1547,10 @@ case "${1:-}" in
   verify-ghcr-pull-credential)
     [[ $# -eq 1 ]] || fail 'usage: blindou-deployctl verify-ghcr-pull-credential'
     verify_ghcr_pull_credential
+    ;;
+  verify-ghcr-candidate-pull)
+    [[ $# -eq 2 ]] || fail 'usage: blindou-deployctl verify-ghcr-candidate-pull RELEASE_ID'
+    verify_ghcr_candidate_pull "$2"
     ;;
   provision-ghcr-pull-credential)
     [[ $# -eq 2 ]] || fail 'usage: blindou-deployctl provision-ghcr-pull-credential CONFIRMATION'
@@ -1490,6 +1628,6 @@ case "${1:-}" in
     metrics
     ;;
   *)
-    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|provision-ghcr-pull-credential CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|validate-release RELEASE_ID|apply RELEASE_ID|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
+    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|validate-release RELEASE_ID|apply RELEASE_ID|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
     ;;
 esac

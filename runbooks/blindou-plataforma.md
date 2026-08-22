@@ -209,6 +209,44 @@ Depois da primeira instalação, o controlador atual recusa a substituição por
 outro token. A rotação pós-release exige fluxo próprio autorizado que valide a
 nova credencial antes de retirar a anterior.
 
+### Prova integral de pull antes da release
+
+A validação de escopo do PAT não prova sozinha que os dois pacotes privados da
+candidata podem ser baixados. Antes de liberar o gate da aplicação, atualizar o
+controlador pelo bootstrap humano versionado e executar:
+
+```bash
+sudo -n /usr/local/sbin/blindou-deployctl \
+  verify-ghcr-candidate-pull <release-id-sha40>
+```
+
+O comando aceita somente uma release já validada no cache root-owned, descobre
+backend e redirector dentro do bundle e exige os repositórios fixos do Blindou.
+A credencial é lida do cofre e entregue ao verificador por `stdin`; não entra em
+argumento, ambiente, log ou arquivo temporário. O verificador desabilita proxies
+herdados, autentica no GHCR, seleciona exclusivamente `linux/amd64`, baixa o
+manifesto, config e todas as camadas, confere cada SHA-256 e limita tempo e
+bytes. Redirecionamento de blob para outro host HTTPS perde o header de
+autorização.
+
+Os bytes ficam em `/var/tmp` somente durante a prova e são removidos mesmo em
+falha. O host guarda apenas um recibo root-only sem credencial em
+`/var/lib/blindou-platform/ghcr-pull-proofs/`. A operação não importa imagem no
+containerd, não cria `blindou-ghcr-pull`, não altera gate e não inicia Pod. O
+estado aparece em `status` e na métrica
+`blindou_ghcr_candidate_pull_verified`.
+
+No computador administrativo, o procedimento completo é:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\operations\Invoke-BlindouGhcrCandidatePullProof.ps1
+```
+
+Esse script transfere somente os artefatos versionados, pede a senha humana
+uma vez para o bootstrap e usa depois apenas a interface sem senha fechada. Ele
+não lê novamente o PAT.
+
 ## Fundação de dados
 
 ```bash

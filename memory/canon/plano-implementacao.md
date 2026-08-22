@@ -155,6 +155,9 @@ gates, scans e publicação para o SHA
 `1265c3be1e808d522887f38ff47e9a110533677a`. O bundle desse SHA foi assinado
 fora do servidor, validado e armazenado no cache fechado. `current_release`
 permanece ausente e nenhuma migration ou workload foi executado.
+O contrato de prova integral do pull foi preparado no repositório: ele baixa e
+confere os dois pacotes privados da candidata sem criar Secret ou workload. A
+instalação root-owned e a execução viva ainda dependem do bootstrap humano.
 
 Objetivos:
 
@@ -179,6 +182,8 @@ Próxima ação exata:
 
 1. validar as imagens terceiras fixadas no bundle e preparar por canal seguro
    os Secrets de runtime, sem materializá-los antes da janela autorizada;
+   em paralelo, instalar o verificador versionado e comprovar o pull integral
+   dos dois pacotes GHCR já armazenados no cache;
 2. manter a cota global da aplicação em 90 custom hostnames e revalidar a
    origem de fallback já ativa depois que a API tiver origem publicada, antes
    do primeiro fluxo autorizado de domínio por conta/tenant;
