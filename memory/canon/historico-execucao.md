@@ -686,3 +686,18 @@ workloads.
   duas operações.
 - UAZAPI, Resend e Pagar.me continuam ausentes. A release permaneceu sem
   aplicação durante a falha observada.
+
+## 2026-08-22 - Retry classificado para concorrência do coletor
+
+Resultado: o orquestrador da primeira release passou a tolerar somente a
+contenção transitória do lock compartilhado com o coletor de métricas.
+
+- Depois do backup offsite verificado, o coletor periódico adquiriu o lock
+  entre duas operações e o controlador recusou a continuação com `exit 2`.
+- O retry é limitado a 12 tentativas de cinco segundos e aceita somente esse
+  código; falha de rede, contrato, segurança, migration ou workload continua
+  interrompendo imediatamente.
+- Ativação dos gates e `apply` são invocações separadas, evitando repetir um
+  efeito concluído como parte de um comando composto.
+- A segunda tentativa também permaneceu sem release aplicada e sem credenciais
+  UAZAPI, Resend ou Pagar.me.

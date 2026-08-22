@@ -359,6 +359,13 @@ token. A configuração posterior de cada provedor exige nova autorização e um
 release compatível; não reutilizar o modo de revisão como estado operacional
 definitivo.
 
+O coletor de métricas usa o mesmo lock do controlador. Se ele vencer uma corrida
+curta entre duas etapas, o orquestrador repete somente o retorno específico de
+lock ocupado (`exit 2`), por no máximo 12 tentativas com intervalo de cinco
+segundos. Gates e `apply` são comandos separados para que nenhum efeito
+concluído entre em um retry ambíguo. Qualquer outro código interrompe a release
+imediatamente.
+
 ## Observabilidade
 
 `blindou-platform-metrics.timer` grava no textfile collector do Node Exporter:

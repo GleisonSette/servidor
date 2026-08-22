@@ -45,6 +45,17 @@ if grep -Eq 'Admin token da UAZAPI|API key do Resend|PAGARME_' "$FIRST_RELEASE_S
 fi
 grep -Fq 'provision-ui-review-runtime blindou-ui-review-runtime' "$FIRST_RELEASE_SCRIPT" \
   || fail 'primeira revisão não usa o modo fechado sem provedores'
+grep -Fq 'function Invoke-RemoteDeployControl' "$FIRST_RELEASE_SCRIPT" \
+  || fail 'primeira release não classifica contenção temporária do controlador'
+grep -Fq 'if ($exitCode -ne 2)' "$FIRST_RELEASE_SCRIPT" \
+  || fail 'retry da primeira release não é restrito ao lock ocupado'
+grep -Fq 'for ($attempt = 1; $attempt -le 12; $attempt++)' \
+  "$FIRST_RELEASE_SCRIPT" \
+  || fail 'retry da primeira release não possui limite fechado'
+if grep -Fq 'activate-release-gates $ReleaseId blindou-release-gates &&' \
+  "$FIRST_RELEASE_SCRIPT"; then
+  fail 'ativação dos gates e apply não podem compartilhar retry ambíguo'
+fi
 grep -Fq "Read-Host 'Senha do superadmin' -AsSecureString" "$FIRST_RELEASE_SCRIPT" \
   || fail 'senha do superadmin não usa entrada protegida'
 grep -Fq 'Invoke-ClosedSshInput' "$FIRST_RELEASE_SCRIPT" \

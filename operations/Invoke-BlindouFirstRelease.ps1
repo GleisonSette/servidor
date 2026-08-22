@@ -36,15 +36,51 @@ function ConvertTo-Base64Utf8 {
     return [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Value))
 }
 
+function Invoke-RemoteDeployControl {
+    param(
+        [Parameter(Mandatory = $true)][string]$RemoteCommand,
+        [Parameter(Mandatory = $true)][string]$FailureMessage
+    )
+
+    for ($attempt = 1; $attempt -le 12; $attempt++) {
+        & ssh.exe @sshArgs $server $RemoteCommand
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -eq 0) {
+            return
+        }
+        if ($exitCode -ne 2) {
+            throw $FailureMessage
+        }
+        if ($attempt -eq 12) {
+            throw "$FailureMessage O controlador permaneceu ocupado por um minuto."
+        }
+        Write-Host 'O coletor de métricas está usando o controlador; nova tentativa em 5 segundos.' `
+            -ForegroundColor Yellow
+        Start-Sleep -Seconds 5
+    }
+}
+
 function Invoke-ClosedSshInput {
     param(
         [Parameter(Mandatory = $true)][string]$RemoteCommand,
         [Parameter(Mandatory = $true)][string]$Payload
     )
 
-    $Payload | & ssh.exe @sshArgs $server $RemoteCommand
-    if ($LASTEXITCODE -ne 0) {
-        throw 'A operação fechada no servidor falhou.'
+    for ($attempt = 1; $attempt -le 12; $attempt++) {
+        $Payload | & ssh.exe @sshArgs $server $RemoteCommand
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -eq 0) {
+            return
+        }
+        if ($exitCode -ne 2) {
+            throw 'A operação fechada no servidor falhou.'
+        }
+        if ($attempt -eq 12) {
+            throw 'A operação fechada não obteve o lock do controlador em um minuto.'
+        }
+        Write-Host 'O coletor de métricas está usando o controlador; nova tentativa em 5 segundos.' `
+            -ForegroundColor Yellow
+        Start-Sleep -Seconds 5
     }
 }
 
@@ -64,16 +100,20 @@ try {
     $Host.UI.RawUI.WindowTitle = 'Blindou - acesso para revisão da interface'
     Write-Host 'Implantação do núcleo do Blindou para revisão da interface.' -ForegroundColor Cyan
     Write-Host 'UAZAPI, Resend e Pagar.me permanecerão desabilitados até a aprovação da UI.' -ForegroundColor Yellow
-    & ssh.exe @sshArgs $server `
-        'sudo -n /usr/local/sbin/blindou-deployctl provision-ui-review-runtime blindou-ui-review-runtime'
-    if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar o núcleo sem provedores externos.' }
+    Invoke-RemoteDeployControl `
+        -RemoteCommand 'sudo -n /usr/local/sbin/blindou-deployctl provision-ui-review-runtime blindou-ui-review-runtime' `
+        -FailureMessage 'Falha ao preparar o núcleo sem provedores externos.'
 
     Write-Host 'Criando e exportando o backup criptografado anterior às migrations.' -ForegroundColor Cyan
-    & ssh.exe @sshArgs $server `
-        'sudo -n /usr/local/sbin/blindou-deployctl backup-database blindou-database-backup && sudo -n /usr/local/sbin/blindou-deployctl export-latest-backup'
-    if ($LASTEXITCODE -ne 0) { throw 'Falha ao criar ou exportar o backup.' }
-    $status = & ssh.exe @sshArgs $server 'sudo -n /usr/local/sbin/blindou-deployctl status'
-    if ($LASTEXITCODE -ne 0) { throw 'Falha ao consultar o backup mais recente.' }
+    Invoke-RemoteDeployControl `
+        -RemoteCommand 'sudo -n /usr/local/sbin/blindou-deployctl backup-database blindou-database-backup' `
+        -FailureMessage 'Falha ao criar o backup.'
+    Invoke-RemoteDeployControl `
+        -RemoteCommand 'sudo -n /usr/local/sbin/blindou-deployctl export-latest-backup' `
+        -FailureMessage 'Falha ao exportar o backup.'
+    $status = Invoke-RemoteDeployControl `
+        -RemoteCommand 'sudo -n /usr/local/sbin/blindou-deployctl status' `
+        -FailureMessage 'Falha ao consultar o backup mais recente.'
     $backupLine = $status | Where-Object { $_ -match '^latest_encrypted_backup=blindou-[0-9]{8}T[0-9]{6}Z$' }
     if (@($backupLine).Count -ne 1) { throw 'O status não retornou um backup único.' }
     $backupId = ($backupLine -split '=', 2)[1]
@@ -101,14 +141,17 @@ try {
     if ($actualSha -cne $expectedSha -or $actualSize -ne $expectedSize) {
         throw 'A cópia offsite diverge do manifesto assinado pelo host.'
     }
-    & ssh.exe @sshArgs $server `
-        "sudo -n /usr/local/sbin/blindou-deployctl confirm-offsite-backup $backupId $expectedSha blindou-offsite-backup"
-    if ($LASTEXITCODE -ne 0) { throw 'Falha ao registrar a cópia offsite verificada.' }
+    Invoke-RemoteDeployControl `
+        -RemoteCommand "sudo -n /usr/local/sbin/blindou-deployctl confirm-offsite-backup $backupId $expectedSha blindou-offsite-backup" `
+        -FailureMessage 'Falha ao registrar a cópia offsite verificada.'
 
     Write-Host 'Liberando os gates somente para a candidata assinada e iniciando migrations/deploy.' -ForegroundColor Cyan
-    & ssh.exe @sshArgs $server `
-        "sudo -n /usr/local/sbin/blindou-deployctl activate-release-gates $ReleaseId blindou-release-gates && sudo -n /usr/local/sbin/blindou-deployctl apply $ReleaseId"
-    if ($LASTEXITCODE -ne 0) { throw 'Migration ou deploy falhou; o controlador executou a contenção prevista.' }
+    Invoke-RemoteDeployControl `
+        -RemoteCommand "sudo -n /usr/local/sbin/blindou-deployctl activate-release-gates $ReleaseId blindou-release-gates" `
+        -FailureMessage 'Falha ao liberar os gates da candidata assinada.'
+    Invoke-RemoteDeployControl `
+        -RemoteCommand "sudo -n /usr/local/sbin/blindou-deployctl apply $ReleaseId" `
+        -FailureMessage 'Migration ou deploy falhou; o controlador executou a contenção prevista.'
 
     Write-Host ''
     Write-Host 'Criação do superadmin gleisonsette@gmail.com.' -ForegroundColor Cyan
@@ -148,9 +191,17 @@ try {
     $loginBody = $null
     $plainPassword = $null
 
+    foreach ($verification in @('verify-foundation', 'verify-data', 'verify-backup')) {
+        Invoke-RemoteDeployControl `
+            -RemoteCommand "sudo -n /usr/local/sbin/blindou-deployctl $verification" `
+            -FailureMessage "A verificação final $verification falhou."
+    }
     & ssh.exe @sshArgs $server `
-        'sudo -n /usr/local/sbin/blindou-deployctl verify-foundation && sudo -n /usr/local/sbin/blindou-deployctl verify-data && sudo -n /usr/local/sbin/blindou-deployctl verify-backup && sudo -n /usr/local/sbin/apiwpp-deployctl verify && sudo -n /usr/local/sbin/blindou-hostctl verify && sudo -n /usr/local/sbin/blindou-deployctl status'
-    if ($LASTEXITCODE -ne 0) { throw 'O gate final do host falhou.' }
+        'sudo -n /usr/local/sbin/apiwpp-deployctl verify && sudo -n /usr/local/sbin/blindou-hostctl verify'
+    if ($LASTEXITCODE -ne 0) { throw 'O gate final do host ou do apiwpp falhou.' }
+    Invoke-RemoteDeployControl `
+        -RemoteCommand 'sudo -n /usr/local/sbin/blindou-deployctl status' `
+        -FailureMessage 'A leitura do estado final do Blindou falhou.'
     Write-Host ''
     Write-Host 'Implantação concluída. O login público do superadmin foi validado.' -ForegroundColor Green
     Write-Host 'Acesse: https://app.blindou.com' -ForegroundColor Green
