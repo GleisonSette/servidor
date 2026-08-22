@@ -366,6 +366,12 @@ segundos. Gates e `apply` são comandos separados para que nenhum efeito
 concluído entre em um retry ambíguo. Qualquer outro código interrompe a release
 imediatamente.
 
+O `apply` executa o corpo da release em subshell com `errexit` explicitamente
+reativado e só então captura o código para decidir rollback. Não envolver
+`apply_cached_release` diretamente em `if !`: Bash desabilita `errexit` também
+nas funções chamadas nesse contexto e pode continuar após uma recusa do
+Kubernetes.
+
 ## Observabilidade
 
 `blindou-platform-metrics.timer` grava no textfile collector do Node Exporter:

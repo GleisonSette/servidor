@@ -2237,11 +2237,18 @@ rollback_release() {
 }
 
 apply_release() {
-  local release_id="$1" previous=''
+  local release_id="$1" previous='' apply_status=0
   [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
   cache_release "$release_id"
   [[ -f "$CURRENT_RELEASE" ]] && previous="$(<"$CURRENT_RELEASE")"
-  if ! apply_cached_release "$release_id"; then
+  set +e
+  (
+    set -Eeuo pipefail
+    apply_cached_release "$release_id"
+  )
+  apply_status=$?
+  set -e
+  if (( apply_status != 0 )); then
     if [[ "$previous" =~ $RELEASE_PATTERN ]]; then
       rollback_release "$previous" "$ROLLBACK_CONFIRMATION" \
         || fail 'release falhou e rollback automático também falhou'

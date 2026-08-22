@@ -701,3 +701,19 @@ contenção transitória do lock compartilhado com o coletor de métricas.
   efeito concluído como parte de um comando composto.
 - A segunda tentativa também permaneceu sem release aplicada e sem credenciais
   UAZAPI, Resend ou Pagar.me.
+
+## 2026-08-22 - Errexit restaurado no corpo da release
+
+Resultado: corrigida na fonte a semântica de falha do primeiro `apply`; a
+contenção viva da candidata recusada ainda precisava ser confirmada ao registrar
+esta entrada.
+
+- O Kubernetes recusou o StatefulSet Redis porque um item de `args` chegou como
+  número YAML, não string.
+- `apply_cached_release` era chamado diretamente por `if !`, contexto em que o
+  Bash suprime `errexit` também dentro da função e continuava pelos timeouts.
+- O corpo passa a rodar em subshell com `set -Eeuo pipefail`; o pai captura o
+  status fora de uma condição e executa o rollback de primeira release na
+  primeira falha.
+- A correção do manifesto pertence ao repositório Blindou e exige novo SHA;
+  editar ou reassinar o bundle recusado continua proibido.

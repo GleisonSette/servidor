@@ -293,6 +293,16 @@ grep -Fq 'activate-release-gates)' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'transição fechada dos gates ausente'
 grep -Fq 'bootstrap-superadmin)' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'bootstrap fechado do superadmin ausente'
+apply_release_function="$(sed -n '/^apply_release()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+grep -Fq 'set +e' <<<"$apply_release_function" \
+  && grep -Fq 'set -Eeuo pipefail' <<<"$apply_release_function" \
+  && grep -Fq 'apply_status=$?' <<<"$apply_release_function" \
+  && grep -Fq 'if (( apply_status != 0 )); then' <<<"$apply_release_function" \
+  || fail 'apply não restaura errexit antes de decidir rollback'
+if grep -Fq 'if ! apply_cached_release' <<<"$apply_release_function"; then
+  fail 'apply ainda suprime errexit no corpo da release'
+fi
 grep -Fq "readonly SUPERADMIN_EMAIL='gleisonsette@gmail.com'" \
   "${REMOTE_DIR}/blindou-deployctl" || fail 'identidade fixa do superadmin ausente'
 grep -Fq 'provision-runtime-secrets blindou-runtime-secrets' \
