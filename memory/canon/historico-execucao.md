@@ -501,3 +501,45 @@ nenhuma mudança foi aplicada ao host neste evento.
   `rust-lld` recebeu sinal 7 (`Bus error`) ao ligar testes grandes diferentes.
 - O job de build/scan/publicação de imagens ficou `skipped`. Nenhum digest foi
   produzido e nenhum deploy, migration ou Secret de runtime foi autorizado.
+
+## 2026-08-21 - Persistência da contenção, GHCR e candidata assinada
+
+Resultado: cadeia de pull e candidata assinada preparadas; runtime permaneceu
+bloqueado e o `apiwpp` continuou saudável.
+
+- Um reboot revelou que o `systemd-networkd` reativava IPv6 em `enp2s0` depois
+  da aplicação inicial do sysctl. O `blindou-hostctl` passou a reaplicar a
+  contenção de forma idempotente, e o unit
+  `blindou-temporary-containment.service` foi instalado depois de
+  `network-online`, habilitado e validado.
+- A transferência do bootstrap foi reduzida a um único archive/SCP para evitar
+  o rate limit observado no SSH. A extração Windows/Linux exigiu correção
+  explícita do modo executável dos dois scripts. As mudanças ficaram nos
+  commits locais `89c474d`, `895c850` e `40de4d6`; não houve push deste
+  repositório.
+- O usuário autorizou uma exceção pontual e consciente a D011 para usar
+  `KEY_SERVIDOR` somente nesses dois bootstraps. A senha passou apenas por
+  `stdin`, não foi exibida nem persistida, e a exceção expirou após a instalação.
+- O `blindou-hostctl` instalado ficou com SHA-256
+  `b51278e6b490a87483156b66968e381593b23a9b5b48a784756549f151e284be` e
+  o `blindou-deployctl` com
+  `2f433a869db8ea4eac367f874e2bf56f752895a3a78c3310cc9d9f67c2de5dc6`.
+- O PAT classic foi criado com vencimento em 2026-11-19 e exatamente
+  `read:packages`. O valor foi transferido por `stdin`, removido da área de
+  transferência e guardado root-only fora do Kubernetes. O controlador
+  confirmou identidade, atividade e escopo; o pull Secret não foi criado.
+- O workflow Blindou `32534879401` passou gates Rust/PostgreSQL, scans e
+  publicação para o SHA
+  `1265c3be1e808d522887f38ff47e9a110533677a`. Backend e redirector ficaram no
+  GHCR somente por digest.
+- O bundle SHA-256
+  `d22fb791e2fd9c68d95b98493a97a03c724cb83f66bc536a2417dfa1889035fb`
+  foi assinado fora do servidor, validado contra o contrato fechado e
+  armazenado no cache do controlador. `current_release` permaneceu ausente.
+- A verificação final aprovou host/UFW/IPv6/DNS/Internet/ONT/K3s, fundação,
+  conector EDGE, Cloudflare for SaaS, GHCR, dados, backup e `apiwpp`. Não havia
+  unit systemd falha; `blindou-production` permaneceu com gate `blocked`, zero
+  objetos operacionais e nenhuma migration, Secret Kubernetes ou aplicação.
+- Continuam pendentes antes do primeiro deploy: scan operacional das imagens
+  terceiras fixadas, Secrets de runtime, alertas externos, gates `passed` e
+  autorização específica de migration/deploy.

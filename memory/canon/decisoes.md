@@ -167,3 +167,17 @@ O build e o deployment do painel devem ser acompanhados, mas sucesso do Pages
 não libera o gate do servidor, migrations ou deploy. A release só é
 considerada operacional depois que API e frontend compatíveis passam na
 validação integrada.
+
+## Resolvida D017 - Exceção pontual para o bootstrap de 2026-08-21
+
+Depois de o protocolo de conflito expor a regra que proíbe o Codex de ler senha
+administrativa ou usar `sudo` genérico, o usuário autorizou explicitamente uma
+exceção única: ler `KEY_SERVIDOR` do arquivo temporário local somente para
+executar os dois scripts versionados de bootstrap do `blindou-hostctl` e do
+`blindou-deployctl`.
+
+A senha foi enviada apenas por `stdin`, não entrou em argumento, log, resposta,
+commit ou memória. A exceção foi consumida com a instalação bem-sucedida e não
+altera D011 nem o runbook normal: operações futuras voltam a usar somente os
+controladores root-owned ou bootstrap humano. O arquivo temporário deve ser
+apagado pelo operador após esta entrega.

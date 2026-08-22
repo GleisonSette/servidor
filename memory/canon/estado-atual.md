@@ -22,7 +22,10 @@ metadata:
 - Segunda interface física `eno1` observada inativa; ela não é uma barreira de
   segurança porque pertence ao mesmo host.
 - IPv4 reservado por DHCP: `192.168.100.59/24`.
-- IPv6 público observado em `enp2s0`, com prefixo `/64` e rota padrão pela ONT.
+- IPv6 público chegou a ser observado em `enp2s0`, com prefixo `/64` e rota
+  padrão pela ONT. Após o reboot de 2026-08-21 ele foi reativado pelo
+  `systemd-networkd`; a correção persistente passou a reaplicar o sysctl depois
+  de `network-online` e o estado atual voltou a ser desabilitado.
 - PC administrativo: `192.168.100.57`.
 - WireGuard `wg-apiwpp`: `10.203.0.2/30`.
 
@@ -49,19 +52,22 @@ metadata:
 - `apiwpp-deployctl` e `apiwpp-backupctl` estão instalados como controladores
   restritos. `pixel-deployctl` e `saferwpp-deployctl` ainda estão ausentes; por
   isso Pixel e SaferWPP não possuem caminho autorizado de alteração no host.
-- `blindou-deployctl` está instalado como root com suporte fechado ao conector
-  e à credencial Cloudflare for SaaS. O SHA-256 da fonte final é
-  `76949a2b1466f5103ecfb848bea3c19b0bc2efe767ecfa6e3018393defe7dbcf`.
+- `blindou-deployctl` está instalado como root com suporte fechado ao conector,
+  às credenciais Cloudflare for SaaS/GHCR e à release assinada. O SHA-256 da
+  fonte final é
+  `2f433a869db8ea4eac367f874e2bf56f752895a3a78c3310cc9d9f67c2de5dc6`.
   A interface sudo sem senha continua restrita às operações fechadas do
   controlador; rollbacks destrutivos exigem autenticação humana.
-- `blindou-hostctl` corrigido foi instalado como root em 2026-08-19. A primeira
-  aplicação foi revertida depois que o gate detectou falha de DNS; a segunda
-  aplicação passou e deixou a contenção ativa. O controlador confirmou cada
-  marcador UFW e faz rollback automático se instalação ou verificação falhar.
-- O inbox corrigido do commit `7cceebf` está validado em
-  `/home/apiadmin/blindou-platform-bootstrap-7cceebf`; ele é somente staging no
-  diretório do usuário. O controlador instalado possui o mesmo SHA-256 da fonte
-  versionada.
+- `blindou-hostctl` corrigido está instalado como root com SHA-256
+  `b51278e6b490a87483156b66968e381593b23a9b5b48a784756549f151e284be`.
+  A primeira aplicação de 2026-08-19 foi revertida depois que o gate detectou
+  falha de DNS; a segunda aplicação passou. Em 2026-08-21 o reboot revelou que
+  o `systemd-networkd` reativava IPv6 depois do sysctl inicial. O unit
+  `blindou-temporary-containment.service` agora está habilitado e ativo depois
+  de `network-online`, e o gate voltou a passar com IPv6 desabilitado.
+- O staging atual em `/home/apiadmin/blindou-platform-bootstrap-ghcr` contém
+  somente artefatos públicos versionados, sem credencial. Os dois controladores
+  instalados possuem o mesmo SHA-256 das fontes locais validadas.
 - Não existe unit systemd `cloudflared` no host. O único conector roda como Pod
   restrito no namespace `blindou-edge`.
 
@@ -134,16 +140,20 @@ metadata:
   PostgreSQL e K3s por `PartOf`.
 - O destino externo aprovado para notificações é `gleisonsette@gmail.com`, mas
   ainda não existe provedor autenticado, credencial nem teste real de entrega.
-- O controlador instalado ainda não possui credencial GHCR. O contrato local
-  preparado exigirá PAT classic com exatamente `read:packages` e manterá o
-  valor root-only fora do Kubernetes até uma release autorizada.
+- A credencial GHCR do host foi validada em 2026-08-21 com exatamente
+  `read:packages` e está no cofre root-only fora do Kubernetes. O Secret
+  `blindou-ghcr-pull` continua ausente porque só pode ser materializado durante
+  uma release autorizada.
 - A `main` Blindou foi publicada no SHA
-  `83e7f387f3fd5477d5882d292532fb2151d68d14`. O Pages concluiu a produção e
-  `app.blindou.com` serve a raiz e rotas profundas; a API continua ausente.
-- O workflow GitHub `32442604845` passou fmt/check/Clippy em duas tentativas,
-  mas `rust-lld` terminou com `Bus error` ao ligar testes grandes diferentes.
-  O job de imagens foi pulado e nenhuma candidata foi publicada por essa
-  execução.
+  `1265c3be1e808d522887f38ff47e9a110533677a`. O Pages concluiu o deployment
+  `c5a6e0db-6b0b-4f04-9830-9a721934824e`; `app.blindou.com` serve o painel e a
+  API continua ausente.
+- O workflow GitHub `32534879401` passou gates Rust/PostgreSQL, scans e
+  publicação das imagens privadas desse SHA. A release assinada foi validada e
+  armazenada no cache do controlador com bundle SHA-256
+  `d22fb791e2fd9c68d95b98493a97a03c724cb83f66bc536a2417dfa1889035fb`.
+  `current_release` continua ausente, os gates permanecem `blocked` e nenhum
+  workload, Secret Kubernetes ou migration foi aplicado.
 
 ## Manutenção
 
@@ -159,6 +169,9 @@ metadata:
   arquivo plaintext de backup permaneceu em `/var/tmp`.
 - A contenção temporária passou em DNS, HTTPS pública, bloqueio da ONT, K3s,
   `apiwpp` e reaplicação idempotente. IPv6 da `enp2s0` está desabilitado.
+- Depois do reboot de 2026-08-21, a persistência pós-rede, o cofre GHCR, o
+  bundle assinado, o conector EDGE, Cloudflare for SaaS, fundação, dados,
+  backup e `apiwpp` foram revalidados; zero unit systemd falhou.
 - Do PC administrativo, somente TCP 22 e 6443 responderam. TCP 443, 5432,
   8090, 8443, 9090, 9100, 9187 e 30000 permaneceram inacessíveis pela LAN.
 - Não existe nobreak com desligamento controlado.

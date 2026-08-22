@@ -89,6 +89,13 @@ caminho controlado para reinstalação ou atualização futura do controlador.
 O Codex não lê senha nem usa `sudo` genérico. Uma única sessão humana root deve
 instalar o controlador versionado:
 
+Exceção histórica encerrada: em 2026-08-21, depois de confronto explícito da
+regra, o usuário autorizou uma única execução automatizada dos dois bootstraps
+versionados com a senha temporária recebida por `stdin`. A exceção foi consumida
+na mesma manutenção, não se aplica a trabalhos futuros e não autoriza guardar,
+registrar ou reutilizar a senha. O arquivo temporário local usado nessa sessão
+deve ser removido pelo operador.
+
 ```bash
 cd /home/apiadmin/<inbox-validado>/operations/remote
 sudo ./bootstrap-blindou-hostctl.sh

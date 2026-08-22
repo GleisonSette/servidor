@@ -96,9 +96,11 @@ operação temporária.
 
 ## Fase 2C - Contenção local temporária do Blindou
 
-Status: camada de host concluída e verificada em 2026-08-19. A primeira
-aplicação foi revertida após falha de DNS; o controlador corrigido foi
-instalado e a reaplicação passou sem regressão do `apiwpp`.
+Status: camada de host concluída em 2026-08-19 e persistência pós-reboot
+corrigida e verificada em 2026-08-21. A primeira aplicação foi revertida após
+falha de DNS; o reboot posterior revelou que o `systemd-networkd` reativava
+IPv6 depois do sysctl inicial. O unit pós-`network-online` está habilitado e
+ativo, e o gate voltou a passar sem regressão do `apiwpp`.
 
 Concluído no repositório:
 
@@ -139,21 +141,20 @@ Aceite ainda pendente:
 
 ## Fase 2D - Plataforma e controlador de deploy do Blindou
 
-Status: fundação interna e conector concluídos e verificados em 2026-08-20.
+Status: fundação interna e conector concluídos e verificados em 2026-08-20;
+cadeia de pull e candidata assinada preparadas e verificadas em 2026-08-21.
 Zero Trust e o Tunnel remoto `blindou-physical` estão saudáveis; somente
 `blindou-edge` passou para `connector-only`, enquanto `blindou-production`,
 migrations e release continuam bloqueados. Cloudflare for SaaS está ativado no
 plano da zona e sua credencial restrita foi validada e guardada fora do
 runtime; nenhum custom hostname de cliente foi criado.
-O contrato de imagens próprias escolheu GHCR privado. O controlador e o
-verificador locais já estão preparados para recusar qualquer token diferente
-de `read:packages`, mas essa atualização ainda não foi instalada no host e a
-credencial ainda não foi criada.
-O conflito de local de compilação foi resolvido em D015. A `main` Blindou foi
-publicada no SHA `83e7f387f3fd5477d5882d292532fb2151d68d14`; o Pages está vivo.
-O workflow `32442604845` passou fmt/check/Clippy duas vezes, mas `rust-lld`
-falhou com `Bus error` ao ligar testes grandes diferentes. O job de imagens foi
-pulado e nenhuma candidata foi publicada.
+O contrato de imagens próprias usa GHCR privado. O controlador atualizado está
+instalado e o PAT classic do host foi validado com exatamente `read:packages`,
+mantido root-only e fora do Kubernetes. O workflow `32534879401` aprovou os
+gates, scans e publicação para o SHA
+`1265c3be1e808d522887f38ff47e9a110533677a`. O bundle desse SHA foi assinado
+fora do servidor, validado e armazenado no cache fechado. `current_release`
+permanece ausente e nenhuma migration ou workload foi executado.
 
 Objetivos:
 
@@ -176,22 +177,17 @@ Aceite:
 
 Próxima ação exata:
 
-1. corrigir o perfil/linkagem da suíte no runner GitHub sem reduzir cobertura;
-2. mediante autorização de `push` e execução, publicar a correção e repetir o
-   workflow pelo novo SHA exato;
-3. confirmar os dois pacotes privados, scans aprovados e digests antes de
-   qualquer bundle assinado;
-4. atualizar o controlador e provisionar por `stdin` o PAT classic com somente
-   `read:packages`; nenhuma imagem ou Secret Kubernetes nasce nessa etapa;
-5. manter a cota global da aplicação em 90 custom hostnames e revalidar a
+1. validar as imagens terceiras fixadas no bundle e preparar por canal seguro
+   os Secrets de runtime, sem materializá-los antes da janela autorizada;
+2. manter a cota global da aplicação em 90 custom hostnames e revalidar a
    origem de fallback já ativa depois que a API tiver origem publicada, antes
    do primeiro fluxo autorizado de domínio por conta/tenant;
-6. integrar o receptor aprovado `gleisonsette@gmail.com`, UAZAPI e os demais
+3. integrar o receptor aprovado `gleisonsette@gmail.com`, UAZAPI e os demais
    Secrets antes da primeira release;
-7. somente mediante nova autorização de deploy, copiar as credenciais
+4. somente mediante nova autorização de deploy, copiar as credenciais
    necessárias para os Secrets do runtime, liberar o gate completo, executar
    migrations e aplicar a primeira release assinada na Fase 2E;
-8. somente com a API compatível Ready, validar o painel já publicado contra a
+5. somente com a API compatível Ready, validar o painel já publicado contra a
    mesma release antes de declarar a operação pronta.
 
 ## Fase 2E - Primeira release e capacidade do Blindou
