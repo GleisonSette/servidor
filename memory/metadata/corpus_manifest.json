@@ -6,7 +6,7 @@
     "source_scope":  "Host, K3s, apiwpp existente, Blindou, operacao, seguranca e continuidade.",
     "layers":  {
                    "canon":  6,
-                   "index_chunks":  88
+                   "index_chunks":  89
                },
     "topics":  [
                    "indice-canonico",

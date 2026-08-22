@@ -345,6 +345,12 @@ root-only do adiamento. O recibo substitui apenas a confirmação de alerta
 externo durante essa revisão; prova GHCR, backup, cópia offsite, assinatura,
 contenção e todos os demais gates continuam obrigatórios.
 
+Em um host sem runtime anterior, o próprio controlador cria primeiro
+`/etc/blindou/runtime` como `root:root` e modo `0700`; somente depois grava
+`production.env` por arquivo temporário e instala as chaves internas. Não criar
+esse diretório manualmente nem relaxar suas permissões para contornar falhas de
+bootstrap.
+
 O orquestrador `operations/Invoke-BlindouFirstRelease.ps1` executa a sequência
 completa e solicita somente a senha do superadmin em campo protegido. Ele
 aplica migrations e a release assinada, cria `gleisonsette@gmail.com` ativo e

@@ -242,6 +242,18 @@ grep -Fq 'provision-runtime-secrets)' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'operação fechada de Secrets ausente'
 grep -Fq 'provision-ui-review-runtime)' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'operação fail-closed para revisão da UI ausente'
+ui_review_runtime_function="$(sed -n '/^provision_ui_review_runtime()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+grep -Fq 'install -d -o root -g root -m 0700 "$RUNTIME_SECRET_DIR"' \
+  <<<"$ui_review_runtime_function" \
+  || fail 'revisão da UI não cria o cofre antes de gravar production.env'
+ui_review_dir_line="$(grep -nF 'install -d -o root -g root -m 0700 "$RUNTIME_SECRET_DIR"' \
+  <<<"$ui_review_runtime_function" | cut -d: -f1)"
+ui_review_config_line="$(grep -nF 'write_ui_review_runtime_config' \
+  <<<"$ui_review_runtime_function" | cut -d: -f1)"
+[[ "$ui_review_dir_line" =~ ^[0-9]+$ && "$ui_review_config_line" =~ ^[0-9]+$ \
+  && "$ui_review_dir_line" -lt "$ui_review_config_line" ]] \
+  || fail 'cofre da revisão da UI não precede a gravação de production.env'
 grep -Fq "[[ ! -t 0 ]] || fail 'segredos de runtime devem chegar por stdin" \
   "${REMOTE_DIR}/blindou-deployctl" || fail 'Secrets de runtime não exigem stdin fechado'
 grep -Fq 'AUTH_REQUIRE_2FA=false' "${REMOTE_DIR}/blindou-deployctl" \

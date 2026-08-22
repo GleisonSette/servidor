@@ -1972,6 +1972,7 @@ provision_ui_review_runtime() {
     [[ ! -e "${RUNTIME_SECRET_DIR}/${provider_file}" ]] \
       || fail "credencial ${provider_file} já existe; revisão sem provedores recusada"
   done
+  install -d -o root -g root -m 0700 "$RUNTIME_SECRET_DIR"
   write_ui_review_runtime_config
   prepare_internal_runtime_material
   publish_runtime_material

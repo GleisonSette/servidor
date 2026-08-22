@@ -670,3 +670,19 @@ nenhuma mudança viva desta etapa foi aplicada ao host.
   contenção, gates e smoke público obrigatórios.
 - Sintaxe, verificadores, commits, push, nova candidata e deploy vivo ainda
   precisavam ser concluídos no momento deste registro.
+
+## 2026-08-22 - Correção do bootstrap do cofre no primeiro runtime
+
+Resultado: corrigida no repositório a ordem de criação do cofre interno da
+revisão de UI; a tentativa viva falhou fechada antes de Secrets, migrations ou
+workloads.
+
+- A candidata `d8bc0969a6820172559773503813e4ce67490906` passou nos gates e na
+  prova integral de download das quatro imagens privadas.
+- No primeiro host vazio, `write_ui_review_runtime_config` tentou criar
+  `production.env.tmp` antes da existência de `/etc/blindou/runtime`.
+- `provision-ui-review-runtime` passa a criar o diretório `root:root` `0700`
+  antes da configuração; o verificador de artefatos protege também a ordem das
+  duas operações.
+- UAZAPI, Resend e Pagar.me continuam ausentes. A release permaneceu sem
+  aplicação durante a falha observada.
