@@ -741,3 +741,16 @@ a execução viva ainda precisava ser comprovada ao registrar esta entrada.
   Depois da reconciliação, o conector ficou `ready`, o backup offsite presente,
   host e `apiwpp` passaram seus gates e a API pública permaneceu em `502` sem
   backend parcial.
+
+## 2026-08-22 - Download offsite consolidado em uma conexão
+
+Resultado: o orquestrador passou a transferir cada backup em uma única sessão
+SCP e validar o conjunto fechado localmente.
+
+- Duas execuções baixaram envelope e manifesto, mas o terceiro handshake rápido
+  expirou ao buscar o certificado público; após intervalo, o mesmo arquivo foi
+  transferido e o checksum integral passou.
+- O novo fluxo copia o diretório cujo ID veio do status autenticado e exige
+  exatamente três arquivos regulares, sem link simbólico nem conteúdo extra.
+- O backup `blindou-20260822T222900Z` foi confirmado offsite antes da nova
+  candidata; nenhuma credencial de provedor participou do fluxo.

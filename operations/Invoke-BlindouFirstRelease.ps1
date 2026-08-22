@@ -121,10 +121,33 @@ try {
     if (Test-Path -LiteralPath $localBackup) {
         throw "A pasta local do backup já existe: $localBackup"
     }
-    [void](New-Item -ItemType Directory -Path $localBackup -Force)
-    foreach ($file in @("$backupId.dump.cms", "$backupId.manifest", 'recovery-recipient.crt')) {
-        & scp.exe @sshArgs "${server}:/home/apiadmin/blindou-backup-outbox/$backupId/$file" $localBackup
-        if ($LASTEXITCODE -ne 0) { throw "Falha ao baixar o artefato offsite: $file" }
+    if (-not (Test-Path -LiteralPath $backupBase -PathType Container)) {
+        [void](New-Item -ItemType Directory -Path $backupBase -Force)
+    }
+    $backupBaseItem = Get-Item -LiteralPath $backupBase -ErrorAction Stop
+    if ($backupBaseItem.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        throw 'A raiz local de backups não pode ser link simbólico.'
+    }
+    & scp.exe @sshArgs -r "${server}:/home/apiadmin/blindou-backup-outbox/$backupId" $backupBase
+    if ($LASTEXITCODE -ne 0) { throw 'Falha ao baixar o diretório offsite em conexão única.' }
+    $localBackupItem = Get-Item -LiteralPath $localBackup -ErrorAction Stop
+    if (-not $localBackupItem.PSIsContainer -or
+        ($localBackupItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw 'A cópia local do backup não é um diretório regular.'
+    }
+    $expectedBackupFiles = @(
+        "$backupId.dump.cms",
+        "$backupId.manifest",
+        'recovery-recipient.crt'
+    )
+    $downloadedBackupFiles = @(Get-ChildItem -LiteralPath $localBackup -Force)
+    if ($downloadedBackupFiles.Count -ne $expectedBackupFiles.Count -or
+        @($downloadedBackupFiles | Where-Object {
+            $_.PSIsContainer -or
+            ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+            $_.Name -notin $expectedBackupFiles
+        }).Count -ne 0) {
+        throw 'A cópia offsite não contém exatamente os três arquivos autorizados.'
     }
     $manifestPath = Join-Path $localBackup "$backupId.manifest"
     $encryptedPath = Join-Path $localBackup "$backupId.dump.cms"

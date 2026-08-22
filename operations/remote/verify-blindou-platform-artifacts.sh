@@ -84,6 +84,11 @@ if grep -Fq 'activate-release-gates $ReleaseId blindou-release-gates &&' \
   "$FIRST_RELEASE_SCRIPT"; then
   fail 'ativação dos gates e apply não podem compartilhar retry ambíguo'
 fi
+grep -Fq '& scp.exe @sshArgs -r' "$FIRST_RELEASE_SCRIPT" \
+  || fail 'backup offsite não usa uma única conexão SCP'
+grep -Fq 'A cópia offsite não contém exatamente os três arquivos autorizados.' \
+  "$FIRST_RELEASE_SCRIPT" \
+  || fail 'download offsite não recusa arquivo extra ou simbólico'
 grep -Fq "Read-Host 'Senha do superadmin' -AsSecureString" "$FIRST_RELEASE_SCRIPT" \
   || fail 'senha do superadmin não usa entrada protegida'
 grep -Fq 'Invoke-ClosedSshInput' "$FIRST_RELEASE_SCRIPT" \

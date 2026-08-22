@@ -308,6 +308,11 @@ falha. A outbox expõe somente o envelope, o manifesto e o certificado público.
 A prova de recuperação deve ocorrer fora do servidor com a chave privada
 custodiada separadamente.
 
+O orquestrador baixa o diretório fechado do backup em uma única conexão SCP e
+depois exige exatamente o envelope, o manifesto e o certificado público, todos
+regulares e sem link simbólico. Não abrir três conexões consecutivas: o SSH do
+host pode limitar handshakes rápidos e deixar uma cópia local parcial.
+
 Periodicidade, retenção, destino offsite, RPO, RTO e ensaio recorrente dependem
 de D005/P005. Não apagar ou rotacionar backups por valor inferido.
 
