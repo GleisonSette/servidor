@@ -736,3 +736,8 @@ a execução viva ainda precisava ser comprovada ao registrar esta entrada.
 - A primeira chamada viva foi recusada sem alterar estado porque `fuser` não
   entregou os PIDs pelo canal esperado; a seleção passou a combinar `pgrep` com
   cmdline exata e prova independente de lock ocupado.
+- A segunda chamada encerrou a árvore exata, removeu workloads e Services,
+  restaurou `secrets-only`/`connector-only` e manteve `current_release` ausente.
+  Depois da reconciliação, o conector ficou `ready`, o backup offsite presente,
+  host e `apiwpp` passaram seus gates e a API pública permaneceu em `502` sem
+  backend parcial.

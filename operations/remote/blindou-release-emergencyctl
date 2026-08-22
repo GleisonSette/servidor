@@ -90,6 +90,8 @@ contain_stuck_first_release() {
     'platform.servidor.local/gate-reason=first-release-emergency-contained' --overwrite >/dev/null
   kube apply -f "$EDGE_GATE_MANIFEST" >/dev/null
   kube apply -f "$EDGE_RUNTIME_MANIFEST" >/dev/null
+  kube -n "$EDGE_NAMESPACE" rollout status deployment/blindou-cloudflared \
+    --timeout=120s >/dev/null
   rm -f -- "$RELEASE_GATE_RECEIPT"
   if [[ -f "$CURRENT_RELEASE" && "$(<"$CURRENT_RELEASE")" == "$release_id" ]]; then
     rm -f -- "$CURRENT_RELEASE"

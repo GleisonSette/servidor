@@ -36,6 +36,9 @@ grep -Fq "'platform.servidor.local/deployment-gate=secrets-only'" \
 grep -Fq 'workload ou Service parcial permaneceu na aplicação' \
   "$EMERGENCY_CONTROLLER" \
   || fail 'contenção emergencial não verifica ausência de workload parcial'
+grep -Fq 'rollout status deployment/blindou-cloudflared' \
+  "$EMERGENCY_CONTROLLER" \
+  || fail 'contenção emergencial não aguarda o conector isolado voltar'
 grep -Fq 'blindou-release-emergencyctl contain-stuck-first-release * blindou-stuck-first-release' \
   "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   || fail 'sudoers não limita a contenção emergencial ao contrato fechado'
