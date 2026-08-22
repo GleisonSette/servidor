@@ -316,6 +316,20 @@ grep -Fq 'BlindouSyntheticReceiverTest' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'teste sintético do receptor externo ausente'
 grep -Fq 'confirm-offsite-backup)' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'recibo fechado de backup offsite ausente'
+database_extension_function="$(sed -n '/^provision_database_extensions()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+grep -Fq 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public;' \
+  <<<"$database_extension_function" \
+  || fail 'pré-requisito administrativo pg_stat_statements ausente'
+grep -Fq 'provision_database_extensions' \
+  <<<"$(sed -n '/^provision_data_foundation()/,/^}/p' "${REMOTE_DIR}/blindou-deployctl")" \
+  || fail 'fundação de dados não instala a extensão administrativa'
+grep -Fq "e.extname='pg_stat_statements'" "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq "r.rolname='postgres'" "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'verificação da autoridade da extensão administrativa ausente'
+grep -Fq 'migration_history_count=%s' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'pg_stat_statements=%s' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'status não expõe progresso seguro da migration e pré-requisito PostgreSQL'
 grep -Fq 'rpo_minutes=15' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'RPO aprovado não foi registrado'
 grep -Fq 'rto_hours=4' "${REMOTE_DIR}/blindou-deployctl" \

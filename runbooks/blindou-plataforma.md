@@ -385,6 +385,13 @@ URLs PostgreSQL e valores associados a senha, token, segredo ou chave privada.
 Não substituir esse fluxo por espera exclusiva de `Complete`, pois um Job já
 falho consumiria todo o timeout e perderia o diagnóstico ao ser removido.
 
+`pg_stat_statements` é pré-requisito administrativo da fundação PostgreSQL. O
+controlador o cria idempotentemente no database `blindou`, schema `public`,
+sob o owner `postgres`, e verifica essa autoridade. A migration de aplicação
+não pode criar nem comentar essa extensão, pois sua identidade permanece
+corretamente sem superuser, `CREATEDB` ou `CREATEROLE`. Extensões confiáveis que
+pertencem ao schema da aplicação continuam sob a migration.
+
 Se uma versão anterior já carregada em memória permanecer presa depois de uma
 falha de primeira release, não usar `sudo kill` nem editar objetos manualmente.
 O controlador independente `blindou-release-emergencyctl` aceita somente

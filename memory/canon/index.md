@@ -76,8 +76,10 @@ corpus por padrão.
   permanece em `secrets-only`: a candidata `794d922` passou nos gates e na
   prova de pull, mas o Job de migration não concluiu em 600 segundos. O rollback
   removeu os workloads, manteve `current_release` ausente e restaurou o
-  conector. O próximo passo é instalar o diagnóstico fail-fast do Job e repetir
-  a tentativa para obter e corrigir a causa real.
+  conector. O diagnóstico fail-fast identificou a criação administrativa de
+  `pg_stat_statements` dentro de `0001`. A correção mantém a role de migration
+  sem superuser: a plataforma provisiona a extensão e uma nova candidata remove
+  sua criação e comentário do baseline da aplicação.
 
 ## Precedência
 

@@ -209,9 +209,11 @@ Próxima ação exata:
 
 Status: candidata `794d922` assinada, comprovada e autorizada; a primeira
 tentativa chegou ao Job de migration e falhou fechada por timeout. Antes da
-repetição, o controlador precisa instalar a observação de `Failed` com
-diagnóstico sanitizado, identificar a causa real, corrigi-la e repetir os gates
-sem introduzir credenciais de UAZAPI, Resend ou Pagar.me.
+repetição, o controlador instalou a observação de `Failed` com diagnóstico
+sanitizado e identificou `pg_stat_statements` como pré-requisito administrativo.
+O próximo passo é publicar a fundação que cria/verifica essa extensão, publicar
+novo SHA Blindou sem a extensão em `0001` e repetir os gates sem introduzir
+credenciais de UAZAPI, Resend ou Pagar.me.
 
 Objetivos:
 

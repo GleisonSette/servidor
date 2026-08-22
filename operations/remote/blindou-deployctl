@@ -1096,6 +1096,14 @@ GRANT CONNECT, TEMPORARY ON DATABASE blindou TO blindou_migration_login, blindou
 SQL
 }
 
+provision_database_extensions() {
+  postgres_query -d blindou <<'SQL' >/dev/null
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public;
+COMMENT ON EXTENSION pg_stat_statements IS
+  'track planning and execution statistics of all SQL statements executed';
+SQL
+}
+
 write_database_urls() {
   load_database_credentials
   local query_suffix
@@ -1130,6 +1138,9 @@ verify_data_foundation() {
   [[ "$(postgres_query -d postgres -Atqc \
     "SELECT count(*) FROM pg_database WHERE datname='blindou'")" == '1' ]] \
     || fail 'database Blindou ausente'
+  [[ "$(postgres_query -d blindou -Atqc \
+    "SELECT count(*) FROM pg_extension e JOIN pg_namespace n ON n.oid=e.extnamespace JOIN pg_roles r ON r.oid=e.extowner WHERE e.extname='pg_stat_statements' AND n.nspname='public' AND r.rolname='postgres'")" == '1' ]] \
+    || fail 'extensão administrativa pg_stat_statements ausente ou com autoridade divergente'
   [[ "$(postgres_query -d postgres -Atqc \
     "SELECT count(*) FROM pg_roles WHERE rolname IN ('blindou_migration_login','blindou_runtime_login','blindou_redirect_login','blindou_ml_login') AND rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication")" == '4' ]] \
     || fail 'logins Blindou ausentes ou privilegiados'
@@ -1174,6 +1185,7 @@ provision_data_foundation() {
   generate_database_material
   install_postgres_client_auth
   create_database_roles
+  provision_database_extensions
   write_database_urls
   verify_data_foundation
   pass 'fundação de dados Blindou provisionada sem executar migrations'
@@ -2381,6 +2393,19 @@ show_status() {
   done
   printf 'database_blindou=%s\n' \
     "$(postgres_query -d postgres -Atqc "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_database WHERE datname='blindou') THEN 'present' ELSE 'absent' END")"
+  if [[ "$(postgres_query -d postgres -Atqc \
+      "SELECT count(*) FROM pg_database WHERE datname='blindou'")" == '1' ]]; then
+    if [[ "$(postgres_query -d blindou -Atqc \
+        "SELECT to_regclass('public._sqlx_migrations') IS NOT NULL")" == 't' ]]; then
+      printf 'migration_history_count=%s\n' \
+        "$(postgres_query -d blindou -Atqc 'SELECT count(*) FROM public._sqlx_migrations')"
+    else
+      printf 'migration_history_count=absent\n'
+    fi
+    printf 'pg_stat_statements=%s\n' \
+      "$(postgres_query -d blindou -Atqc \
+        "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_extension WHERE extname='pg_stat_statements') THEN 'present' ELSE 'absent' END")"
+  fi
   if [[ -f "${DATABASE_BACKUP_ROOT}/latest" ]]; then
     printf 'latest_encrypted_backup=%s\n' "$(<"${DATABASE_BACKUP_ROOT}/latest")"
   else

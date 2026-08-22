@@ -779,3 +779,24 @@ corrigido no repositório para distinguir falha terminal de espera real.
   token, segredo e chave privada. O verificador inclui exercício dinâmico dessa
   sanitização.
 - UAZAPI, Resend e Pagar.me permaneceram ausentes durante toda a tentativa.
+
+## 2026-08-22 - Causa da migration e fronteira de extensão administrativa
+
+Resultado: o diagnóstico fail-fast reduziu a repetição de dez minutos para
+segundos e provou que a falha era uma extensão administrativa no baseline da
+aplicação; a correção foi preparada sem elevar a role de migration.
+
+- O controlador corrigido foi instalado e a candidata `794d922` repetida com
+  as mesmas imagens já comprovadas.
+- O Job registrou início de `0001` e falhou ao criar `pg_stat_statements` porque
+  `blindou_migration_login` não possui superuser. O rollback removeu todos os
+  workloads e restaurou os dois gates temporários.
+- Conceder superuser à identidade foi recusado pela arquitetura. A fundação
+  PostgreSQL passa a criar idempotentemente a extensão no database `blindou`,
+  schema `public`, com owner `postgres`, e `verify-data` exige essa autoridade.
+- Como `0001` nunca foi concluída nem registrada pelo SQLx e não há dados de
+  cliente, o baseline Blindou pode retirar a criação e o comentário dessa
+  extensão antes da primeira release. `citext` e `pgcrypto` continuam sob a
+  migration.
+- A mudança do schema embutido exige novo commit, suíte externa, imagens,
+  assinatura e bundle; a candidata `794d922` não será alterada ou promovida.

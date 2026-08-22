@@ -175,6 +175,13 @@ metadata:
   em 600 segundos; o rollback automático restaurou `secrets-only` e
   `connector-only`, o conector voltou a Ready e a API pública permaneceu em
   `502`. UAZAPI, Resend e Pagar.me continuam ausentes.
+- Com o controlador de diagnóstico instalado, a repetição identificou a causa
+  em segundos: `0001` tentou criar `pg_stat_statements`, operação recusada para
+  `blindou_migration_login` por menor privilégio. A contenção foi novamente
+  restaurada. A correção preparada mantém a extensão administrativa na
+  fundação, sob owner `postgres`, e remove sua criação/comentário do baseline da
+  aplicação antes da primeira migration concluída. Ainda exige novo SHA e nova
+  candidata Blindou.
 
 ## Manutenção
 
