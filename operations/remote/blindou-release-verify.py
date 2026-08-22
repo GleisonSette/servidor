@@ -19,7 +19,7 @@ RELEASE_RE = re.compile(r"^[0-9a-f]{40}$")
 IMAGE_RE = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 NAME_RE = re.compile(r"^blindou-[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
 WORKER_RE = re.compile(r"^blindou-worker-[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
-EXPECTED_WORKER_COUNT = 18
+EXPECTED_WORKER_COUNT = 16
 ALLOWED_NETWORK_POLICIES = {
     "default-deny",
     "allow-dns",

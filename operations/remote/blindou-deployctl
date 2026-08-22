@@ -54,6 +54,7 @@ readonly RUNTIME_SECRET_DIR="${DATA_ROOT}/runtime"
 readonly RUNTIME_CONFIG_FILE="${RUNTIME_SECRET_DIR}/production.env"
 readonly NATS_PKI_DIR="${DATA_ROOT}/nats-pki"
 readonly ALERT_RECEIPT="${STATE_ROOT}/alert-receiver.state"
+readonly UI_REVIEW_RECEIPT="${STATE_ROOT}/ui-review-mode.state"
 readonly OFFSITE_BACKUP_RECEIPT="${STATE_ROOT}/offsite-backup.state"
 readonly RELEASE_GATE_RECEIPT="${STATE_ROOT}/release-gate.state"
 readonly ALLOWED_SIGNERS="${DATA_ROOT}/deploy/allowed_signers"
@@ -67,6 +68,7 @@ readonly DATA_ROLLBACK_CONFIRMATION='blindou-empty-data-foundation'
 readonly BACKUP_CONFIRMATION='blindou-database-backup'
 readonly ROLLBACK_CONFIRMATION='blindou-signed-rollback'
 readonly RUNTIME_SECRETS_CONFIRMATION='blindou-runtime-secrets'
+readonly UI_REVIEW_RUNTIME_CONFIRMATION='blindou-ui-review-runtime'
 readonly ALERT_DELIVERY_CONFIRMATION='blindou-alert-delivered'
 readonly OFFSITE_BACKUP_CONFIRMATION='blindou-offsite-backup'
 readonly RELEASE_GATES_CONFIRMATION='blindou-release-gates'
@@ -105,6 +107,7 @@ cleanup() {
       /etc/prometheus/rules/blindou-platform.yml.tmp|\
       /etc/default/prometheus-alertmanager.tmp|\
       "${RUNTIME_SECRET_DIR}"/*.tmp|\
+      "${UI_REVIEW_RECEIPT}.tmp"|\
       "${NATS_PKI_DIR}"/*.tmp|"${NATS_PKI_DIR}"/server-ext.*|\
       "${POSTGRES_CONFIG_FILE}.tmp"|"${POSTGRES_HBA_FILE}.tmp")
         rm -rf -- "$resolved"
@@ -1737,30 +1740,105 @@ EOF
   rm -f -- "${RUNTIME_CONFIG_FILE}.tmp"
 }
 
+write_ui_review_runtime_config() {
+  cat >"${RUNTIME_CONFIG_FILE}.tmp" <<EOF
+RUST_ENV=production
+RUST_LOG=info
+INITIAL_UI_REVIEW_MODE=true
+BACKEND_HOST=0.0.0.0
+BACKEND_PORT=8080
+DEPLOY_LANE=blue
+BETA_LANE_ENFORCEMENT=true
+ALLOWED_ORIGINS=https://app.blindou.com
+PUBLIC_APP_URL=https://app.blindou.com
+PASSWORD_PEPPER_CURRENT_ID=v1
+AUTH_SECURITY_CODE_ENCRYPTION_KEY_ID=auth-code-key-v1
+AUTH_SECURITY_CHANNEL_ENCRYPTION_KEY_ID=auth-channel-key-v1
+BILLING_ADMIN_NOTIFY_EMAIL=${SUPERADMIN_EMAIL}
+REDIRECTOR_CODE_KEY_ID=v1
+REDIRECTOR_HMAC_KEY_ID=v1
+REDIRECTOR_RAW_RETENTION_DAYS=90
+REDIRECTOR_AGGREGATE_RETENTION_MONTHS=24
+REDIRECTOR_GA4_ENABLED=false
+CUSTOM_DOMAINS_MAX_PER_ACCOUNT=90
+CLOUDFLARE_SAAS_ENABLED=true
+CLOUDFLARE_SAAS_ZONE_ID=${CLOUDFLARE_SAAS_ZONE_ID}
+CLOUDFLARE_SAAS_CNAME_TARGET=domains.blindou.com
+CLOUDFLARE_SAAS_REQUEST_TIMEOUT_SECS=15
+UAZAPI_ENABLED=false
+UAZAPI_PUBLIC_WEBHOOK_BASE=https://api.blindou.com
+UAZAPI_TOKEN_KEY_ID=uazapi-token-key-v1
+UAZAPI_REQUEST_TIMEOUT_SECS=30
+WPP_APIWPP_ENABLED=false
+WPP_APIWPP_EVENT_CONSUMER_ENABLED=false
+WPP_APIWPP_CONNECTION_SEMANTICS_MODE=off
+WPP_APIWPP_SUBMISSION_LANE_MODE=off
+DISPATCH_TRANSPORT=nats
+NATS_URL=tls://blindou-nats:4222
+NATS_TLS_CA_PATH=/etc/blindou/nats/ca.crt
+NATS_USERNAME=blindou-core
+DISPATCH_V2_MODE=off
+LIVE_REPORT_REDIS_ENABLED=true
+REDIS_URL=redis://blindou-redis:6379
+REDIS_POOL_SIZE=8
+ML_CONNECTOR_BASE_URL=http://blindou-ml-affiliate-connector:8095
+ML_CONNECTOR_BIND_ADDR=0.0.0.0:8095
+ML_OFFICIAL_LINKS_ENABLED=false
+ML_EXTENSION_ENABLED=false
+AUTH_REQUIRE_2FA=false
+EMAIL_PROVIDER=disabled
+WORKER_ROUTED_QUEUES_ENABLED=true
+WORKER_DB_MAX_CONNECTIONS=3
+WORKER_LOOP_INTERVAL_MS=1000
+WORKER_BATCH_SIZE=25
+WORKER_MAX_INFLIGHT_SENDS=32
+WORKER_MAX_ATTEMPTS=8
+WORKER_BACKOFF_BASE_SECS=30
+WORKER_PACING_MIN_MS=1500
+WORKER_PACING_MAX_MS=8000
+APP_ENV=production
+REDIRECTOR_BIND_HOST=0.0.0.0
+REDIRECTOR_PORT=8090
+REDIRECTOR_READ_MODE=legacy
+REDIRECTOR_LEGACY_POLLER_ENABLED=true
+REDIRECTOR_LEGACY_REFRESH_ENABLED=true
+REDIRECTOR_LEGACY_SNAPSHOT_ENABLED=true
+REDIRECTOR_CACHE_SNAPSHOT_PATH=/var/lib/blindou-redirector/snapshot.json
+EOF
+  install -o root -g root -m 0600 "${RUNTIME_CONFIG_FILE}.tmp" "$RUNTIME_CONFIG_FILE"
+  rm -f -- "${RUNTIME_CONFIG_FILE}.tmp"
+}
+
 create_runtime_kubernetes_material() {
   kube -n "$APP_NAMESPACE" create configmap blindou-runtime-config \
     --from-env-file="$RUNTIME_CONFIG_FILE" --dry-run=client -o yaml \
     | kube apply -f - >/dev/null
+  local core_secret_args=(
+    --from-file=DATABASE_URL="${RUNTIME_SECRET_DIR}/DATABASE_URL"
+    --from-file=PASSWORD_PEPPER_CURRENT="${RUNTIME_SECRET_DIR}/PASSWORD_PEPPER_CURRENT"
+    --from-file=TOKEN_HASH_SECRET="${RUNTIME_SECRET_DIR}/TOKEN_HASH_SECRET"
+    --from-file=JWT_SECRET="${RUNTIME_SECRET_DIR}/JWT_SECRET"
+    --from-file=TOTP_ENCRYPTION_KEY="${RUNTIME_SECRET_DIR}/TOTP_ENCRYPTION_KEY"
+    --from-file=SESSION_ENCRYPTION_KEY="${RUNTIME_SECRET_DIR}/SESSION_ENCRYPTION_KEY"
+    --from-file=AUTH_SECURITY_CODE_HASH_SECRET="${RUNTIME_SECRET_DIR}/AUTH_SECURITY_CODE_HASH_SECRET"
+    --from-file=AUTH_SECURITY_CODE_ENCRYPTION_KEY="${RUNTIME_SECRET_DIR}/AUTH_SECURITY_CODE_ENCRYPTION_KEY"
+    --from-file=AUTH_SECURITY_CHANNEL_ENCRYPTION_KEY="${RUNTIME_SECRET_DIR}/AUTH_SECURITY_CHANNEL_ENCRYPTION_KEY"
+    --from-file=AUTH_TRUST_HASH_SECRET="${RUNTIME_SECRET_DIR}/AUTH_TRUST_HASH_SECRET"
+    --from-file=UAZAPI_WEBHOOK_SECRET="${RUNTIME_SECRET_DIR}/UAZAPI_WEBHOOK_SECRET"
+    --from-file=UAZAPI_TOKEN_ENCRYPTION_KEY="${RUNTIME_SECRET_DIR}/UAZAPI_TOKEN_ENCRYPTION_KEY"
+    --from-file=NATS_PASSWORD="${RUNTIME_SECRET_DIR}/NATS_PASSWORD"
+    --from-file=REDIS_PASSWORD="${RUNTIME_SECRET_DIR}/REDIS_PASSWORD"
+    --from-file=METRICS_BEARER_TOKEN="${RUNTIME_SECRET_DIR}/CORE_METRICS_BEARER_TOKEN"
+    --from-file=CLOUDFLARE_SAAS_API_TOKEN="$CLOUDFLARE_SAAS_TOKEN_FILE"
+  )
+  if [[ -f "${RUNTIME_SECRET_DIR}/UAZAPI_ADMIN_TOKEN" ]]; then
+    core_secret_args+=(--from-file=UAZAPI_ADMIN_TOKEN="${RUNTIME_SECRET_DIR}/UAZAPI_ADMIN_TOKEN")
+  fi
+  if [[ -f "${RUNTIME_SECRET_DIR}/RESEND_API_KEY" ]]; then
+    core_secret_args+=(--from-file=RESEND_API_KEY="${RUNTIME_SECRET_DIR}/RESEND_API_KEY")
+  fi
   kube -n "$APP_NAMESPACE" create secret generic blindou-core-secrets \
-    --from-file=DATABASE_URL="${RUNTIME_SECRET_DIR}/DATABASE_URL" \
-    --from-file=PASSWORD_PEPPER_CURRENT="${RUNTIME_SECRET_DIR}/PASSWORD_PEPPER_CURRENT" \
-    --from-file=TOKEN_HASH_SECRET="${RUNTIME_SECRET_DIR}/TOKEN_HASH_SECRET" \
-    --from-file=JWT_SECRET="${RUNTIME_SECRET_DIR}/JWT_SECRET" \
-    --from-file=TOTP_ENCRYPTION_KEY="${RUNTIME_SECRET_DIR}/TOTP_ENCRYPTION_KEY" \
-    --from-file=SESSION_ENCRYPTION_KEY="${RUNTIME_SECRET_DIR}/SESSION_ENCRYPTION_KEY" \
-    --from-file=AUTH_SECURITY_CODE_HASH_SECRET="${RUNTIME_SECRET_DIR}/AUTH_SECURITY_CODE_HASH_SECRET" \
-    --from-file=AUTH_SECURITY_CODE_ENCRYPTION_KEY="${RUNTIME_SECRET_DIR}/AUTH_SECURITY_CODE_ENCRYPTION_KEY" \
-    --from-file=AUTH_SECURITY_CHANNEL_ENCRYPTION_KEY="${RUNTIME_SECRET_DIR}/AUTH_SECURITY_CHANNEL_ENCRYPTION_KEY" \
-    --from-file=AUTH_TRUST_HASH_SECRET="${RUNTIME_SECRET_DIR}/AUTH_TRUST_HASH_SECRET" \
-    --from-file=UAZAPI_ADMIN_TOKEN="${RUNTIME_SECRET_DIR}/UAZAPI_ADMIN_TOKEN" \
-    --from-file=UAZAPI_WEBHOOK_SECRET="${RUNTIME_SECRET_DIR}/UAZAPI_WEBHOOK_SECRET" \
-    --from-file=UAZAPI_TOKEN_ENCRYPTION_KEY="${RUNTIME_SECRET_DIR}/UAZAPI_TOKEN_ENCRYPTION_KEY" \
-    --from-file=NATS_PASSWORD="${RUNTIME_SECRET_DIR}/NATS_PASSWORD" \
-    --from-file=REDIS_PASSWORD="${RUNTIME_SECRET_DIR}/REDIS_PASSWORD" \
-    --from-file=RESEND_API_KEY="${RUNTIME_SECRET_DIR}/RESEND_API_KEY" \
-    --from-file=METRICS_BEARER_TOKEN="${RUNTIME_SECRET_DIR}/CORE_METRICS_BEARER_TOKEN" \
-    --from-file=CLOUDFLARE_SAAS_API_TOKEN="$CLOUDFLARE_SAAS_TOKEN_FILE" \
-    --dry-run=client -o yaml | kube apply -f - >/dev/null
+    "${core_secret_args[@]}" --dry-run=client -o yaml | kube apply -f - >/dev/null
   kube -n "$APP_NAMESPACE" create secret generic blindou-redirect-secrets \
     --from-file=REDIRECTOR_DATABASE_URL="${RUNTIME_SECRET_DIR}/REDIRECTOR_DATABASE_URL" \
     --from-file=REDIRECTOR_CODE_SECRET="${RUNTIME_SECRET_DIR}/REDIRECTOR_CODE_SECRET" \
@@ -1809,9 +1887,26 @@ verify_runtime_material() {
     DATABASE_URL PASSWORD_PEPPER_CURRENT TOKEN_HASH_SECRET JWT_SECRET \
     TOTP_ENCRYPTION_KEY SESSION_ENCRYPTION_KEY AUTH_SECURITY_CODE_HASH_SECRET \
     AUTH_SECURITY_CODE_ENCRYPTION_KEY AUTH_SECURITY_CHANNEL_ENCRYPTION_KEY \
-    AUTH_TRUST_HASH_SECRET UAZAPI_ADMIN_TOKEN UAZAPI_WEBHOOK_SECRET \
-    UAZAPI_TOKEN_ENCRYPTION_KEY NATS_PASSWORD REDIS_PASSWORD RESEND_API_KEY \
+    AUTH_TRUST_HASH_SECRET UAZAPI_WEBHOOK_SECRET \
+    UAZAPI_TOKEN_ENCRYPTION_KEY NATS_PASSWORD REDIS_PASSWORD \
     METRICS_BEARER_TOKEN CLOUDFLARE_SAAS_API_TOKEN
+  local core_keys
+  core_keys="$(kube -n "$APP_NAMESPACE" get secret blindou-core-secrets \
+    -o go-template='{{range $key, $value := .data}}{{printf "%s\n" $key}}{{end}}')"
+  if grep -Fxq 'INITIAL_UI_REVIEW_MODE=true' "$RUNTIME_CONFIG_FILE"; then
+    grep -Fxq 'UAZAPI_ENABLED=false' "$RUNTIME_CONFIG_FILE" \
+      || fail 'UAZAPI deve permanecer desabilitada durante a revisão da UI'
+    grep -Fxq 'EMAIL_PROVIDER=disabled' "$RUNTIME_CONFIG_FILE" \
+      || fail 'Resend deve permanecer desabilitado durante a revisão da UI'
+    for forbidden_key in UAZAPI_ADMIN_TOKEN RESEND_API_KEY PAGARME_SECRET_KEY PAGARME_WEBHOOK_SECRET; do
+      ! grep -Fxq "$forbidden_key" <<<"$core_keys" \
+        || fail "segredo externo ${forbidden_key} apareceu durante a revisão da UI"
+      [[ ! -e "${RUNTIME_SECRET_DIR}/${forbidden_key}" ]] \
+        || fail "credencial externa ${forbidden_key} apareceu no cofre durante a revisão da UI"
+    done
+  else
+    secret_has_keys "$APP_NAMESPACE" blindou-core-secrets UAZAPI_ADMIN_TOKEN RESEND_API_KEY
+  fi
   secret_has_keys "$APP_NAMESPACE" blindou-redirect-secrets \
     REDIRECTOR_DATABASE_URL REDIRECTOR_CODE_SECRET REDIRECTOR_HMAC_SECRET \
     REDIRECTOR_IP_HASH_SECRET REDIRECTOR_FINGERPRINT_HASH_SECRET METRICS_BEARER_TOKEN
@@ -1825,6 +1920,69 @@ verify_runtime_material() {
   secret_has_keys "$APP_NAMESPACE" blindou-postgres-client ca.crt tls.crt tls.key
   secret_has_keys "$APP_NAMESPACE" "$GHCR_PULL_SECRET" .dockerconfigjson
   secret_has_keys "$EDGE_NAMESPACE" blindou-cloudflare-tunnel token
+}
+
+prepare_internal_runtime_material() {
+  install -d -o root -g root -m 0700 "$RUNTIME_SECRET_DIR"
+  extract_database_url MIGRATION_DATABASE_URL
+  extract_database_url DATABASE_URL
+  extract_database_url REDIRECTOR_DATABASE_URL
+  extract_database_url ML_CONNECTOR_DATABASE_URL
+  local name
+  for name in PASSWORD_PEPPER_CURRENT TOKEN_HASH_SECRET JWT_SECRET SESSION_ENCRYPTION_KEY \
+    AUTH_SECURITY_CODE_HASH_SECRET AUTH_TRUST_HASH_SECRET UAZAPI_WEBHOOK_SECRET \
+    NATS_PASSWORD REDIS_PASSWORD CORE_METRICS_BEARER_TOKEN REDIRECT_METRICS_BEARER_TOKEN \
+    REDIRECTOR_CODE_SECRET REDIRECTOR_HMAC_SECRET REDIRECTOR_IP_HASH_SECRET \
+    REDIRECTOR_FINGERPRINT_HASH_SECRET ML_CONNECTOR_INTERNAL_API_KEY \
+    ML_SESSION_ENCRYPTION_PEPPER; do
+    ensure_random_hex "$name"
+  done
+  for name in TOTP_ENCRYPTION_KEY AUTH_SECURITY_CODE_ENCRYPTION_KEY \
+    AUTH_SECURITY_CHANNEL_ENCRYPTION_KEY UAZAPI_TOKEN_ENCRYPTION_KEY \
+    ML_SESSION_ENCRYPTION_KEY; do
+    ensure_random_base64_key "$name"
+  done
+  cleanup_paths+=("${RUNTIME_SECRET_DIR}/users.acl.tmp")
+  printf 'user default on >%s ~* &* +@all' \
+    "$(<"${RUNTIME_SECRET_DIR}/REDIS_PASSWORD")" >"${RUNTIME_SECRET_DIR}/users.acl.tmp"
+  install -o root -g root -m 0600 "${RUNTIME_SECRET_DIR}/users.acl.tmp" \
+    "${RUNTIME_SECRET_DIR}/users.acl"
+  rm -f -- "${RUNTIME_SECRET_DIR}/users.acl.tmp"
+  generate_nats_pki
+}
+
+publish_runtime_material() {
+  kube label namespace "$APP_NAMESPACE" \
+    'platform.servidor.local/deployment-gate=secrets-only' --overwrite >/dev/null
+  kube annotate namespace "$APP_NAMESPACE" \
+    'platform.servidor.local/gate-reason=runtime-material-only' --overwrite >/dev/null
+  kube -n "$APP_NAMESPACE" delete resourcequota platform-quarantine --ignore-not-found >/dev/null
+  create_runtime_kubernetes_material
+  verify_runtime_material
+}
+
+provision_ui_review_runtime() {
+  [[ "${1:-}" == "$UI_REVIEW_RUNTIME_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${UI_REVIEW_RUNTIME_CONFIRMATION}"
+  require_platform_preconditions
+  verify_data_foundation >/dev/null
+  verify_cloudflare_saas_token >/dev/null
+  verify_ghcr_pull_credential >/dev/null
+  for provider_file in UAZAPI_ADMIN_TOKEN RESEND_API_KEY PAGARME_SECRET_KEY PAGARME_WEBHOOK_SECRET; do
+    [[ ! -e "${RUNTIME_SECRET_DIR}/${provider_file}" ]] \
+      || fail "credencial ${provider_file} já existe; revisão sem provedores recusada"
+  done
+  write_ui_review_runtime_config
+  prepare_internal_runtime_material
+  publish_runtime_material
+  {
+    printf 'schema=1\nstatus=authorized\nmode=initial-ui-review\n'
+    printf 'authorized_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } >"${UI_REVIEW_RECEIPT}.tmp"
+  cleanup_paths+=("${UI_REVIEW_RECEIPT}.tmp")
+  install -o root -g root -m 0600 "${UI_REVIEW_RECEIPT}.tmp" "$UI_REVIEW_RECEIPT"
+  rm -f -- "${UI_REVIEW_RECEIPT}.tmp"
+  pass 'núcleo preparado para revisão da UI; UAZAPI, Resend, Pagar.me e alertas externos permanecem ausentes'
 }
 
 provision_runtime_secrets() {
@@ -1865,42 +2023,12 @@ provision_runtime_secrets() {
   write_runtime_value RESEND_API_KEY "$resend_api_key"
   unset uazapi_admin_token resend_api_key uazapi_token_b64 resend_key_b64
   write_runtime_config "$uazapi_base_url" "$email_from"
-  extract_database_url MIGRATION_DATABASE_URL
-  extract_database_url DATABASE_URL
-  extract_database_url REDIRECTOR_DATABASE_URL
-  extract_database_url ML_CONNECTOR_DATABASE_URL
-  local name
-  for name in PASSWORD_PEPPER_CURRENT TOKEN_HASH_SECRET JWT_SECRET SESSION_ENCRYPTION_KEY \
-    AUTH_SECURITY_CODE_HASH_SECRET AUTH_TRUST_HASH_SECRET UAZAPI_WEBHOOK_SECRET \
-    NATS_PASSWORD REDIS_PASSWORD CORE_METRICS_BEARER_TOKEN REDIRECT_METRICS_BEARER_TOKEN \
-    REDIRECTOR_CODE_SECRET REDIRECTOR_HMAC_SECRET REDIRECTOR_IP_HASH_SECRET \
-    REDIRECTOR_FINGERPRINT_HASH_SECRET ML_CONNECTOR_INTERNAL_API_KEY \
-    ML_SESSION_ENCRYPTION_PEPPER; do
-    ensure_random_hex "$name"
-  done
-  for name in TOTP_ENCRYPTION_KEY AUTH_SECURITY_CODE_ENCRYPTION_KEY \
-    AUTH_SECURITY_CHANNEL_ENCRYPTION_KEY UAZAPI_TOKEN_ENCRYPTION_KEY \
-    ML_SESSION_ENCRYPTION_KEY; do
-    ensure_random_base64_key "$name"
-  done
-  cleanup_paths+=("${RUNTIME_SECRET_DIR}/users.acl.tmp")
-  printf 'user default on >%s ~* &* +@all' \
-    "$(<"${RUNTIME_SECRET_DIR}/REDIS_PASSWORD")" >"${RUNTIME_SECRET_DIR}/users.acl.tmp"
-  install -o root -g root -m 0600 "${RUNTIME_SECRET_DIR}/users.acl.tmp" \
-    "${RUNTIME_SECRET_DIR}/users.acl"
-  rm -f -- "${RUNTIME_SECRET_DIR}/users.acl.tmp"
-  generate_nats_pki
+  prepare_internal_runtime_material
   validate_runtime_providers "$uazapi_base_url" "$email_from"
   configure_external_alerting "$email_from"
   unset uazapi_base_url email_from uazapi_url_b64 email_from_b64
 
-  kube label namespace "$APP_NAMESPACE" \
-    'platform.servidor.local/deployment-gate=secrets-only' --overwrite >/dev/null
-  kube annotate namespace "$APP_NAMESPACE" \
-    'platform.servidor.local/gate-reason=runtime-material-only' --overwrite >/dev/null
-  kube -n "$APP_NAMESPACE" delete resourcequota platform-quarantine --ignore-not-found >/dev/null
-  create_runtime_kubernetes_material
-  verify_runtime_material
+  publish_runtime_material
   pass 'segredos, configuração e provedores preparados; workloads continuam bloqueados'
 }
 
@@ -1954,8 +2082,14 @@ activate_release_gates() {
   [[ -d "${RELEASE_CACHE}/${release_id}/rendered" ]] || fail 'release assinada não está no cache'
   [[ "$(<"$GHCR_PULL_PROOF_LATEST")" == "$release_id" ]] \
     || fail 'prova GHCR não corresponde à release'
-  [[ -f "$ALERT_RECEIPT" ]] && grep -Fxq 'status=confirmed' "$ALERT_RECEIPT" \
-    || fail 'receptor externo de alertas não foi confirmado'
+  if grep -Fxq 'INITIAL_UI_REVIEW_MODE=true' "$RUNTIME_CONFIG_FILE"; then
+    [[ -f "$UI_REVIEW_RECEIPT" ]] \
+      && grep -Fxq 'status=authorized' "$UI_REVIEW_RECEIPT" \
+      || fail 'adiamento dos provedores para revisão da UI não foi registrado'
+  else
+    [[ -f "$ALERT_RECEIPT" ]] && grep -Fxq 'status=confirmed' "$ALERT_RECEIPT" \
+      || fail 'receptor externo de alertas não foi confirmado'
+  fi
   backup_id="$(<"${DATABASE_BACKUP_ROOT}/latest")"
   [[ -f "$OFFSITE_BACKUP_RECEIPT" ]] \
     && grep -Fxq "backup_id=${backup_id}" "$OFFSITE_BACKUP_RECEIPT" \
@@ -2231,6 +2365,8 @@ show_status() {
   fi
   if [[ -f "$ALERT_RECEIPT" ]] && grep -Fxq 'status=confirmed' "$ALERT_RECEIPT"; then
     printf 'external_alert_receiver=confirmed\n'
+  elif [[ -f "$UI_REVIEW_RECEIPT" ]] && grep -Fxq 'status=authorized' "$UI_REVIEW_RECEIPT"; then
+    printf 'external_alert_receiver=deferred_ui_review\n'
   else
     printf 'external_alert_receiver=absent_or_pending\n'
   fi
@@ -2326,6 +2462,10 @@ case "${1:-}" in
     [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl provision-runtime-secrets CONFIRMAÇÃO'
     provision_runtime_secrets "$2"
     ;;
+  provision-ui-review-runtime)
+    [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl provision-ui-review-runtime CONFIRMAÇÃO'
+    provision_ui_review_runtime "$2"
+    ;;
   confirm-alert-delivery)
     [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl confirm-alert-delivery CONFIRMAÇÃO'
     confirm_alert_delivery "$2"
@@ -2362,6 +2502,6 @@ case "${1:-}" in
     metrics
     ;;
   *)
-    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|provision-runtime-secrets CONFIRMAÇÃO|confirm-alert-delivery CONFIRMAÇÃO|confirm-offsite-backup BACKUP_ID SHA256 CONFIRMAÇÃO|activate-release-gates RELEASE_ID CONFIRMAÇÃO|validate-release RELEASE_ID|apply RELEASE_ID|bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
+    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|provision-runtime-secrets CONFIRMAÇÃO|provision-ui-review-runtime CONFIRMAÇÃO|confirm-alert-delivery CONFIRMAÇÃO|confirm-offsite-backup BACKUP_ID SHA256 CONFIRMAÇÃO|activate-release-gates RELEASE_ID CONFIRMAÇÃO|validate-release RELEASE_ID|apply RELEASE_ID|bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
     ;;
 esac

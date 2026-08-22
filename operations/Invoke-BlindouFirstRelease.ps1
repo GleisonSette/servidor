@@ -54,56 +54,19 @@ foreach ($required in @($identity, $knownHosts)) {
     }
 }
 
-$uazapiToken = $null
-$resendKey = $null
 $password = $null
 $passwordConfirmation = $null
-$plainUazapiToken = $null
-$plainResendKey = $null
 $plainPassword = $null
 $loginBody = $null
 $loginResponse = $null
 
 try {
-    $Host.UI.RawUI.WindowTitle = 'Blindou - primeira implantação e superadmin'
-    Write-Host 'Primeira implantação do Blindou.' -ForegroundColor Cyan
-    Write-Host 'Nenhuma credencial digitada será exibida, salva em arquivo local ou enviada em argumento.' -ForegroundColor Yellow
-
-    $uazapiBaseUrl = (Read-Host 'URL HTTPS base da UAZAPI').Trim().TrimEnd('/')
-    $uazapiToken = Read-Host 'Admin token da UAZAPI' -AsSecureString
-    $resendKey = Read-Host 'API key do Resend' -AsSecureString
-    $emailFrom = (Read-Host 'E-mail remetente já verificado no Resend').Trim().ToLowerInvariant()
-    if ([string]::IsNullOrWhiteSpace($uazapiBaseUrl) -or
-        [string]::IsNullOrWhiteSpace($emailFrom)) {
-        throw 'A URL da UAZAPI e o remetente do Resend são obrigatórios.'
-    }
-
-    $plainUazapiToken = ConvertFrom-ProtectedValue $uazapiToken
-    $plainResendKey = ConvertFrom-ProtectedValue $resendKey
-    $payload = @(
-        'schema=1'
-        (ConvertTo-Base64Utf8 $uazapiBaseUrl)
-        (ConvertTo-Base64Utf8 $plainUazapiToken)
-        (ConvertTo-Base64Utf8 $plainResendKey)
-        (ConvertTo-Base64Utf8 $emailFrom)
-    ) -join "`n"
-    Invoke-ClosedSshInput `
-        -RemoteCommand 'sudo -n /usr/local/sbin/blindou-deployctl provision-runtime-secrets blindou-runtime-secrets' `
-        -Payload $payload
-    $payload = $null
-    $plainUazapiToken = $null
-    $plainResendKey = $null
-
-    Write-Host ''
-    Write-Host 'Foi enviado um e-mail direto e um alerta sintético pelo Alertmanager.' -ForegroundColor Cyan
-    Write-Host 'Confira a caixa de entrada e o spam de gleisonsette@gmail.com.' -ForegroundColor Cyan
-    $alertConfirmation = (Read-Host 'Digite RECEBI depois de localizar o alerta sintético').Trim()
-    if ($alertConfirmation -cne 'RECEBI') {
-        throw 'O receptor externo não foi confirmado; os gates permanecem bloqueados.'
-    }
+    $Host.UI.RawUI.WindowTitle = 'Blindou - acesso para revisão da interface'
+    Write-Host 'Implantação do núcleo do Blindou para revisão da interface.' -ForegroundColor Cyan
+    Write-Host 'UAZAPI, Resend e Pagar.me permanecerão desabilitados até a aprovação da UI.' -ForegroundColor Yellow
     & ssh.exe @sshArgs $server `
-        'sudo -n /usr/local/sbin/blindou-deployctl confirm-alert-delivery blindou-alert-delivered'
-    if ($LASTEXITCODE -ne 0) { throw 'Falha ao confirmar o receptor externo.' }
+        'sudo -n /usr/local/sbin/blindou-deployctl provision-ui-review-runtime blindou-ui-review-runtime'
+    if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar o núcleo sem provedores externos.' }
 
     Write-Host 'Criando e exportando o backup criptografado anterior às migrations.' -ForegroundColor Cyan
     & ssh.exe @sshArgs $server `
@@ -194,12 +157,8 @@ try {
     Write-Host "Backup offsite verificado: $localBackup" -ForegroundColor Green
 }
 finally {
-    $uazapiToken = $null
-    $resendKey = $null
     $password = $null
     $passwordConfirmation = $null
-    $plainUazapiToken = $null
-    $plainResendKey = $null
     $plainPassword = $null
     $loginBody = $null
     $loginResponse = $null

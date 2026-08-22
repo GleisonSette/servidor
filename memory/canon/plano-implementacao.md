@@ -145,13 +145,14 @@ Status: fundação interna e conector concluídos e verificados em 2026-08-20;
 cadeia de pull e candidata assinada preparadas e verificadas em 2026-08-21. Em
 2026-08-22, a nova candidata `0ba8384` e o scan fechado das imagens passaram;
 o controlador foi instalado, o bundle entrou no cache fechado e a prova viva
-das quatro imagens passou. A Fase 2D continua aberta somente pelos Secrets,
-alertas e demais gates prévios à primeira release.
-O repositório já contém a extensão fechada para a candidata `27495b0`: canal
-protegido de Secrets, gate intermediário `secrets-only`, Alertmanager/Resend,
-recibo de backup offsite, transição vinculada ao SHA, credencial GHCR da imagem
-privada da EDGE e bootstrap do superadmin. Essa extensão ainda não descreve
-estado vivo enquanto seu commit e bootstrap não forem concluídos.
+das quatro imagens passou. A Fase 2D continua aberta pelos Secrets internos e
+demais gates prévios à primeira release.
+A candidata `27495b0` e sua extensão de 18 workers foram substituídas antes do
+deploy pela D019. O repositório prepara agora uma nova candidata de 16 workers,
+gate intermediário `secrets-only`, recibo de backup offsite, transição vinculada
+ao SHA e bootstrap do superadmin sem configurar UAZAPI, Resend ou Pagar.me.
+Essa extensão ainda não descreve estado vivo enquanto commit, bootstrap, prova
+GHCR e deploy não forem concluídos.
 Zero Trust e o Tunnel remoto `blindou-physical` estão saudáveis; somente
 `blindou-edge` passou para `connector-only`, enquanto `blindou-production`,
 migrations e release continuam bloqueados. Cloudflare for SaaS está ativado no
@@ -191,29 +192,32 @@ Aceite:
 
 Próxima ação exata:
 
-1. preparar por canal seguro os Secrets de runtime sem materializá-los antes da
-   janela autorizada;
-2. manter a cota global da aplicação em 90 custom hostnames e revalidar a
-   origem de fallback já ativa depois que a API tiver origem publicada, antes
-   do primeiro fluxo autorizado de domínio por conta/tenant;
-3. integrar o receptor aprovado `gleisonsette@gmail.com`, UAZAPI e os demais
-   Secrets antes da primeira release;
-4. somente mediante nova autorização de deploy, copiar as credenciais
-   necessárias para os Secrets do runtime, liberar o gate completo, executar
-   migrations e aplicar a primeira release assinada na Fase 2E;
-5. somente com a API compatível Ready, validar o painel já publicado contra a
-   mesma release antes de declarar a operação pronta.
+1. publicar uma nova candidata assinada com o modo explícito de revisão da UI,
+   sem UAZAPI, Resend e Pagar.me e com 16 workers contínuos;
+2. comprovar o pull integral dessa candidata e preparar somente os segredos
+   internos, sem credenciais dos três provedores;
+3. criar backup, cópia offsite e recibo, liberar os gates para o mesmo SHA,
+   executar migrations, aplicar a release e criar
+   `gleisonsette@gmail.com` como `super_admin` por entrada protegida;
+4. validar login público, API e painel; somente depois da aprovação visual do
+   usuário iniciar trabalhos separados para UAZAPI, Resend e Pagar.me;
+5. manter a cota global da aplicação em 90 custom hostnames e revalidar a
+   origem de fallback antes do primeiro fluxo autorizado de domínio por
+   conta/tenant.
 
 ## Fase 2E - Primeira release e capacidade do Blindou
 
-Status: pendente; depende da Fase 2D, das decisões externas e de autorização de
-deploy.
+Status: em preparação para a revisão inicial da UI conforme D019; deploy e
+migrations já foram autorizados, mas ainda dependem da nova candidata assinada
+e dos gates técnicos.
 
 Objetivos:
 
-- executar migration, primeira release e smoke público pela borda Cloudflare;
-- validar captura, dispatch, redirect, Analytics, UAZAPI e filas sem reativar o
-  provider local `api-wpp`;
+- executar migration, primeira release do núcleo e smoke público pela borda
+  Cloudflare, sem configurar UAZAPI, Resend ou Pagar.me;
+- validar primeiro o login e a interface; depois, em trabalhos separados e
+  autorizados, validar captura, dispatch, redirect, Analytics, UAZAPI e filas
+  sem reativar o provider local `api-wpp`;
 - testar reboot, queda de dependência, backup/restore e rollback do Blindou;
 - executar degraus de carga e soak com margem, observando HDD, memória, swap e
   Fast Ethernet;

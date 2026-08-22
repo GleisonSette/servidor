@@ -652,3 +652,21 @@ não iniciou workload; o contrato do servidor foi alinhado à decisão D027.
   tanto na estrutura do archive quanto nos Deployments extraídos.
 - Assinatura, SHA-256, escopo de recursos, imagens por digest e demais gates
   permanecem inalterados.
+
+## 2026-08-22 - Ordem corrigida para revisão da UI sem provedores
+
+Resultado: fontes do controlador e do orquestrador foram alinhadas à D019;
+nenhuma mudança viva desta etapa foi aplicada ao host.
+
+- O usuário esclareceu que UAZAPI, Resend e Pagar.me só serão configurados
+  depois que ele entrar no painel e aprovar a interface.
+- A janela de credenciais anterior foi encerrada sem gravar segredo, criar
+  Secret Kubernetes, executar migration ou iniciar workload. A candidata de 18
+  workers não foi implantada e permanece apenas como prova histórica do GHCR.
+- Foi preparado um modo de revisão fail-closed com 16 workers, 2FA desabilitado
+  e ausência verificável das credenciais dos três provedores.
+- O fluxo da primeira release passa a solicitar somente a senha protegida do
+  superadmin, mantendo assinatura, prova GHCR, backup, cópia offsite,
+  contenção, gates e smoke público obrigatórios.
+- Sintaxe, verificadores, commits, push, nova candidata e deploy vivo ainda
+  precisavam ser concluídos no momento deste registro.

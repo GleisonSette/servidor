@@ -323,6 +323,36 @@ root-owned.
 dois gates estarem `passed`, a quarentena ter sido removida e todos os Secrets
 obrigatórios existirem. Nesta fase não passar gates nem aplicar release.
 
+### Primeira revisão da interface sem provedores
+
+Por D019, o primeiro login não espera UAZAPI, Resend ou Pagar.me. A candidata
+destinada a essa revisão deve declarar `INITIAL_UI_REVIEW_MODE=true`,
+`UAZAPI_ENABLED=false`, `EMAIL_PROVIDER=disabled` e
+`AUTH_REQUIRE_2FA=false`, omitir todas as credenciais desses provedores e conter
+exatamente os 16 workers contínuos que não dependem de notificação externa.
+
+Depois da prova integral da candidata e antes dos gates de release, preparar
+somente as chaves internas e os Secrets técnicos:
+
+```bash
+sudo -n /usr/local/sbin/blindou-deployctl \
+  provision-ui-review-runtime blindou-ui-review-runtime
+```
+
+Esse comando recusa executar se encontrar credencial UAZAPI ou Resend no cofre,
+mantém Pagar.me ausente, cria a configuração fail-closed e registra um recibo
+root-only do adiamento. O recibo substitui apenas a confirmação de alerta
+externo durante essa revisão; prova GHCR, backup, cópia offsite, assinatura,
+contenção e todos os demais gates continuam obrigatórios.
+
+O orquestrador `operations/Invoke-BlindouFirstRelease.ps1` executa a sequência
+completa e solicita somente a senha do superadmin em campo protegido. Ele
+aplica migrations e a release assinada, cria `gleisonsette@gmail.com` ativo e
+verificado como `super_admin` e valida o login pela API pública sem imprimir
+token. A configuração posterior de cada provedor exige nova autorização e uma
+release compatível; não reutilizar o modo de revisão como estado operacional
+definitivo.
+
 ## Observabilidade
 
 `blindou-platform-metrics.timer` grava no textfile collector do Node Exporter:
@@ -335,8 +365,9 @@ obrigatórios existirem. Nesta fase não passar gates nem aplicar release.
   seu valor no coletor;
 - sucesso da própria coleta.
 
-Falha de coleta produz uma métrica explícita com valor zero. Alertas externos e
-scrape dos workloads permanecem bloqueados por P005 e pela ausência de runtime.
+Falha de coleta produz uma métrica explícita com valor zero. Alertas externos
+por Resend permanecem adiados durante D019 e o scrape dos workloads depende da
+existência do runtime.
 Como o controlador usa lock exclusivo, uma auditoria manual concorrente pode
 fazer um ciclo do coletor falhar fechado em zero; o ciclo seguinte deve voltar
 a um sem intervenção. Persistência em zero exige investigação.

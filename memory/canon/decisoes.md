@@ -212,3 +212,24 @@ destrutivo.
 D011 continua proibindo `sudo` genérico e shell administrativo automatizado.
 O `.env` é uma credencial temporária da estação, não um cofre permanente; ao
 terminar o trabalho dependente dela, o operador deve apagá-lo.
+
+## Resolvida D019 - Revisão da interface antes dos provedores externos
+
+Em 2026-08-22 o usuário determinou que o primeiro acesso ao Blindou deve
+acontecer antes da configuração de UAZAPI, Resend e Pagar.me. A primeira
+release pode executar migrations, publicar o núcleo da API e criar
+`gleisonsette@gmail.com` como `super_admin`, mas deve manter os três provedores
+explicitamente desabilitados e sem suas credenciais no host ou no Kubernetes.
+
+Durante essa revisão inicial, `AUTH_REQUIRE_2FA=false`,
+`INITIAL_UI_REVIEW_MODE=true`, `UAZAPI_ENABLED=false` e
+`EMAIL_PROVIDER=disabled`. Os workers de notificação de autenticação por e-mail
+e WhatsApp não são implantados. O controlador aceita adiar o alerta externo por
+Resend somente nesse modo fechado; backup lógico, cópia offsite, release
+assinada, prova integral do GHCR, contenção e demais gates continuam
+obrigatórios.
+
+Depois que o usuário validar a interface, a ativação de cada provedor será uma
+mudança separada e autorizada, com credencial por entrada protegida, validação
+real e atualização coerente da release. D005 continua definindo o canal futuro
+de alertas, mas sua ativação deixou de preceder o primeiro login.

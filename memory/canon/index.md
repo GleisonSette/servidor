@@ -68,11 +68,12 @@ corpus por padrão.
   fmt/check/Clippy passaram, mas `rust-lld` caiu com `Bus error` ao ligar testes
   grandes diferentes. O job de imagens foi pulado e não publicou candidatas.
 - Por D016, o Pages permanece automático: o `push` autorizado pode publicar o
-  painel enquanto o workflow de imagens é acompanhado. UAZAPI, canal de alertas
-  e os demais Secrets ainda precedem a primeira release operacional;
-  `blindou-production` permanece bloqueado.
-- O receptor aprovado em D005 é `gleisonsette@gmail.com`; provedor, credencial
-  autenticada e teste de entrega ainda bloqueiam a primeira release operacional.
+  painel enquanto o workflow de imagens é acompanhado.
+- Por D019, a primeira release do núcleo e o login de superadmin precedem a
+  configuração de UAZAPI, Resend e Pagar.me. O modo inicial exige os três
+  provedores sem credenciais e explicitamente desabilitados; o canal externo de
+  alertas fica adiado até a aprovação visual. `blindou-production` ainda
+  permanece bloqueado porque a candidata corrigida não foi implantada.
 
 ## Precedência
 

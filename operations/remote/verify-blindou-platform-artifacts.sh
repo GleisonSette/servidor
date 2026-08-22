@@ -40,10 +40,11 @@ grep -Fq "'release.manifest.sig'" "$PULL_PROOF_SCRIPT" \
   || fail 'orquestrador não fecha os três artefatos da release'
 grep -Fq 'Invoke-BlindouSudoBootstrap' "$PULL_PROOF_SCRIPT" \
   || fail 'orquestrador não usa o bootstrap sudo fechado'
-grep -Fq "Read-Host 'Admin token da UAZAPI' -AsSecureString" "$FIRST_RELEASE_SCRIPT" \
-  || fail 'token UAZAPI não usa entrada protegida'
-grep -Fq "Read-Host 'API key do Resend' -AsSecureString" "$FIRST_RELEASE_SCRIPT" \
-  || fail 'chave Resend não usa entrada protegida'
+if grep -Eq 'Admin token da UAZAPI|API key do Resend|PAGARME_' "$FIRST_RELEASE_SCRIPT"; then
+  fail 'primeira revisão da UI solicita provedor externo antes da aprovação'
+fi
+grep -Fq 'provision-ui-review-runtime blindou-ui-review-runtime' "$FIRST_RELEASE_SCRIPT" \
+  || fail 'primeira revisão não usa o modo fechado sem provedores'
 grep -Fq "Read-Host 'Senha do superadmin' -AsSecureString" "$FIRST_RELEASE_SCRIPT" \
   || fail 'senha do superadmin não usa entrada protegida'
 grep -Fq 'Invoke-ClosedSshInput' "$FIRST_RELEASE_SCRIPT" \
@@ -239,6 +240,8 @@ grep -Fq "readonly RUNTIME_SECRETS_CONFIRMATION='blindou-runtime-secrets'" \
   "${REMOTE_DIR}/blindou-deployctl" || fail 'confirmação fechada dos Secrets ausente'
 grep -Fq 'provision-runtime-secrets)' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'operação fechada de Secrets ausente'
+grep -Fq 'provision-ui-review-runtime)' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'operação fail-closed para revisão da UI ausente'
 grep -Fq "[[ ! -t 0 ]] || fail 'segredos de runtime devem chegar por stdin" \
   "${REMOTE_DIR}/blindou-deployctl" || fail 'Secrets de runtime não exigem stdin fechado'
 grep -Fq 'AUTH_REQUIRE_2FA=false' "${REMOTE_DIR}/blindou-deployctl" \
@@ -271,6 +274,8 @@ grep -Fq "readonly SUPERADMIN_EMAIL='gleisonsette@gmail.com'" \
   "${REMOTE_DIR}/blindou-deployctl" || fail 'identidade fixa do superadmin ausente'
 grep -Fq 'provision-runtime-secrets blindou-runtime-secrets' \
   "${REMOTE_DIR}/blindou-deployctl.sudoers" || fail 'sudoers não libera o provisionamento fechado'
+grep -Fq 'provision-ui-review-runtime blindou-ui-review-runtime' \
+  "${REMOTE_DIR}/blindou-deployctl.sudoers" || fail 'sudoers não libera a revisão da UI'
 grep -Fq 'bootstrap-superadmin * blindou-bootstrap-superadmin' \
   "${REMOTE_DIR}/blindou-deployctl.sudoers" || fail 'sudoers não libera o bootstrap fechado'
 grep -Fq "readonly GHCR_PULL_VERIFIER='/usr/local/lib/blindou-platform/blindou-ghcr-pull-verify.py'" \
