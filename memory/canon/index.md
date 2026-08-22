@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-indice-canonico
   source_path: memory/canon/index.md
   generated_from: decisão do usuário e auditoria do servidor em 2026-08-15
-  updated_at: 2026-08-21
+  updated_at: 2026-08-22
   status: canonical
 
 ## Regra de entrada
@@ -59,9 +59,10 @@ corpus por padrão.
   cota operacional da aplicação permanece em 90.
 - `blindou.com` foi removido do projeto Pages. `app.blindou.com` publicou o SHA
   `83e7f387` e serve o painel; a API compatível ainda não está Ready.
-- O contrato GHCR privado e o fluxo fechado de credencial `read:packages` estão
-  preparados. O controlador instalado ainda não foi atualizado e nenhuma
-  credencial GHCR foi criada ou transferida.
+- A credencial GHCR `read:packages` está validada em cofre root-only. O
+  controlador instalado ainda precede a extensão para quatro imagens; a nova
+  candidata `0ba8384` passou nos gates e no scan fechado, mas o bundle ainda
+  não foi validado no cache nem submetido à prova viva no host.
 - O workflow `32442604845` executou o SHA Blindou `83e7f387` duas vezes:
   fmt/check/Clippy passaram, mas `rust-lld` caiu com `Bus error` ao ligar testes
   grandes diferentes. O job de imagens foi pulado e não publicou candidatas.

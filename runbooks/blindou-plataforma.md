@@ -243,12 +243,16 @@ No computador administrativo, o procedimento completo é:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File .\operations\Invoke-BlindouGhcrCandidatePullProof.ps1
+  -File .\operations\Invoke-BlindouGhcrCandidatePullProof.ps1 `
+  -ReleaseId <sha40> `
+  -BundleDirectory <diretório-com-os-três-artefatos-assinados>
 ```
 
-Esse script transfere somente os artefatos versionados, pede a senha humana
-uma vez para o bootstrap e usa depois apenas a interface sem senha fechada. Ele
-não lê novamente o PAT.
+Esse script transfere no mesmo archive os artefatos versionados do controlador
+e exatamente `release.manifest`, `release.manifest.sig` e `rendered.tar.gz`.
+Ele pede a senha humana uma vez para o bootstrap, valida a release no cache e
+usa depois apenas a interface sem senha fechada para comprovar o pull. Ele não
+lê novamente o PAT.
 
 ## Fundação de dados
 

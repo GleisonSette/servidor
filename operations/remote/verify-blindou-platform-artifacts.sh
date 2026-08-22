@@ -3,11 +3,21 @@ set -Eeuo pipefail
 
 readonly REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 readonly REMOTE_DIR="${REPOSITORY_ROOT}/operations/remote"
+readonly PULL_PROOF_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouGhcrCandidatePullProof.ps1"
 
 fail() {
   printf '[verify-blindou-platform-artifacts] ERRO: %s\n' "$*" >&2
   exit 1
 }
+
+[[ -f "$PULL_PROOF_SCRIPT" && ! -L "$PULL_PROOF_SCRIPT" ]] \
+  || fail 'orquestrador da prova GHCR ausente ou simbólico'
+grep -Fq '[string]$BundleDirectory' "$PULL_PROOF_SCRIPT" \
+  || fail 'orquestrador não exige o diretório do bundle assinado'
+grep -Fq 'sudo -n /usr/local/sbin/blindou-deployctl validate-release $ReleaseId' \
+  "$PULL_PROOF_SCRIPT" || fail 'orquestrador não valida a release antes do pull'
+grep -Fq "'release.manifest.sig'" "$PULL_PROOF_SCRIPT" \
+  || fail 'orquestrador não fecha os três artefatos da release'
 
 for script in \
   blindou-deployctl bootstrap-blindou-deployctl.sh blindou-platform-metrics; do

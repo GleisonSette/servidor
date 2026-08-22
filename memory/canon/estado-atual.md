@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-estado-atual
   source_path: memory/canon/estado-atual.md
   generated_from: auditoria SSH, runtime K3s, Prometheus e repositórios locais
-  updated_at: 2026-08-21
+  updated_at: 2026-08-22
   status: canonical
 
 ## Host verificado
@@ -154,6 +154,10 @@ metadata:
   `d22fb791e2fd9c68d95b98493a97a03c724cb83f66bc536a2417dfa1889035fb`.
   `current_release` continua ausente, os gates permanecem `blocked` e nenhum
   workload, Secret Kubernetes ou migration foi aplicado.
+- A candidata Blindou `0ba8384` passou nos gates de publicação e no scan
+  fechado `32550929031`, mas o bundle novo ainda não está no cache do host. A
+  versão local do controlador e o orquestrador estão preparados para quatro
+  imagens privadas; o bootstrap e a prova viva ainda não aconteceram.
 
 ## Manutenção
 

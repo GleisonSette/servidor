@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-historico-execucao
   source_path: memory/canon/historico-execucao.md
   generated_from: auditorias e implementações autorizadas no laboratório
-  updated_at: 2026-08-21
+  updated_at: 2026-08-22
   status: canonical
 
 ## Regra de registro
@@ -576,3 +576,18 @@ privadas da candidata; instalação viva e pull continuam pendentes.
 - Seis testes determinísticos, compilação Python, sintaxe Bash e o verificador
   de artefatos passaram localmente. Nenhum bootstrap, Secret, gate, migration
   ou workload foi executado.
+
+## 2026-08-22 - Transporte fechado da nova candidata para a prova GHCR
+
+Resultado: orquestração preparada no repositório; host ainda não alterado.
+
+- A candidata Blindou `0ba8384` passou na publicação e no scan fechado
+  `32550929031`, contendo backend, redirector, NATS e `cloudflared` privados e
+  Redis oficial.
+- O orquestrador da prova passou a exigir o diretório do bundle e transportar,
+  no mesmo archive do controlador, somente `release.manifest`,
+  `release.manifest.sig` e `rendered.tar.gz`.
+- A ordem foi fechada em bootstrap humano, `validate-release` no cache e somente
+  depois `verify-ghcr-candidate-pull` para as quatro imagens.
+- Nenhum Secret Kubernetes, gate, migration, workload ou release corrente foi
+  criado nesta preparação.

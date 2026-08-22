@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-plano-implementacao
   source_path: memory/canon/plano-implementacao.md
   generated_from: plano aprovado pelo usuário em 2026-08-15
-  updated_at: 2026-08-21
+  updated_at: 2026-08-22
   status: canonical
 
 ## Regra de continuidade
@@ -142,22 +142,27 @@ Aceite ainda pendente:
 ## Fase 2D - Plataforma e controlador de deploy do Blindou
 
 Status: fundação interna e conector concluídos e verificados em 2026-08-20;
-cadeia de pull e candidata assinada preparadas e verificadas em 2026-08-21.
+cadeia de pull e candidata assinada preparadas e verificadas em 2026-08-21. Em
+2026-08-22, a nova candidata `0ba8384` e o scan fechado das imagens passaram;
+o cache e a prova viva no host permanecem pendentes.
 Zero Trust e o Tunnel remoto `blindou-physical` estão saudáveis; somente
 `blindou-edge` passou para `connector-only`, enquanto `blindou-production`,
 migrations e release continuam bloqueados. Cloudflare for SaaS está ativado no
 plano da zona e sua credencial restrita foi validada e guardada fora do
 runtime; nenhum custom hostname de cliente foi criado.
-O contrato de imagens próprias usa GHCR privado. O controlador atualizado está
-instalado e o PAT classic do host foi validado com exatamente `read:packages`,
+O contrato de imagens próprias usa GHCR privado. O controlador atualmente
+instalado ainda precede a extensão para quatro imagens; o PAT classic do host
+foi validado com exatamente `read:packages`,
 mantido root-only e fora do Kubernetes. O workflow `32534879401` aprovou os
 gates, scans e publicação para o SHA
 `1265c3be1e808d522887f38ff47e9a110533677a`. O bundle desse SHA foi assinado
 fora do servidor, validado e armazenado no cache fechado. `current_release`
 permanece ausente e nenhuma migration ou workload foi executado.
-O contrato de prova integral do pull foi preparado no repositório: ele baixa e
-confere os dois pacotes privados da candidata sem criar Secret ou workload. A
-instalação root-owned e a execução viva ainda dependem do bootstrap humano.
+O contrato local de prova integral do pull baixa e confere os quatro pacotes
+privados da candidata sem criar Secret ou workload. O orquestrador também
+transporta os três artefatos assinados, valida a release no cache e só então
+executa a prova. A instalação root-owned e a execução viva ainda dependem do
+bootstrap humano.
 
 Objetivos:
 
@@ -180,10 +185,10 @@ Aceite:
 
 Próxima ação exata:
 
-1. validar as imagens terceiras fixadas no bundle e preparar por canal seguro
-   os Secrets de runtime, sem materializá-los antes da janela autorizada;
-   em paralelo, instalar o verificador versionado e comprovar o pull integral
-   dos quatro pacotes GHCR privados armazenados no cache;
+1. instalar o verificador versionado, validar a candidata `0ba8384` no cache e
+   comprovar o pull integral dos quatro pacotes GHCR privados; preparar por
+   canal seguro os Secrets de runtime sem materializá-los antes da janela
+   autorizada;
 2. manter a cota global da aplicação em 90 custom hostnames e revalidar a
    origem de fallback já ativa depois que a API tiver origem publicada, antes
    do primeiro fluxo autorizado de domínio por conta/tenant;
