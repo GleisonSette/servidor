@@ -183,7 +183,7 @@ Próxima ação exata:
 1. validar as imagens terceiras fixadas no bundle e preparar por canal seguro
    os Secrets de runtime, sem materializá-los antes da janela autorizada;
    em paralelo, instalar o verificador versionado e comprovar o pull integral
-   dos dois pacotes GHCR já armazenados no cache;
+   dos quatro pacotes GHCR privados armazenados no cache;
 2. manter a cota global da aplicação em 90 custom hostnames e revalidar a
    origem de fallback já ativa depois que a API tiver origem publicada, antes
    do primeiro fluxo autorizado de domínio por conta/tenant;

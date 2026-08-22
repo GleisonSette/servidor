@@ -655,17 +655,17 @@ cached_release_ghcr_images() {
   rendered="${RELEASE_CACHE}/${release_id}/rendered"
   [[ -d "$rendered" && ! -L "$rendered" ]] || return 1
   mapfile -t images < <(
-    grep -hER '^[[:space:]]+image:[[:space:]]+ghcr\.io/gleisonsette/blindou-(backend|redirector)@sha256:[0-9a-f]{64}[[:space:]]*$' \
+    grep -hER '^[[:space:]]+image:[[:space:]]+ghcr\.io/gleisonsette/blindou-(backend|redirector|nats|cloudflared)@sha256:[0-9a-f]{64}[[:space:]]*$' \
       "$rendered" \
       | awk '{print $2}' \
       | sort -u
   )
-  [[ "${#images[@]}" -eq 2 ]] || return 1
-  [[ "${images[0]}" =~ ^ghcr\.io/gleisonsette/blindou-(backend|redirector)@sha256:[0-9a-f]{64}$ ]] \
-    || return 1
-  [[ "${images[1]}" =~ ^ghcr\.io/gleisonsette/blindou-(backend|redirector)@sha256:[0-9a-f]{64}$ ]] \
-    || return 1
-  [[ "${images[0]}" != "${images[1]}" ]] || return 1
+  [[ "${#images[@]}" -eq 4 ]] || return 1
+  local image
+  for image in "${images[@]}"; do
+    [[ "$image" =~ ^ghcr\.io/gleisonsette/blindou-(backend|redirector|nats|cloudflared)@sha256:[0-9a-f]{64}$ ]] \
+      || return 1
+  done
   printf '%s\n' "${images[@]}"
 }
 
@@ -678,7 +678,7 @@ ghcr_pull_proof_file_is_secure() {
       && -f "$proof" \
       && ! -L "$proof" \
       && "$(stat -c '%U:%G:%a' "$proof" 2>/dev/null)" == 'root:root:600' \
-      && "$(wc -l <"$proof")" == '16' ]] \
+      && "$(wc -l <"$proof")" == '24' ]] \
     || return 1
   grep -Fxq 'schema=1' "$proof" || return 1
   grep -Fxq "release_id=${release_id}" "$proof" || return 1
@@ -686,25 +686,31 @@ ghcr_pull_proof_file_is_secure() {
     || return 1
   grep -Fxq 'registry=ghcr.io' "$proof" || return 1
   grep -Fxq 'platform=linux/amd64' "$proof" || return 1
-  grep -Fxq 'images=2' "$proof" || return 1
+  grep -Fxq 'images=4' "$proof" || return 1
   grep -Eq '^blobs=[1-9][0-9]*$' "$proof" || return 1
   grep -Eq '^bytes=[1-9][0-9]*$' "$proof" || return 1
   grep -Eq '^backend_image=ghcr\.io/gleisonsette/blindou-backend@sha256:[0-9a-f]{64}$' "$proof" \
     || return 1
   grep -Eq '^redirector_image=ghcr\.io/gleisonsette/blindou-redirector@sha256:[0-9a-f]{64}$' "$proof" \
     || return 1
+  grep -Eq '^nats_image=ghcr\.io/gleisonsette/blindou-nats@sha256:[0-9a-f]{64}$' "$proof" \
+    || return 1
+  grep -Eq '^cloudflared_image=ghcr\.io/gleisonsette/blindou-cloudflared@sha256:[0-9a-f]{64}$' "$proof" \
+    || return 1
   mapfile -t expected_images < <(cached_release_ghcr_images "$release_id")
-  [[ "${#expected_images[@]}" -eq 2 ]] || return 1
+  [[ "${#expected_images[@]}" -eq 4 ]] || return 1
   for image in "${expected_images[@]}"; do
     case "$image" in
       ghcr.io/gleisonsette/blindou-backend@*) component='backend' ;;
       ghcr.io/gleisonsette/blindou-redirector@*) component='redirector' ;;
+      ghcr.io/gleisonsette/blindou-nats@*) component='nats' ;;
+      ghcr.io/gleisonsette/blindou-cloudflared@*) component='cloudflared' ;;
       *) return 1 ;;
     esac
     grep -Fxq "${component}_image=${image}" "$proof" || return 1
   done
   local prefix
-  for prefix in backend redirector; do
+  for prefix in backend redirector nats cloudflared; do
     grep -Eq "^${prefix}_platform_digest=sha256:[0-9a-f]{64}$" "$proof" || return 1
     grep -Eq "^${prefix}_blobs=[1-9][0-9]*$" "$proof" || return 1
     grep -Eq "^${prefix}_bytes=[1-9][0-9]*$" "$proof" || return 1
@@ -729,8 +735,8 @@ verify_ghcr_candidate_pull() {
   require_platform_preconditions
   verify_ghcr_pull_credential >/dev/null
   mapfile -t images < <(cached_release_ghcr_images "$release_id")
-  [[ "${#images[@]}" -eq 2 ]] \
-    || fail 'release validada não contém exatamente backend e redirector privados'
+  [[ "${#images[@]}" -eq 4 ]] \
+    || fail 'release validada não contém exatamente as quatro imagens privadas'
   [[ -f "$GHCR_PULL_VERIFIER" \
       && ! -L "$GHCR_PULL_VERIFIER" \
       && "$(stat -c '%U:%G:%a' "$GHCR_PULL_VERIFIER" 2>/dev/null)" == 'root:root:755' ]] \
@@ -747,7 +753,9 @@ verify_ghcr_candidate_pull() {
           --release-id "$release_id" \
           --output "$receipt" \
           --image "${images[0]}" \
-          --image "${images[1]}"; then
+          --image "${images[1]}" \
+          --image "${images[2]}" \
+          --image "${images[3]}"; then
     unset token
     fail 'o pull integral da candidata privada falhou'
   fi

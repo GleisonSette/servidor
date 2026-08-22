@@ -560,3 +560,19 @@ pendente de bootstrap humano.
 - Cinco testes determinísticos e o verificador de artefatos passaram sem rede e
   sem usar credencial. Nenhum Secret Kubernetes, gate, migration ou workload
   foi alterado nesta preparação.
+
+## 2026-08-21 - Extensão da prova para NATS e cloudflared privados
+
+Resultado: o contrato local do controlador passou a exigir as quatro imagens
+privadas da candidata; instalação viva e pull continuam pendentes.
+
+- O Blindou assumiu, por decisão explícita, builds endurecidos de NATS e
+  `cloudflared` no GHCR privado; Redis continua oficial por digest.
+- O controlador agora descobre exclusivamente backend, redirector, NATS e
+  `cloudflared` no bundle validado e recusa candidata que não contenha as quatro
+  referências privadas distintas.
+- O verificador baixa manifesto, config e camadas de cada componente, preserva
+  os limites, valida todos os digests e produz recibo fechado de 24 linhas.
+- Seis testes determinísticos, compilação Python, sintaxe Bash e o verificador
+  de artefatos passaram localmente. Nenhum bootstrap, Secret, gate, migration
+  ou workload foi executado.

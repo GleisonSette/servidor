@@ -84,6 +84,20 @@ class PullVerifierTests(unittest.TestCase):
         self.assertIsNotNone(MODULE.IMAGE_PATTERN.fullmatch(valid))
         self.assertIsNone(MODULE.IMAGE_PATTERN.fullmatch(invalid))
 
+    def test_image_contract_accepts_exact_private_components(self) -> None:
+        accepted = {
+            MODULE.IMAGE_PATTERN.fullmatch(
+                f"ghcr.io/gleisonsette/blindou-{component}@sha256:" + "f" * 64
+            ).group(1)
+            for component in MODULE.COMPONENTS
+        }
+        self.assertEqual(accepted, set(MODULE.COMPONENTS))
+        self.assertIsNone(
+            MODULE.IMAGE_PATTERN.fullmatch(
+                "ghcr.io/gleisonsette/blindou-redis@sha256:" + "f" * 64
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

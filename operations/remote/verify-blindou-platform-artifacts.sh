@@ -190,6 +190,11 @@ grep -Fq 'redirected.remove_header("Authorization")' \
 grep -Fq 'TemporaryDirectory(prefix="blindou-ghcr-pull."' \
   "${REMOTE_DIR}/blindou-ghcr-pull-verify.py" \
   || fail 'bytes baixados não usam workspace temporário autoclean'
+grep -Fq 'COMPONENTS = ("backend", "redirector", "nats", "cloudflared")' \
+  "${REMOTE_DIR}/blindou-ghcr-pull-verify.py" \
+  || fail 'prova GHCR não cobre exatamente as quatro imagens privadas'
+grep -Fq "grep -Fxq 'images=4'" "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'recibo GHCR não exige exatamente quatro imagens privadas'
 grep -Fq 'GHCR_PULL_SECRET = "blindou-ghcr-pull"' \
   "${REMOTE_DIR}/blindou-release-verify.py" || fail 'verificador não fixa o pull secret GHCR'
 [[ "$(grep -Fc 'if ( verify_edge_connector >/dev/null 2>&1 ); then' \

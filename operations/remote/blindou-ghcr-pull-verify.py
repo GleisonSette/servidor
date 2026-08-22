@@ -29,8 +29,10 @@ USERNAME = "GleisonSette"
 RELEASE_PATTERN = re.compile(r"[0-9a-f]{40}")
 DIGEST_PATTERN = re.compile(r"sha256:([0-9a-f]{64})")
 IMAGE_PATTERN = re.compile(
-    r"ghcr\.io/gleisonsette/blindou-(backend|redirector)@(sha256:[0-9a-f]{64})"
+    r"ghcr\.io/gleisonsette/blindou-(backend|redirector|nats|cloudflared)@"
+    r"(sha256:[0-9a-f]{64})"
 )
+COMPONENTS = ("backend", "redirector", "nats", "cloudflared")
 MANIFEST_ACCEPT = ", ".join(
     (
         "application/vnd.oci.image.index.v1+json",
@@ -279,16 +281,16 @@ def parse_args() -> argparse.Namespace:
     if not RELEASE_PATTERN.fullmatch(args.release_id):
         fail("release_id inválido")
     validate_output(args.output)
-    if len(args.image) != 2:
-        fail("eram esperadas exatamente duas imagens próprias")
+    if len(args.image) != len(COMPONENTS):
+        fail("eram esperadas exatamente quatro imagens privadas")
     components: dict[str, tuple[str, str]] = {}
     for image in args.image:
         match = IMAGE_PATTERN.fullmatch(image)
         if not match or match.group(1) in components:
-            fail("referência GHCR fora do conjunto backend/redirector")
+            fail("referência GHCR fora do conjunto privado aprovado")
         components[match.group(1)] = (image, match.group(2))
-    if set(components) != {"backend", "redirector"}:
-        fail("backend e redirector são obrigatórios")
+    if set(components) != set(COMPONENTS):
+        fail("backend, redirector, NATS e cloudflared são obrigatórios")
     args.components = components
     return args
 
@@ -310,7 +312,7 @@ def main() -> None:
     component_rows: dict[str, tuple[str, str, int, int]] = {}
     with tempfile.TemporaryDirectory(prefix="blindou-ghcr-pull.", dir="/var/tmp") as temporary:
         temporary_root = Path(temporary)
-        for component in ("backend", "redirector"):
+        for component in COMPONENTS:
             image, index_digest = args.components[component]
             repository = f"gleisonsette/blindou-{component}"
             index = client.manifest(repository, index_digest)
@@ -347,7 +349,7 @@ def main() -> None:
         f"blobs={total_blobs}",
         f"bytes={total_bytes}",
     ]
-    for component in ("backend", "redirector"):
+    for component in COMPONENTS:
         image, platform_digest, blobs, size = component_rows[component]
         lines.extend(
             (
@@ -361,7 +363,7 @@ def main() -> None:
     os.chmod(args.output, 0o600)
     print(
         "ghcr_candidate_pull=passed "
-        f"release_id={args.release_id} images=2 blobs={total_blobs} bytes={total_bytes}"
+        f"release_id={args.release_id} images=4 blobs={total_blobs} bytes={total_bytes}"
     )
 
 

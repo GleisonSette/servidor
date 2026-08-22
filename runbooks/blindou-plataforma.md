@@ -162,7 +162,9 @@ credencial anterior até a nova ser validada.
 
 ## Credencial privada do GHCR
 
-As imagens próprias do Blindou são privadas em `ghcr.io/GleisonSette`. O host
+As quatro imagens privadas do Blindou — backend, redirector, NATS endurecido e
+`cloudflared` endurecido — ficam em `ghcr.io/GleisonSette`. Redis permanece na
+imagem oficial aprovada por digest. O host
 recebe um PAT classic exclusivo com exatamente `read:packages`. O controlador
 recusa token de outro usuário ou que possua qualquer escopo adicional, inclusive
 `repo`, `write:packages`, `delete:packages` ou `workflow`.
@@ -211,7 +213,7 @@ nova credencial antes de retirar a anterior.
 
 ### Prova integral de pull antes da release
 
-A validação de escopo do PAT não prova sozinha que os dois pacotes privados da
+A validação de escopo do PAT não prova sozinha que os quatro pacotes privados da
 candidata podem ser baixados. Antes de liberar o gate da aplicação, atualizar o
 controlador pelo bootstrap humano versionado e executar:
 
@@ -221,7 +223,8 @@ sudo -n /usr/local/sbin/blindou-deployctl \
 ```
 
 O comando aceita somente uma release já validada no cache root-owned, descobre
-backend e redirector dentro do bundle e exige os repositórios fixos do Blindou.
+backend, redirector, NATS e `cloudflared` dentro do bundle e exige os quatro
+repositórios fixos do Blindou.
 A credencial é lida do cofre e entregue ao verificador por `stdin`; não entra em
 argumento, ambiente, log ou arquivo temporário. O verificador desabilita proxies
 herdados, autentica no GHCR, seleciona exclusivamente `linux/amd64`, baixa o
