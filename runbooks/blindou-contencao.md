@@ -130,6 +130,34 @@ O bootstrap não instala workload, Cloudflare, Secret, banco ou migration.
 
 Sem todos os itens, o primeiro deploy continua bloqueado.
 
+### Janela fechada da primeira release
+
+`operations/Invoke-BlindouFirstRelease.ps1` conduz a janela sem aceitar segredo
+em argumento. UAZAPI, Resend e a senha inicial são solicitados em uma janela
+protegida e seguem por `stdin` para operações fixas do `blindou-deployctl`.
+
+A sequência obrigatória é:
+
+1. validar UAZAPI e Resend, gerar chaves internas e materializar ConfigMap e
+   Secrets com a aplicação ainda em `secrets-only`;
+2. instalar Alertmanager somente em loopback, enviar alerta sintético e exigir
+   confirmação humana em `gleisonsette@gmail.com`;
+3. criar o dump lógico criptografado anterior às migrations, exportá-lo para a
+   estação administrativa e conferir SHA-256 e tamanho;
+4. registrar o recibo offsite com RPO de 15 minutos, RTO de 4 horas e retenção
+   de 30 dias;
+5. liberar `passed` somente para a release assinada cuja prova GHCR corresponde
+   ao mesmo SHA, executar migrations e aplicar os workloads;
+6. receber a senha inicial por `stdin`, criar `gleisonsette@gmail.com` como
+   `super_admin` e validar um login real pela borda pública;
+7. repetir os gates do host e do `apiwpp`.
+
+O sender WhatsApp do 2FA permanece ausente enquanto `AUTH_REQUIRE_2FA=false`.
+Pagar.me também permanece ausente. A imagem privada do `cloudflared` recebe o
+pull secret GHCR somente leitura na EDGE, sem montar a credencial no container.
+Falha da primeira release remove workloads, volta a aplicação para
+`secrets-only` e restaura o conector isolado.
+
 ## mTLS
 
 - cliente ou integração para Cloudflare: Access/mTLS pode autenticar endpoints

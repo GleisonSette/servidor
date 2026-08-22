@@ -613,3 +613,27 @@ permaneceu bloqueado e o `apiwpp` saudável.
 - `current_release` permaneceu ausente; `blindou-production` continuou
   `blocked` e com zero objetos operacionais. Nenhum Secret Kubernetes,
   migration ou workload foi criado.
+
+## 2026-08-22 - Preparação fechada da primeira release
+
+Resultado: controlador, orquestrador e runbooks preparados no repositório;
+nenhuma mudança viva desta etapa foi aplicada ao host.
+
+- Corrigido o gate que exigia indevidamente o sender WhatsApp enquanto o 2FA
+  está desabilitado; a ausência do token agora é uma invariante verificada.
+- Preparado `secrets-only`, que permite ConfigMap e Secrets sem permitir Pods,
+  além da geração server-side das chaves internas e TLS do NATS.
+- UAZAPI e Resend passam por validação autenticada; o Alertmanager fica em
+  loopback, integrado ao Prometheus, e exige alerta sintético confirmado pelo
+  usuário antes da liberação.
+- A continuidade temporária foi fechada em RPO de 15 minutos, RTO de 4 horas e
+  retenção offsite de 30 dias, com checksum conferido na estação administrativa
+  antes do recibo.
+- A liberação dos namespaces exige o mesmo SHA da release assinada e da prova
+  GHCR. A imagem privada do `cloudflared` recebe pull secret somente leitura na
+  EDGE, sem montar a credencial no container.
+- O bootstrap de `gleisonsette@gmail.com` como `super_admin` recebe a senha por
+  entrada protegida e valida o login público sem imprimir tokens.
+- Sintaxe Bash e PowerShell, testes do verificador GHCR, verificador de
+  artefatos e diff check passaram. Commit, bootstrap vivo, Secrets, gates,
+  migrations, deploy e usuário continuam pendentes nesta entrada.

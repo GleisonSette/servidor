@@ -5,6 +5,7 @@ readonly REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 readonly REMOTE_DIR="${REPOSITORY_ROOT}/operations/remote"
 readonly PULL_PROOF_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouGhcrCandidatePullProof.ps1"
 readonly SUDO_BOOTSTRAP_MODULE="${REPOSITORY_ROOT}/operations/Blindou.SudoBootstrap.psm1"
+readonly FIRST_RELEASE_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouFirstRelease.ps1"
 
 fail() {
   printf '[verify-blindou-platform-artifacts] ERRO: %s\n' "$*" >&2
@@ -15,6 +16,8 @@ fail() {
   || fail 'orquestrador da prova GHCR ausente ou simbólico'
 [[ -f "$SUDO_BOOTSTRAP_MODULE" && ! -L "$SUDO_BOOTSTRAP_MODULE" ]] \
   || fail 'módulo fechado de bootstrap sudo ausente ou simbólico'
+[[ -f "$FIRST_RELEASE_SCRIPT" && ! -L "$FIRST_RELEASE_SCRIPT" ]] \
+  || fail 'orquestrador fechado da primeira release ausente ou simbólico'
 grep -Fq "[ValidateSet('DeployController', 'HostAndDeployControllers')]" \
   "$SUDO_BOOTSTRAP_MODULE" || fail 'bootstrap sudo aceita conjunto não fechado'
 grep -Fq "if (\$Server -cne 'apiadmin@192.168.100.59')" \
@@ -37,6 +40,21 @@ grep -Fq "'release.manifest.sig'" "$PULL_PROOF_SCRIPT" \
   || fail 'orquestrador não fecha os três artefatos da release'
 grep -Fq 'Invoke-BlindouSudoBootstrap' "$PULL_PROOF_SCRIPT" \
   || fail 'orquestrador não usa o bootstrap sudo fechado'
+grep -Fq "Read-Host 'Admin token da UAZAPI' -AsSecureString" "$FIRST_RELEASE_SCRIPT" \
+  || fail 'token UAZAPI não usa entrada protegida'
+grep -Fq "Read-Host 'API key do Resend' -AsSecureString" "$FIRST_RELEASE_SCRIPT" \
+  || fail 'chave Resend não usa entrada protegida'
+grep -Fq "Read-Host 'Senha do superadmin' -AsSecureString" "$FIRST_RELEASE_SCRIPT" \
+  || fail 'senha do superadmin não usa entrada protegida'
+grep -Fq 'Invoke-ClosedSshInput' "$FIRST_RELEASE_SCRIPT" \
+  || fail 'segredos não usam o canal SSH por stdin'
+if grep -Eq 'ssh\.exe.*(UAZAPI|RESEND|plainPassword|plainResend|plainUazapi)' \
+    "$FIRST_RELEASE_SCRIPT"; then
+  fail 'possível segredo encontrado em argumento SSH'
+fi
+if grep -Fq "Join-Path \$repositoryRoot '.env'" "$FIRST_RELEASE_SCRIPT"; then
+  fail 'orquestrador de runtime não pode ler a senha administrativa temporária'
+fi
 for orchestrator in \
   Invoke-BlindouCloudflareConnector.ps1 \
   Invoke-BlindouCloudflareSaasToken.ps1 \
@@ -215,6 +233,46 @@ grep -Fq -- '--from-file=.dockerconfigjson=/dev/stdin' \
   "${REMOTE_DIR}/blindou-deployctl" || fail 'credencial GHCR não entra diretamente no Secret'
 grep -Fq 'ensure_ghcr_pull_secret' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'release não materializa o pull secret pelo controlador'
+grep -Fq 'attach_edge_pull_credential' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'cloudflared privado não recebe a credencial GHCR somente leitura'
+grep -Fq "readonly RUNTIME_SECRETS_CONFIRMATION='blindou-runtime-secrets'" \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'confirmação fechada dos Secrets ausente'
+grep -Fq 'provision-runtime-secrets)' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'operação fechada de Secrets ausente'
+grep -Fq "[[ ! -t 0 ]] || fail 'segredos de runtime devem chegar por stdin" \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'Secrets de runtime não exigem stdin fechado'
+grep -Fq 'AUTH_REQUIRE_2FA=false' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'gate temporário de 2FA ausente'
+if grep -A40 '^require_release_gates()' "${REMOTE_DIR}/blindou-deployctl" \
+    | grep -Fq 'AUTH_SECURITY_WHATSAPP_SENDER_TOKEN'; then
+  fail 'gate de release exige indevidamente o sender do 2FA desabilitado'
+fi
+grep -Fq 'sender WhatsApp do 2FA deve permanecer ausente' \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'ausência do sender de 2FA não é validada'
+grep -Fq 'smtp.resend.com:587' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'receptor Resend do Alertmanager ausente'
+grep -Fq 'web.listen-address=127.0.0.1:9093' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'Alertmanager não está declarado somente em loopback'
+grep -Fq 'BlindouSyntheticReceiverTest' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'teste sintético do receptor externo ausente'
+grep -Fq 'confirm-offsite-backup)' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'recibo fechado de backup offsite ausente'
+grep -Fq 'rpo_minutes=15' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'RPO aprovado não foi registrado'
+grep -Fq 'rto_hours=4' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'RTO aprovado não foi registrado'
+grep -Fq 'retention_days=30' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'retenção offsite aprovada não foi registrada'
+grep -Fq 'activate-release-gates)' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'transição fechada dos gates ausente'
+grep -Fq 'bootstrap-superadmin)' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'bootstrap fechado do superadmin ausente'
+grep -Fq "readonly SUPERADMIN_EMAIL='gleisonsette@gmail.com'" \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'identidade fixa do superadmin ausente'
+grep -Fq 'provision-runtime-secrets blindou-runtime-secrets' \
+  "${REMOTE_DIR}/blindou-deployctl.sudoers" || fail 'sudoers não libera o provisionamento fechado'
+grep -Fq 'bootstrap-superadmin * blindou-bootstrap-superadmin' \
+  "${REMOTE_DIR}/blindou-deployctl.sudoers" || fail 'sudoers não libera o bootstrap fechado'
 grep -Fq "readonly GHCR_PULL_VERIFIER='/usr/local/lib/blindou-platform/blindou-ghcr-pull-verify.py'" \
   "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'verificador root-owned do pull GHCR ausente'
@@ -246,8 +304,11 @@ grep -Fq "grep -Fxq 'images=4'" "${REMOTE_DIR}/blindou-deployctl" \
 grep -Fq 'GHCR_PULL_SECRET = "blindou-ghcr-pull"' \
   "${REMOTE_DIR}/blindou-release-verify.py" || fail 'verificador não fixa o pull secret GHCR'
 [[ "$(grep -Fc 'if ( verify_edge_connector >/dev/null 2>&1 ); then' \
-  "${REMOTE_DIR}/blindou-deployctl")" == '2' ]] \
-  || fail 'sondagem do conector precisa isolar falha esperada em subshell'
+  "${REMOTE_DIR}/blindou-deployctl")" == '1' ]] \
+  || fail 'sondagem pré-release do conector precisa isolar falha esperada em subshell'
+grep -Fq '|| ( verify_edge_connector >/dev/null 2>&1 ); then' \
+  "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'status do conector precisa aceitar o gate passed sem mascarar falha'
 [[ "$(grep -Fc 'if ( verify_foundation >/dev/null 2>&1 ); then' \
   "${REMOTE_DIR}/blindou-deployctl")" == '2' ]] \
   || fail 'sondagem da fundação precisa isolar falha esperada em subshell'

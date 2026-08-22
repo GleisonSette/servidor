@@ -147,6 +147,11 @@ cadeia de pull e candidata assinada preparadas e verificadas em 2026-08-21. Em
 o controlador foi instalado, o bundle entrou no cache fechado e a prova viva
 das quatro imagens passou. A Fase 2D continua aberta somente pelos Secrets,
 alertas e demais gates prévios à primeira release.
+O repositório já contém a extensão fechada para a candidata `27495b0`: canal
+protegido de Secrets, gate intermediário `secrets-only`, Alertmanager/Resend,
+recibo de backup offsite, transição vinculada ao SHA, credencial GHCR da imagem
+privada da EDGE e bootstrap do superadmin. Essa extensão ainda não descreve
+estado vivo enquanto seu commit e bootstrap não forem concluídos.
 Zero Trust e o Tunnel remoto `blindou-physical` estão saudáveis; somente
 `blindou-edge` passou para `connector-only`, enquanto `blindou-production`,
 migrations e release continuam bloqueados. Cloudflare for SaaS está ativado no

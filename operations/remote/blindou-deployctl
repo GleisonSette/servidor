@@ -50,6 +50,12 @@ readonly RELEASE_HISTORY="${STATE_ROOT}/deploy-history"
 readonly CURRENT_RELEASE="${STATE_ROOT}/current-release"
 readonly GHCR_PULL_PROOF_ROOT="${STATE_ROOT}/ghcr-pull-proofs"
 readonly GHCR_PULL_PROOF_LATEST="${STATE_ROOT}/ghcr-pull-proof-latest"
+readonly RUNTIME_SECRET_DIR="${DATA_ROOT}/runtime"
+readonly RUNTIME_CONFIG_FILE="${RUNTIME_SECRET_DIR}/production.env"
+readonly NATS_PKI_DIR="${DATA_ROOT}/nats-pki"
+readonly ALERT_RECEIPT="${STATE_ROOT}/alert-receiver.state"
+readonly OFFSITE_BACKUP_RECEIPT="${STATE_ROOT}/offsite-backup.state"
+readonly RELEASE_GATE_RECEIPT="${STATE_ROOT}/release-gate.state"
 readonly ALLOWED_SIGNERS="${DATA_ROOT}/deploy/allowed_signers"
 readonly RELEASE_PATTERN='^[0-9a-f]{40}$'
 readonly FOUNDATION_CONFIRMATION='blindou-platform-foundation'
@@ -60,6 +66,14 @@ readonly DATA_CONFIRMATION='blindou-data-foundation'
 readonly DATA_ROLLBACK_CONFIRMATION='blindou-empty-data-foundation'
 readonly BACKUP_CONFIRMATION='blindou-database-backup'
 readonly ROLLBACK_CONFIRMATION='blindou-signed-rollback'
+readonly RUNTIME_SECRETS_CONFIRMATION='blindou-runtime-secrets'
+readonly ALERT_DELIVERY_CONFIRMATION='blindou-alert-delivered'
+readonly OFFSITE_BACKUP_CONFIRMATION='blindou-offsite-backup'
+readonly RELEASE_GATES_CONFIRMATION='blindou-release-gates'
+readonly SUPERADMIN_CONFIRMATION='blindou-bootstrap-superadmin'
+readonly SUPERADMIN_EMAIL='gleisonsette@gmail.com'
+readonly SUPERADMIN_NAME='Gleison Sette'
+readonly SUPERADMIN_TENANT='Blindou'
 
 exec 9>/run/lock/blindou-deployctl.lock
 if ! flock --nonblock 9; then
@@ -84,6 +98,14 @@ cleanup() {
       /var/tmp/blindou-ghcr-headers.*|\
       "${GHCR_PULL_PROOF_ROOT}"/.tmp.*|\
       "${GHCR_PULL_PROOF_LATEST}.tmp."*|\
+      /var/tmp/blindou-provider-response.*|\
+      /var/tmp/blindou-provider-headers.*|\
+      /var/tmp/blindou-alert-synthetic.*|\
+      /etc/prometheus/alertmanager.yml.tmp|/etc/prometheus/prometheus.yml.tmp|\
+      /etc/prometheus/rules/blindou-platform.yml.tmp|\
+      /etc/default/prometheus-alertmanager.tmp|\
+      "${RUNTIME_SECRET_DIR}"/*.tmp|\
+      "${NATS_PKI_DIR}"/*.tmp|"${NATS_PKI_DIR}"/server-ext.*|\
       "${POSTGRES_CONFIG_FILE}.tmp"|"${POSTGRES_HBA_FILE}.tmp")
         rm -rf -- "$resolved"
         ;;
@@ -224,7 +246,9 @@ assert_edge_connector() {
 }
 
 negative_admission_tests() {
-  if cat <<EOF | kube apply --dry-run=server -f - >/dev/null 2>&1
+  local app_gate
+  app_gate="$(namespace_label "$APP_NAMESPACE" 'platform\.servidor\.local/deployment-gate')"
+  if [[ "$app_gate" != passed ]] && cat <<EOF | kube apply --dry-run=server -f - >/dev/null 2>&1
 apiVersion: v1
 kind: Pod
 metadata:
@@ -267,11 +291,32 @@ EOF
 
 verify_foundation() {
   require_platform_preconditions
-  local edge_gate
+  local app_gate edge_gate
   namespace_exists "$APP_NAMESPACE" || fail "namespace ${APP_NAMESPACE} ausente"
   namespace_exists "$EDGE_NAMESPACE" || fail "namespace ${EDGE_NAMESPACE} ausente"
-  assert_namespace_labels "$APP_NAMESPACE" application blocked
-  assert_quarantine_namespace "$APP_NAMESPACE"
+  app_gate="$(namespace_label "$APP_NAMESPACE" 'platform\.servidor\.local/deployment-gate')"
+  case "$app_gate" in
+    blocked)
+      assert_namespace_labels "$APP_NAMESPACE" application blocked
+      assert_quarantine_namespace "$APP_NAMESPACE"
+      ;;
+    secrets-only)
+      assert_namespace_labels "$APP_NAMESPACE" application secrets-only
+      ! kube -n "$APP_NAMESPACE" get resourcequota platform-quarantine >/dev/null 2>&1 \
+        || fail 'quota de quarentena ainda existe durante secrets-only'
+      [[ "$(kube -n "$APP_NAMESPACE" get deployment,statefulset,daemonset,job,cronjob,pod,service \
+        -o json | jq '[.items[]] | length')" == '0' ]] \
+        || fail 'workload ou Service apareceu durante secrets-only'
+      verify_runtime_material
+      ;;
+    passed)
+      assert_namespace_labels "$APP_NAMESPACE" application passed
+      ! kube -n "$APP_NAMESPACE" get resourcequota platform-quarantine >/dev/null 2>&1 \
+        || fail 'quota de quarentena ainda existe na aplicação'
+      verify_runtime_material
+      ;;
+    *) fail "unexpected gate in namespace ${APP_NAMESPACE}" ;;
+  esac
   edge_gate="$(namespace_label "$EDGE_NAMESPACE" 'platform\.servidor\.local/deployment-gate')"
   case "$edge_gate" in
     blocked)
@@ -281,6 +326,22 @@ verify_foundation() {
     connector-only)
       assert_namespace_labels "$EDGE_NAMESPACE" edge connector-only
       assert_edge_connector
+      ;;
+    passed)
+      assert_namespace_labels "$EDGE_NAMESPACE" edge passed
+      ! kube -n "$EDGE_NAMESPACE" get resourcequota platform-quarantine >/dev/null 2>&1 \
+        || fail 'quota de quarentena ainda existe na EDGE'
+      [[ "$(kube -n "$EDGE_NAMESPACE" get deployment -o json | jq \
+        '[.items[].metadata.name] | sort == ["blindou-cloudflared"]')" == 'true' ]] \
+        || fail 'Deployment inesperado na EDGE'
+      [[ "$(kube -n "$EDGE_NAMESPACE" get statefulset,daemonset,job,cronjob,service,pvc \
+        -o json | jq '[.items[]] | length')" == '0' ]] \
+        || fail 'objeto proibido na EDGE'
+      secret_has_keys "$EDGE_NAMESPACE" blindou-cloudflare-tunnel token
+      secret_has_keys "$EDGE_NAMESPACE" "$GHCR_PULL_SECRET" .dockerconfigjson
+      [[ "$(kube -n "$EDGE_NAMESPACE" get deployment blindou-cloudflared \
+        -o jsonpath='{.spec.template.spec.imagePullSecrets[0].name}')" == "$GHCR_PULL_SECRET" ]] \
+        || fail 'cloudflared não referencia a credencial GHCR somente leitura'
       ;;
     *) fail "unexpected gate in namespace ${EDGE_NAMESPACE}" ;;
   esac
@@ -830,26 +891,42 @@ rollback_ghcr_pull_credential() {
 
 ensure_ghcr_pull_secret() {
   verify_ghcr_pull_credential >/dev/null
-  local token auth
+  local token auth namespace
   IFS= read -r token <"$GHCR_PULL_TOKEN_FILE" \
     || fail 'GHCR pull credential could not be read'
   auth="$(printf '%s:%s' "$GHCR_USERNAME" "$token" | base64 -w 0)"
   unset token
-  {
-    printf '{"auths":{"%s":{"username":"%s","auth":"' \
-      "$GHCR_REGISTRY" "$GHCR_USERNAME"
-    printf '%s' "$auth"
-    printf '"}}}'
-  } | kube -n "$APP_NAMESPACE" create secret generic "$GHCR_PULL_SECRET" \
-      --type=kubernetes.io/dockerconfigjson \
-      --from-file=.dockerconfigjson=/dev/stdin \
-      --dry-run=client -o yaml \
-    | kube apply -f - >/dev/null
+  local namespaces=("$APP_NAMESPACE")
+  if [[ "$(namespace_label "$EDGE_NAMESPACE" 'platform\.servidor\.local/deployment-gate' 2>/dev/null || true)" == passed ]]; then
+    namespaces+=("$EDGE_NAMESPACE")
+  fi
+  for namespace in "${namespaces[@]}"; do
+    {
+      printf '{"auths":{"%s":{"username":"%s","auth":"' \
+        "$GHCR_REGISTRY" "$GHCR_USERNAME"
+      printf '%s' "$auth"
+      printf '"}}}'
+    } | kube -n "$namespace" create secret generic "$GHCR_PULL_SECRET" \
+        --type=kubernetes.io/dockerconfigjson \
+        --from-file=.dockerconfigjson=/dev/stdin \
+        --dry-run=client -o yaml \
+      | kube apply -f - >/dev/null
+    [[ "$(kube -n "$namespace" get secret "$GHCR_PULL_SECRET" \
+      -o jsonpath='{.type}')" == 'kubernetes.io/dockerconfigjson' ]] \
+      || fail "GHCR pull Secret has an unexpected Kubernetes type in ${namespace}"
+    secret_has_keys "$namespace" "$GHCR_PULL_SECRET" .dockerconfigjson
+  done
   unset auth
-  [[ "$(kube -n "$APP_NAMESPACE" get secret "$GHCR_PULL_SECRET" \
-    -o jsonpath='{.type}')" == 'kubernetes.io/dockerconfigjson' ]] \
-    || fail 'GHCR pull Secret has an unexpected Kubernetes type'
-  secret_has_keys "$APP_NAMESPACE" "$GHCR_PULL_SECRET" .dockerconfigjson
+}
+
+attach_edge_pull_credential() {
+  kube -n "$EDGE_NAMESPACE" patch serviceaccount blindou-cloudflared \
+    --type=merge --patch \
+    "{\"imagePullSecrets\":[{\"name\":\"${GHCR_PULL_SECRET}\"}]}" >/dev/null
+  kube -n "$EDGE_NAMESPACE" patch deployment blindou-cloudflared \
+    --type=merge --patch \
+    "{\"spec\":{\"template\":{\"spec\":{\"imagePullSecrets\":[{\"name\":\"${GHCR_PULL_SECRET}\"}]}}}}" \
+    >/dev/null
 }
 
 generate_database_material() {
@@ -1327,24 +1404,414 @@ secret_has_keys() {
   done
 }
 
-require_release_gates() {
-  verify_data_foundation >/dev/null
-  for namespace in "$APP_NAMESPACE" "$EDGE_NAMESPACE"; do
-    [[ "$(namespace_label "$namespace" 'platform\.servidor\.local/deployment-gate')" == 'passed' ]] \
-      || fail "gate do namespace ${namespace} não está passed"
-    if kube -n "$namespace" get resourcequota platform-quarantine >/dev/null 2>&1; then
-      fail "quota de quarentena ainda existe em ${namespace}"
-    fi
-  done
+runtime_secret_file_is_secure() {
+  local path="$1"
+  [[ -f "$path" && ! -L "$path" \
+      && "$(stat -c '%U:%G:%a' "$path")" == 'root:root:600' ]]
+}
+
+write_runtime_value() {
+  local name="$1" value="$2" path="${RUNTIME_SECRET_DIR}/${name}"
+  [[ "$name" =~ ^[A-Z][A-Z0-9_]*$ ]] || fail 'nome de segredo de runtime inválido'
+  cleanup_paths+=("${path}.tmp")
+  printf '%s' "$value" >"${path}.tmp"
+  install -o root -g root -m 0600 "${path}.tmp" "$path"
+  rm -f -- "${path}.tmp"
+}
+
+ensure_random_hex() {
+  local name="$1"
+  runtime_secret_file_is_secure "${RUNTIME_SECRET_DIR}/${name}" \
+    || write_runtime_value "$name" "$(openssl rand -hex 32)"
+}
+
+ensure_random_base64_key() {
+  local name="$1"
+  runtime_secret_file_is_secure "${RUNTIME_SECRET_DIR}/${name}" \
+    || write_runtime_value "$name" "$(openssl rand -base64 32 | tr -d '\n')"
+}
+
+extract_database_url() {
+  local name="$1" source="${DATABASE_SECRET_DIR}/urls.env" value
+  value="$(sed -n "s/^${name}=//p" "$source")"
+  [[ -n "$value" && "$value" != *$'\n'* && "$value" != *$'\r'* ]] \
+    || fail "URL de banco ausente: ${name}"
+  write_runtime_value "$name" "$value"
+}
+
+generate_nats_pki() {
+  install -d -o root -g root -m 0700 "$NATS_PKI_DIR"
+  if [[ ! -f "${NATS_PKI_DIR}/ca.key" ]]; then
+    cleanup_paths+=("${NATS_PKI_DIR}/ca.key.tmp" "${NATS_PKI_DIR}/ca.crt.tmp")
+    openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 825 \
+      -subj '/CN=Blindou NATS CA' \
+      -addext 'basicConstraints=critical,CA:TRUE,pathlen:0' \
+      -addext 'keyUsage=critical,keyCertSign,cRLSign' \
+      -keyout "${NATS_PKI_DIR}/ca.key.tmp" \
+      -out "${NATS_PKI_DIR}/ca.crt.tmp" >/dev/null 2>&1
+    install -o root -g root -m 0600 "${NATS_PKI_DIR}/ca.key.tmp" "${NATS_PKI_DIR}/ca.key"
+    install -o root -g root -m 0644 "${NATS_PKI_DIR}/ca.crt.tmp" "${NATS_PKI_DIR}/ca.crt"
+    rm -f -- "${NATS_PKI_DIR}/ca.key.tmp" "${NATS_PKI_DIR}/ca.crt.tmp"
+  fi
+  if [[ ! -f "${NATS_PKI_DIR}/tls.key" ]]; then
+    local extension_file
+    extension_file="$(mktemp "${NATS_PKI_DIR}/server-ext.XXXXXX")"
+    cleanup_paths+=("$extension_file")
+    cleanup_paths+=(
+      "${NATS_PKI_DIR}/tls.key.tmp" "${NATS_PKI_DIR}/tls.crt.tmp"
+      "${NATS_PKI_DIR}/server.csr.tmp"
+    )
+    cat >"$extension_file" <<'EOF'
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth
+subjectAltName=DNS:blindou-nats,DNS:blindou-nats.blindou-production,DNS:blindou-nats.blindou-production.svc,DNS:blindou-nats.blindou-production.svc.cluster.local
+EOF
+    openssl req -new -newkey rsa:3072 -sha256 -nodes \
+      -subj '/CN=blindou-nats.blindou-production.svc' \
+      -keyout "${NATS_PKI_DIR}/tls.key.tmp" \
+      -out "${NATS_PKI_DIR}/server.csr.tmp" >/dev/null 2>&1
+    openssl x509 -req -sha256 -days 397 \
+      -in "${NATS_PKI_DIR}/server.csr.tmp" \
+      -CA "${NATS_PKI_DIR}/ca.crt" -CAkey "${NATS_PKI_DIR}/ca.key" \
+      -CAcreateserial -extfile "$extension_file" \
+      -out "${NATS_PKI_DIR}/tls.crt.tmp" >/dev/null 2>&1
+    install -o root -g root -m 0600 "${NATS_PKI_DIR}/tls.key.tmp" "${NATS_PKI_DIR}/tls.key"
+    install -o root -g root -m 0644 "${NATS_PKI_DIR}/tls.crt.tmp" "${NATS_PKI_DIR}/tls.crt"
+    rm -f -- "${NATS_PKI_DIR}/tls.key.tmp" "${NATS_PKI_DIR}/tls.crt.tmp" \
+      "${NATS_PKI_DIR}/server.csr.tmp" "$extension_file"
+  fi
+  openssl verify -CAfile "${NATS_PKI_DIR}/ca.crt" "${NATS_PKI_DIR}/tls.crt" >/dev/null \
+    || fail 'certificado NATS inválido'
+}
+
+validate_runtime_providers() {
+  local uazapi_base_url="$1" email_from="$2" response headers http_code resend_id
+  response="$(mktemp /var/tmp/blindou-provider-response.XXXXXX)"
+  headers="$(mktemp /var/tmp/blindou-provider-headers.XXXXXX)"
+  cleanup_paths+=("$response" "$headers")
+  chmod 0600 "$response" "$headers"
+  printf 'admintoken: %s\n' "$(<"${RUNTIME_SECRET_DIR}/UAZAPI_ADMIN_TOKEN")" >"$headers"
+  http_code="$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
+    --connect-timeout 5 --max-time 20 --header "@${headers}" \
+    "${uazapi_base_url%/}/instance/all")" \
+    || fail 'UAZAPI não respondeu à validação autenticada'
+  [[ "$http_code" == '200' ]] || fail "UAZAPI recusou a credencial (HTTP ${http_code})"
+  jq -e 'type == "array" or type == "object"' "$response" >/dev/null \
+    || fail 'UAZAPI retornou resposta inesperada'
+
+  printf 'Authorization: Bearer %s\n' "$(<"${RUNTIME_SECRET_DIR}/RESEND_API_KEY")" >"$headers"
+  jq -n --arg from "Blindou <${email_from}>" --arg to "$SUPERADMIN_EMAIL" \
+    --arg subject 'Blindou: receptor de alertas em validação' \
+    --arg text 'Este e-mail confirma o canal externo usado pelos alertas operacionais do Blindou.' \
+    '{from:$from,to:[$to],subject:$subject,text:$text}' >"$response.request"
+  chmod 0600 "$response.request"
+  cleanup_paths+=("$response.request")
+  http_code="$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
+    --connect-timeout 5 --max-time 20 --request POST \
+    --header "@${headers}" --header 'Content-Type: application/json' \
+    --header "Idempotency-Key: blindou-alert-$(date -u +%Y%m%dT%H%M%SZ)" \
+    --data-binary "@${response.request}" 'https://api.resend.com/emails')" \
+    || fail 'Resend não respondeu ao envio de validação'
+  [[ "$http_code" == '200' ]] || fail "Resend recusou o envio de validação (HTTP ${http_code})"
+  resend_id="$(jq -er '.id | select(type == "string" and length > 0 and length <= 200)' "$response")" \
+    || fail 'Resend não retornou identificador do envio'
+  install -d -o root -g root -m 0700 "$STATE_ROOT"
+  {
+    printf 'schema=1\nstatus=pending\nrecipient=%s\nprovider=resend\n' "$SUPERADMIN_EMAIL"
+    printf 'provider_message_id=%s\nsent_at_utc=%s\n' "$resend_id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } >"${ALERT_RECEIPT}.tmp"
+  install -o root -g root -m 0600 "${ALERT_RECEIPT}.tmp" "$ALERT_RECEIPT"
+  rm -f -- "${ALERT_RECEIPT}.tmp" "$response" "$headers" "$response.request"
+}
+
+configure_external_alerting() {
+  local email_from="$1" timestamp backup_dir prometheus_config alertmanager_config
+  prometheus_config='/etc/prometheus/prometheus.yml'
+  alertmanager_config='/etc/prometheus/alertmanager.yml'
+  cleanup_paths+=(
+    "${alertmanager_config}.tmp" "${prometheus_config}.tmp"
+    /etc/prometheus/rules/blindou-platform.yml.tmp
+    /etc/default/prometheus-alertmanager.tmp
+  )
+  if ! command -v prometheus-alertmanager >/dev/null 2>&1; then
+    systemctl mask prometheus-alertmanager.service >/dev/null 2>&1 || true
+    DEBIAN_FRONTEND=noninteractive apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq prometheus-alertmanager
+  fi
+  timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  backup_dir="${BACKUP_ROOT}/alerting/${timestamp}"
+  install -d -o root -g root -m 0700 "$backup_dir"
+  [[ -f "$prometheus_config" && ! -L "$prometheus_config" ]] \
+    || fail 'configuração principal do Prometheus ausente'
+  install -o root -g root -m 0600 "$prometheus_config" "${backup_dir}/prometheus.yml"
+  [[ ! -f "$alertmanager_config" ]] \
+    || install -o root -g root -m 0600 "$alertmanager_config" "${backup_dir}/alertmanager.yml"
+
+  cat >"${alertmanager_config}.tmp" <<EOF
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: smtp.resend.com:587
+  smtp_from: ${email_from}
+  smtp_auth_username: resend
+  smtp_auth_password: $(<"${RUNTIME_SECRET_DIR}/RESEND_API_KEY")
+  smtp_require_tls: true
+route:
+  receiver: blindou-operations
+  group_by: [alertname, service]
+  group_wait: 15s
+  group_interval: 5m
+  repeat_interval: 4h
+receivers:
+  - name: blindou-operations
+    email_configs:
+      - to: ${SUPERADMIN_EMAIL}
+        send_resolved: true
+inhibit_rules:
+  - source_matchers: ['severity="critical"']
+    target_matchers: ['severity="warning"']
+    equal: [alertname, service]
+EOF
+  install -o root -g prometheus -m 0640 "${alertmanager_config}.tmp" "$alertmanager_config"
+  rm -f -- "${alertmanager_config}.tmp"
+  install -d -o prometheus -g prometheus -m 0750 /var/lib/prometheus/alertmanager
+  cat >/etc/default/prometheus-alertmanager.tmp <<'EOF'
+ARGS="--config.file=/etc/prometheus/alertmanager.yml --storage.path=/var/lib/prometheus/alertmanager --web.listen-address=127.0.0.1:9093"
+EOF
+  install -o root -g root -m 0644 /etc/default/prometheus-alertmanager.tmp \
+    /etc/default/prometheus-alertmanager
+  rm -f -- /etc/default/prometheus-alertmanager.tmp
+  command -v amtool >/dev/null 2>&1 || fail 'amtool não foi instalado com o Alertmanager'
+  runuser -u prometheus -- amtool check-config "$alertmanager_config" >/dev/null \
+    || fail 'Alertmanager recusou a configuração'
+
+  install -d -o root -g prometheus -m 0750 /etc/prometheus/rules
+  cat >/etc/prometheus/rules/blindou-platform.yml.tmp <<'EOF'
+groups:
+  - name: blindou-platform
+    rules:
+      - alert: BlindouPlatformVerificationFailed
+        expr: blindou_platform_foundation_verified == 0 or blindou_platform_data_verified == 0
+        for: 10m
+        labels:
+          severity: critical
+          service: blindou-platform
+        annotations:
+          summary: A verificação da plataforma Blindou falhou
+      - alert: BlindouPlatformMetricsAbsent
+        expr: absent(blindou_platform_foundation_verified)
+        for: 10m
+        labels:
+          severity: critical
+          service: blindou-platform
+        annotations:
+          summary: As métricas da plataforma Blindou desapareceram
+EOF
+  install -o root -g prometheus -m 0640 /etc/prometheus/rules/blindou-platform.yml.tmp \
+    /etc/prometheus/rules/blindou-platform.yml
+  rm -f -- /etc/prometheus/rules/blindou-platform.yml.tmp
+  python3 - "$prometheus_config" <<'PY'
+from pathlib import Path
+import sys
+import yaml
+
+path = Path(sys.argv[1])
+config = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+rule_files = config.setdefault("rule_files", [])
+rule_path = "/etc/prometheus/rules/blindou-platform.yml"
+if rule_path not in rule_files:
+    rule_files.append(rule_path)
+alerting = config.setdefault("alerting", {})
+managers = alerting.setdefault("alertmanagers", [])
+target = {"static_configs": [{"targets": ["127.0.0.1:9093"]}]}
+if target not in managers:
+    managers.append(target)
+temporary = path.with_suffix(path.suffix + ".tmp")
+temporary.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+PY
+  install -o root -g root -m 0644 "${prometheus_config}.tmp" "$prometheus_config"
+  rm -f -- "${prometheus_config}.tmp"
+  promtool check config "$prometheus_config" >/dev/null \
+    || fail 'Prometheus recusou a integração com Alertmanager'
+  systemctl unmask prometheus-alertmanager.service >/dev/null
+  systemctl enable --now prometheus-alertmanager.service >/dev/null
+  systemctl reload prometheus.service
+  curl --fail --silent --show-error --max-time 5 \
+    http://127.0.0.1:9093/-/ready >/dev/null \
+    || fail 'Alertmanager não ficou Ready em loopback'
+  [[ "$(ss -H -lnt 'sport = :9093' | awk '{print $4}')" == '127.0.0.1:9093' ]] \
+    || fail 'Alertmanager não está restrito ao loopback IPv4'
+
+  local synthetic_file starts_at ends_at
+  synthetic_file="$(mktemp /var/tmp/blindou-alert-synthetic.XXXXXX)"
+  cleanup_paths+=("$synthetic_file")
+  starts_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  ends_at="$(date -u -d '+10 minutes' +%Y-%m-%dT%H:%M:%SZ)"
+  jq -n --arg starts "$starts_at" --arg ends "$ends_at" \
+    '[{labels:{alertname:"BlindouSyntheticReceiverTest",severity:"warning",service:"blindou-platform"},annotations:{summary:"Teste do receptor externo do Blindou"},startsAt:$starts,endsAt:$ends}]' \
+    >"$synthetic_file"
+  chmod 0600 "$synthetic_file"
+  curl --fail --silent --show-error --max-time 10 \
+    --header 'Content-Type: application/json' --data-binary "@${synthetic_file}" \
+    http://127.0.0.1:9093/api/v2/alerts >/dev/null \
+    || fail 'Alertmanager recusou o alerta sintético'
+  {
+    printf 'schema=1\nstatus=pending\nrecipient=%s\nprovider=alertmanager-resend-smtp\n' \
+      "$SUPERADMIN_EMAIL"
+    printf 'sent_at_utc=%s\nbackup_dir=%s\n' "$starts_at" "$backup_dir"
+  } >"${ALERT_RECEIPT}.tmp"
+  install -o root -g root -m 0600 "${ALERT_RECEIPT}.tmp" "$ALERT_RECEIPT"
+  rm -f -- "${ALERT_RECEIPT}.tmp" "$synthetic_file"
+}
+
+write_runtime_config() {
+  local uazapi_base_url="$1" email_from="$2"
+  cat >"${RUNTIME_CONFIG_FILE}.tmp" <<EOF
+RUST_ENV=production
+RUST_LOG=info
+BACKEND_HOST=0.0.0.0
+BACKEND_PORT=8080
+DEPLOY_LANE=blue
+BETA_LANE_ENFORCEMENT=true
+ALLOWED_ORIGINS=https://app.blindou.com
+PUBLIC_APP_URL=https://app.blindou.com
+PASSWORD_PEPPER_CURRENT_ID=v1
+AUTH_SECURITY_CODE_ENCRYPTION_KEY_ID=auth-code-key-v1
+AUTH_SECURITY_CHANNEL_ENCRYPTION_KEY_ID=auth-channel-key-v1
+BILLING_ADMIN_NOTIFY_EMAIL=${SUPERADMIN_EMAIL}
+REDIRECTOR_CODE_KEY_ID=v1
+REDIRECTOR_HMAC_KEY_ID=v1
+REDIRECTOR_RAW_RETENTION_DAYS=90
+REDIRECTOR_AGGREGATE_RETENTION_MONTHS=24
+REDIRECTOR_GA4_ENABLED=false
+CUSTOM_DOMAINS_MAX_PER_ACCOUNT=90
+CLOUDFLARE_SAAS_ENABLED=true
+CLOUDFLARE_SAAS_ZONE_ID=${CLOUDFLARE_SAAS_ZONE_ID}
+CLOUDFLARE_SAAS_CNAME_TARGET=domains.blindou.com
+CLOUDFLARE_SAAS_REQUEST_TIMEOUT_SECS=15
+UAZAPI_BASE_URL=${uazapi_base_url}
+UAZAPI_PUBLIC_WEBHOOK_BASE=https://api.blindou.com
+UAZAPI_TOKEN_KEY_ID=uazapi-token-key-v1
+UAZAPI_REQUEST_TIMEOUT_SECS=30
+UAZAPI_SEND_ASYNC=true
+WPP_APIWPP_ENABLED=false
+WPP_APIWPP_EVENT_CONSUMER_ENABLED=false
+WPP_APIWPP_CONNECTION_SEMANTICS_MODE=off
+WPP_APIWPP_SUBMISSION_LANE_MODE=off
+DISPATCH_TRANSPORT=nats
+NATS_URL=tls://blindou-nats:4222
+NATS_TLS_CA_PATH=/etc/blindou/nats/ca.crt
+NATS_USERNAME=blindou-core
+DISPATCH_V2_MODE=off
+LIVE_REPORT_REDIS_ENABLED=true
+REDIS_URL=redis://blindou-redis:6379
+REDIS_POOL_SIZE=8
+ML_CONNECTOR_BASE_URL=http://blindou-ml-affiliate-connector:8095
+ML_CONNECTOR_BIND_ADDR=0.0.0.0:8095
+ML_OFFICIAL_LINKS_ENABLED=false
+ML_EXTENSION_ENABLED=false
+AUTH_REQUIRE_2FA=false
+EMAIL_PROVIDER=resend
+EMAIL_FROM_EMAIL=${email_from}
+EMAIL_FROM_NAME=Blindou
+RESEND_BASE_URL=https://api.resend.com
+WORKER_ROUTED_QUEUES_ENABLED=true
+WORKER_DB_MAX_CONNECTIONS=3
+WORKER_LOOP_INTERVAL_MS=1000
+WORKER_BATCH_SIZE=25
+WORKER_MAX_INFLIGHT_SENDS=32
+WORKER_MAX_ATTEMPTS=8
+WORKER_BACKOFF_BASE_SECS=30
+WORKER_PACING_MIN_MS=1500
+WORKER_PACING_MAX_MS=8000
+APP_ENV=production
+REDIRECTOR_BIND_HOST=0.0.0.0
+REDIRECTOR_PORT=8090
+REDIRECTOR_READ_MODE=legacy
+REDIRECTOR_LEGACY_POLLER_ENABLED=true
+REDIRECTOR_LEGACY_REFRESH_ENABLED=true
+REDIRECTOR_LEGACY_SNAPSHOT_ENABLED=true
+REDIRECTOR_CACHE_SNAPSHOT_PATH=/var/lib/blindou-redirector/snapshot.json
+EOF
+  install -o root -g root -m 0600 "${RUNTIME_CONFIG_FILE}.tmp" "$RUNTIME_CONFIG_FILE"
+  rm -f -- "${RUNTIME_CONFIG_FILE}.tmp"
+}
+
+create_runtime_kubernetes_material() {
+  kube -n "$APP_NAMESPACE" create configmap blindou-runtime-config \
+    --from-env-file="$RUNTIME_CONFIG_FILE" --dry-run=client -o yaml \
+    | kube apply -f - >/dev/null
+  kube -n "$APP_NAMESPACE" create secret generic blindou-core-secrets \
+    --from-file=DATABASE_URL="${RUNTIME_SECRET_DIR}/DATABASE_URL" \
+    --from-file=PASSWORD_PEPPER_CURRENT="${RUNTIME_SECRET_DIR}/PASSWORD_PEPPER_CURRENT" \
+    --from-file=TOKEN_HASH_SECRET="${RUNTIME_SECRET_DIR}/TOKEN_HASH_SECRET" \
+    --from-file=JWT_SECRET="${RUNTIME_SECRET_DIR}/JWT_SECRET" \
+    --from-file=TOTP_ENCRYPTION_KEY="${RUNTIME_SECRET_DIR}/TOTP_ENCRYPTION_KEY" \
+    --from-file=SESSION_ENCRYPTION_KEY="${RUNTIME_SECRET_DIR}/SESSION_ENCRYPTION_KEY" \
+    --from-file=AUTH_SECURITY_CODE_HASH_SECRET="${RUNTIME_SECRET_DIR}/AUTH_SECURITY_CODE_HASH_SECRET" \
+    --from-file=AUTH_SECURITY_CODE_ENCRYPTION_KEY="${RUNTIME_SECRET_DIR}/AUTH_SECURITY_CODE_ENCRYPTION_KEY" \
+    --from-file=AUTH_SECURITY_CHANNEL_ENCRYPTION_KEY="${RUNTIME_SECRET_DIR}/AUTH_SECURITY_CHANNEL_ENCRYPTION_KEY" \
+    --from-file=AUTH_TRUST_HASH_SECRET="${RUNTIME_SECRET_DIR}/AUTH_TRUST_HASH_SECRET" \
+    --from-file=UAZAPI_ADMIN_TOKEN="${RUNTIME_SECRET_DIR}/UAZAPI_ADMIN_TOKEN" \
+    --from-file=UAZAPI_WEBHOOK_SECRET="${RUNTIME_SECRET_DIR}/UAZAPI_WEBHOOK_SECRET" \
+    --from-file=UAZAPI_TOKEN_ENCRYPTION_KEY="${RUNTIME_SECRET_DIR}/UAZAPI_TOKEN_ENCRYPTION_KEY" \
+    --from-file=NATS_PASSWORD="${RUNTIME_SECRET_DIR}/NATS_PASSWORD" \
+    --from-file=REDIS_PASSWORD="${RUNTIME_SECRET_DIR}/REDIS_PASSWORD" \
+    --from-file=RESEND_API_KEY="${RUNTIME_SECRET_DIR}/RESEND_API_KEY" \
+    --from-file=METRICS_BEARER_TOKEN="${RUNTIME_SECRET_DIR}/CORE_METRICS_BEARER_TOKEN" \
+    --from-file=CLOUDFLARE_SAAS_API_TOKEN="$CLOUDFLARE_SAAS_TOKEN_FILE" \
+    --dry-run=client -o yaml | kube apply -f - >/dev/null
+  kube -n "$APP_NAMESPACE" create secret generic blindou-redirect-secrets \
+    --from-file=REDIRECTOR_DATABASE_URL="${RUNTIME_SECRET_DIR}/REDIRECTOR_DATABASE_URL" \
+    --from-file=REDIRECTOR_CODE_SECRET="${RUNTIME_SECRET_DIR}/REDIRECTOR_CODE_SECRET" \
+    --from-file=REDIRECTOR_HMAC_SECRET="${RUNTIME_SECRET_DIR}/REDIRECTOR_HMAC_SECRET" \
+    --from-file=REDIRECTOR_IP_HASH_SECRET="${RUNTIME_SECRET_DIR}/REDIRECTOR_IP_HASH_SECRET" \
+    --from-file=REDIRECTOR_FINGERPRINT_HASH_SECRET="${RUNTIME_SECRET_DIR}/REDIRECTOR_FINGERPRINT_HASH_SECRET" \
+    --from-file=METRICS_BEARER_TOKEN="${RUNTIME_SECRET_DIR}/REDIRECT_METRICS_BEARER_TOKEN" \
+    --dry-run=client -o yaml | kube apply -f - >/dev/null
+  kube -n "$APP_NAMESPACE" create secret generic blindou-ml-secrets \
+    --from-file=ML_CONNECTOR_DATABASE_URL="${RUNTIME_SECRET_DIR}/ML_CONNECTOR_DATABASE_URL" \
+    --from-file=ML_CONNECTOR_INTERNAL_API_KEY="${RUNTIME_SECRET_DIR}/ML_CONNECTOR_INTERNAL_API_KEY" \
+    --from-file=ML_SESSION_ENCRYPTION_KEY="${RUNTIME_SECRET_DIR}/ML_SESSION_ENCRYPTION_KEY" \
+    --from-file=ML_SESSION_ENCRYPTION_PEPPER="${RUNTIME_SECRET_DIR}/ML_SESSION_ENCRYPTION_PEPPER" \
+    --dry-run=client -o yaml | kube apply -f - >/dev/null
+  kube -n "$APP_NAMESPACE" create secret generic blindou-migration-secrets \
+    --from-file=MIGRATION_DATABASE_URL="${RUNTIME_SECRET_DIR}/MIGRATION_DATABASE_URL" \
+    --dry-run=client -o yaml | kube apply -f - >/dev/null
+  kube -n "$APP_NAMESPACE" create secret generic blindou-nats-auth \
+    --from-file=backend-password="${RUNTIME_SECRET_DIR}/NATS_PASSWORD" \
+    --dry-run=client -o yaml | kube apply -f - >/dev/null
+  kube -n "$APP_NAMESPACE" create secret generic blindou-redis-auth \
+    --from-file=users.acl="${RUNTIME_SECRET_DIR}/users.acl" \
+    --dry-run=client -o yaml | kube apply -f - >/dev/null
+  kube -n "$APP_NAMESPACE" create secret generic blindou-nats-tls \
+    --from-file=ca.crt="${NATS_PKI_DIR}/ca.crt" \
+    --from-file=tls.crt="${NATS_PKI_DIR}/tls.crt" \
+    --from-file=tls.key="${NATS_PKI_DIR}/tls.key" \
+    --dry-run=client -o yaml | kube apply -f - >/dev/null
+  kube -n "$APP_NAMESPACE" create secret generic blindou-postgres-client \
+    --from-file=ca.crt="$SERVER_CA_FILE" --from-file=tls.crt="$CLIENT_CERT_FILE" \
+    --from-file=tls.key="$CLIENT_KEY_FILE" \
+    --dry-run=client -o yaml | kube apply -f - >/dev/null
   ensure_ghcr_pull_secret
+}
+
+verify_runtime_material() {
+  runtime_secret_file_is_secure "$RUNTIME_CONFIG_FILE" || fail 'configuração root-only ausente'
+  grep -Fxq 'AUTH_REQUIRE_2FA=false' "$RUNTIME_CONFIG_FILE" \
+    || fail 'AUTH_REQUIRE_2FA deve permanecer false nesta release'
+  if kube -n "$APP_NAMESPACE" get secret blindou-core-secrets \
+      -o go-template='{{range $key, $value := .data}}{{printf "%s\n" $key}}{{end}}' \
+      | grep -Fxq AUTH_SECURITY_WHATSAPP_SENDER_TOKEN; then
+    fail 'sender WhatsApp do 2FA deve permanecer ausente'
+  fi
   secret_has_keys "$APP_NAMESPACE" blindou-core-secrets \
     DATABASE_URL PASSWORD_PEPPER_CURRENT TOKEN_HASH_SECRET JWT_SECRET \
     TOTP_ENCRYPTION_KEY SESSION_ENCRYPTION_KEY AUTH_SECURITY_CODE_HASH_SECRET \
     AUTH_SECURITY_CODE_ENCRYPTION_KEY AUTH_SECURITY_CHANNEL_ENCRYPTION_KEY \
-    AUTH_TRUST_HASH_SECRET AUTH_SECURITY_WHATSAPP_SENDER_TOKEN \
-    UAZAPI_ADMIN_TOKEN UAZAPI_WEBHOOK_SECRET UAZAPI_TOKEN_ENCRYPTION_KEY \
-    NATS_PASSWORD REDIS_PASSWORD RESEND_API_KEY METRICS_BEARER_TOKEN \
-    CLOUDFLARE_SAAS_API_TOKEN
+    AUTH_TRUST_HASH_SECRET UAZAPI_ADMIN_TOKEN UAZAPI_WEBHOOK_SECRET \
+    UAZAPI_TOKEN_ENCRYPTION_KEY NATS_PASSWORD REDIS_PASSWORD RESEND_API_KEY \
+    METRICS_BEARER_TOKEN CLOUDFLARE_SAAS_API_TOKEN
   secret_has_keys "$APP_NAMESPACE" blindou-redirect-secrets \
     REDIRECTOR_DATABASE_URL REDIRECTOR_CODE_SECRET REDIRECTOR_HMAC_SECRET \
     REDIRECTOR_IP_HASH_SECRET REDIRECTOR_FINGERPRINT_HASH_SECRET METRICS_BEARER_TOKEN
@@ -1356,7 +1823,213 @@ require_release_gates() {
   secret_has_keys "$APP_NAMESPACE" blindou-redis-auth users.acl
   secret_has_keys "$APP_NAMESPACE" blindou-nats-tls ca.crt tls.crt tls.key
   secret_has_keys "$APP_NAMESPACE" blindou-postgres-client ca.crt tls.crt tls.key
+  secret_has_keys "$APP_NAMESPACE" "$GHCR_PULL_SECRET" .dockerconfigjson
   secret_has_keys "$EDGE_NAMESPACE" blindou-cloudflare-tunnel token
+}
+
+provision_runtime_secrets() {
+  [[ "${1:-}" == "$RUNTIME_SECRETS_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${RUNTIME_SECRETS_CONFIRMATION}"
+  [[ ! -t 0 ]] || fail 'segredos de runtime devem chegar por stdin não interativo'
+  require_platform_preconditions
+  verify_data_foundation >/dev/null
+  verify_cloudflare_saas_token >/dev/null
+  verify_ghcr_pull_credential >/dev/null
+  local schema uazapi_url_b64 uazapi_token_b64 resend_key_b64 email_from_b64
+  IFS= read -r schema || fail 'payload de runtime ausente'
+  IFS= read -r uazapi_url_b64 || fail 'UAZAPI_BASE_URL ausente'
+  IFS= read -r uazapi_token_b64 || fail 'UAZAPI_ADMIN_TOKEN ausente'
+  IFS= read -r resend_key_b64 || fail 'RESEND_API_KEY ausente'
+  IFS= read -r email_from_b64 || fail 'EMAIL_FROM_EMAIL ausente'
+  [[ "$schema" == 'schema=1' ]] || fail 'schema do payload de runtime inválido'
+  local encoded
+  for encoded in "$uazapi_url_b64" "$uazapi_token_b64" "$resend_key_b64" "$email_from_b64"; do
+    [[ "$encoded" =~ ^[A-Za-z0-9+/=]{4,8192}$ ]] || fail 'campo base64 inválido no payload de runtime'
+  done
+  local uazapi_base_url uazapi_admin_token resend_api_key email_from
+  uazapi_base_url="$(printf '%s' "$uazapi_url_b64" | base64 -d)" || fail 'UAZAPI_BASE_URL inválida'
+  uazapi_admin_token="$(printf '%s' "$uazapi_token_b64" | base64 -d)" || fail 'UAZAPI_ADMIN_TOKEN inválido'
+  resend_api_key="$(printf '%s' "$resend_key_b64" | base64 -d)" || fail 'RESEND_API_KEY inválida'
+  email_from="$(printf '%s' "$email_from_b64" | base64 -d)" || fail 'EMAIL_FROM_EMAIL inválido'
+  [[ "$uazapi_base_url" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[^[:space:]\"\\]*)?$ ]] \
+    || fail 'UAZAPI_BASE_URL deve ser HTTPS sem credenciais embutidas'
+  [[ "$uazapi_admin_token" =~ ^[^[:space:][:cntrl:]]{16,2048}$ ]] \
+    || fail 'UAZAPI_ADMIN_TOKEN possui formato inválido'
+  [[ "$resend_api_key" =~ ^re_[A-Za-z0-9_-]{16,512}$ ]] \
+    || fail 'RESEND_API_KEY possui formato inválido'
+  [[ "$email_from" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$ && "$email_from" != *.invalid ]] \
+    || fail 'EMAIL_FROM_EMAIL possui formato inválido'
+
+  install -d -o root -g root -m 0700 "$RUNTIME_SECRET_DIR"
+  write_runtime_value UAZAPI_ADMIN_TOKEN "$uazapi_admin_token"
+  write_runtime_value RESEND_API_KEY "$resend_api_key"
+  unset uazapi_admin_token resend_api_key uazapi_token_b64 resend_key_b64
+  write_runtime_config "$uazapi_base_url" "$email_from"
+  extract_database_url MIGRATION_DATABASE_URL
+  extract_database_url DATABASE_URL
+  extract_database_url REDIRECTOR_DATABASE_URL
+  extract_database_url ML_CONNECTOR_DATABASE_URL
+  local name
+  for name in PASSWORD_PEPPER_CURRENT TOKEN_HASH_SECRET JWT_SECRET SESSION_ENCRYPTION_KEY \
+    AUTH_SECURITY_CODE_HASH_SECRET AUTH_TRUST_HASH_SECRET UAZAPI_WEBHOOK_SECRET \
+    NATS_PASSWORD REDIS_PASSWORD CORE_METRICS_BEARER_TOKEN REDIRECT_METRICS_BEARER_TOKEN \
+    REDIRECTOR_CODE_SECRET REDIRECTOR_HMAC_SECRET REDIRECTOR_IP_HASH_SECRET \
+    REDIRECTOR_FINGERPRINT_HASH_SECRET ML_CONNECTOR_INTERNAL_API_KEY \
+    ML_SESSION_ENCRYPTION_PEPPER; do
+    ensure_random_hex "$name"
+  done
+  for name in TOTP_ENCRYPTION_KEY AUTH_SECURITY_CODE_ENCRYPTION_KEY \
+    AUTH_SECURITY_CHANNEL_ENCRYPTION_KEY UAZAPI_TOKEN_ENCRYPTION_KEY \
+    ML_SESSION_ENCRYPTION_KEY; do
+    ensure_random_base64_key "$name"
+  done
+  cleanup_paths+=("${RUNTIME_SECRET_DIR}/users.acl.tmp")
+  printf 'user default on >%s ~* &* +@all' \
+    "$(<"${RUNTIME_SECRET_DIR}/REDIS_PASSWORD")" >"${RUNTIME_SECRET_DIR}/users.acl.tmp"
+  install -o root -g root -m 0600 "${RUNTIME_SECRET_DIR}/users.acl.tmp" \
+    "${RUNTIME_SECRET_DIR}/users.acl"
+  rm -f -- "${RUNTIME_SECRET_DIR}/users.acl.tmp"
+  generate_nats_pki
+  validate_runtime_providers "$uazapi_base_url" "$email_from"
+  configure_external_alerting "$email_from"
+  unset uazapi_base_url email_from uazapi_url_b64 email_from_b64
+
+  kube label namespace "$APP_NAMESPACE" \
+    'platform.servidor.local/deployment-gate=secrets-only' --overwrite >/dev/null
+  kube annotate namespace "$APP_NAMESPACE" \
+    'platform.servidor.local/gate-reason=runtime-material-only' --overwrite >/dev/null
+  kube -n "$APP_NAMESPACE" delete resourcequota platform-quarantine --ignore-not-found >/dev/null
+  create_runtime_kubernetes_material
+  verify_runtime_material
+  pass 'segredos, configuração e provedores preparados; workloads continuam bloqueados'
+}
+
+confirm_alert_delivery() {
+  [[ "${1:-}" == "$ALERT_DELIVERY_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${ALERT_DELIVERY_CONFIRMATION}"
+  require_root_and_host
+  [[ -f "$ALERT_RECEIPT" && ! -L "$ALERT_RECEIPT" ]] || fail 'envio de alerta pendente ausente'
+  grep -Fxq 'status=pending' "$ALERT_RECEIPT" || fail 'alerta não está pendente de confirmação'
+  sed 's/^status=pending$/status=confirmed/' "$ALERT_RECEIPT" >"${ALERT_RECEIPT}.tmp"
+  printf 'confirmed_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"${ALERT_RECEIPT}.tmp"
+  install -o root -g root -m 0600 "${ALERT_RECEIPT}.tmp" "$ALERT_RECEIPT"
+  rm -f -- "${ALERT_RECEIPT}.tmp"
+  pass "receptor externo confirmado: ${SUPERADMIN_EMAIL}"
+}
+
+confirm_offsite_backup() {
+  local backup_id="$1" expected_sha="$2" confirmation="$3" manifest
+  [[ "$confirmation" == "$OFFSITE_BACKUP_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${OFFSITE_BACKUP_CONFIRMATION}"
+  require_root_and_host
+  [[ "$backup_id" =~ ^blindou-[0-9]{8}T[0-9]{6}Z$ && "$expected_sha" =~ ^[0-9a-f]{64}$ ]] \
+    || fail 'recibo offsite possui formato inválido'
+  [[ "$(<"${DATABASE_BACKUP_ROOT}/latest")" == "$backup_id" ]] \
+    || fail 'recibo offsite não corresponde ao backup mais recente'
+  manifest="${DATABASE_BACKUP_ROOT}/${backup_id}.manifest"
+  grep -Fxq "encrypted_sha256=${expected_sha}" "$manifest" \
+    || fail 'checksum offsite diverge do manifesto no host'
+  {
+    printf 'schema=1\nbackup_id=%s\nencrypted_sha256=%s\n' "$backup_id" "$expected_sha"
+    printf 'target=administrative-workstation\nrpo_minutes=15\nrto_hours=4\nretention_days=30\n'
+    printf 'confirmed_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } >"${OFFSITE_BACKUP_RECEIPT}.tmp"
+  install -o root -g root -m 0600 "${OFFSITE_BACKUP_RECEIPT}.tmp" "$OFFSITE_BACKUP_RECEIPT"
+  rm -f -- "${OFFSITE_BACKUP_RECEIPT}.tmp"
+  pass "cópia offsite confirmada para ${backup_id}"
+}
+
+activate_release_gates() {
+  local release_id="$1" confirmation="$2" backup_id backup_timestamp backup_epoch now_epoch
+  [[ "$confirmation" == "$RELEASE_GATES_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${RELEASE_GATES_CONFIRMATION}"
+  [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
+  require_platform_preconditions
+  verify_data_foundation >/dev/null
+  verify_runtime_material
+  [[ "$(namespace_label "$APP_NAMESPACE" 'platform\.servidor\.local/deployment-gate')" == 'secrets-only' ]] \
+    || fail 'aplicação não está no gate intermediário secrets-only'
+  [[ "$(namespace_label "$EDGE_NAMESPACE" 'platform\.servidor\.local/deployment-gate')" == 'connector-only' ]] \
+    || fail 'EDGE não está no gate connector-only'
+  [[ -d "${RELEASE_CACHE}/${release_id}/rendered" ]] || fail 'release assinada não está no cache'
+  [[ "$(<"$GHCR_PULL_PROOF_LATEST")" == "$release_id" ]] \
+    || fail 'prova GHCR não corresponde à release'
+  [[ -f "$ALERT_RECEIPT" ]] && grep -Fxq 'status=confirmed' "$ALERT_RECEIPT" \
+    || fail 'receptor externo de alertas não foi confirmado'
+  backup_id="$(<"${DATABASE_BACKUP_ROOT}/latest")"
+  [[ -f "$OFFSITE_BACKUP_RECEIPT" ]] \
+    && grep -Fxq "backup_id=${backup_id}" "$OFFSITE_BACKUP_RECEIPT" \
+    || fail 'cópia offsite do backup mais recente não foi confirmada'
+  backup_timestamp="${backup_id#blindou-}"
+  backup_epoch="$(date -u -d "${backup_timestamp:0:8} ${backup_timestamp:9:2}:${backup_timestamp:11:2}:${backup_timestamp:13:2}" +%s)"
+  now_epoch="$(date -u +%s)"
+  (( now_epoch - backup_epoch <= 3600 )) || fail 'backup anterior ao deploy tem mais de uma hora'
+  /usr/local/sbin/blindou-hostctl verify >/dev/null
+  /usr/local/sbin/apiwpp-deployctl verify >/dev/null
+  kube -n "$EDGE_NAMESPACE" delete resourcequota platform-quarantine --ignore-not-found >/dev/null
+  for namespace in "$APP_NAMESPACE" "$EDGE_NAMESPACE"; do
+    kube label namespace "$namespace" \
+      'platform.servidor.local/deployment-gate=passed' --overwrite >/dev/null
+    kube annotate namespace "$namespace" \
+      "platform.servidor.local/gate-reason=release-${release_id}" --overwrite >/dev/null
+  done
+  {
+    printf 'schema=1\nrelease_id=%s\nbackup_id=%s\n' "$release_id" "$backup_id"
+    printf 'activated_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } >"${RELEASE_GATE_RECEIPT}.tmp"
+  install -o root -g root -m 0600 "${RELEASE_GATE_RECEIPT}.tmp" "$RELEASE_GATE_RECEIPT"
+  rm -f -- "${RELEASE_GATE_RECEIPT}.tmp"
+  pass "gates de produção liberados para a release ${release_id}"
+}
+
+bootstrap_superadmin() {
+  local release_id="$1" confirmation="$2" encoded_password password
+  [[ "$confirmation" == "$SUPERADMIN_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${SUPERADMIN_CONFIRMATION}"
+  [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
+  [[ ! -t 0 ]] || fail 'senha do superadmin deve chegar por stdin não interativo'
+  require_platform_preconditions
+  [[ -f "$CURRENT_RELEASE" && "$(<"$CURRENT_RELEASE")" == "$release_id" ]] \
+    || fail 'release implantada diverge da release confirmada'
+  grep -Fxq "release_id=${release_id}" "$RELEASE_GATE_RECEIPT" \
+    || fail 'recibo do gate da release está ausente'
+  kube -n "$APP_NAMESPACE" rollout status deployment/blindou-backend --timeout=120s >/dev/null
+  [[ "$(kube -n "$APP_NAMESPACE" get deployment blindou-backend \
+    -o jsonpath='{.spec.template.metadata.annotations.blindou\.io/release}')" == "$release_id" ]] \
+    || fail 'backend Ready diverge da release confirmada'
+  IFS= read -r encoded_password || fail 'senha do superadmin não foi recebida'
+  [[ "$encoded_password" =~ ^[A-Za-z0-9+/=]{16,1024}$ ]] \
+    || fail 'senha codificada do superadmin possui formato inválido'
+  password="$(printf '%s' "$encoded_password" | base64 -d)" \
+    || fail 'senha codificada do superadmin é inválida'
+  unset encoded_password
+  [[ ${#password} -le 256 && "$password" != *$'\n'* && "$password" != *$'\r'* ]] \
+    || { unset password; fail 'senha do superadmin excede o contrato de entrada'; }
+  printf '%s' "$password" | kube -n "$APP_NAMESPACE" exec -i deployment/blindou-backend -c backend -- \
+    /usr/bin/env "BOOTSTRAP_TENANT_NAME=${SUPERADMIN_TENANT}" \
+    "BOOTSTRAP_USER_EMAIL=${SUPERADMIN_EMAIL}" "BOOTSTRAP_USER_NAME=${SUPERADMIN_NAME}" \
+    BOOTSTRAP_USER_ROLE=super_admin /usr/local/bin/blindou-bootstrap-user
+  unset password
+  pass "superadmin inicial criado: ${SUPERADMIN_EMAIL}"
+}
+
+require_release_gates() {
+  local release_id="$1"
+  verify_data_foundation >/dev/null
+  for namespace in "$APP_NAMESPACE" "$EDGE_NAMESPACE"; do
+    [[ "$(namespace_label "$namespace" 'platform\.servidor\.local/deployment-gate')" == 'passed' ]] \
+      || fail "gate do namespace ${namespace} não está passed"
+    if kube -n "$namespace" get resourcequota platform-quarantine >/dev/null 2>&1; then
+      fail "quota de quarentena ainda existe em ${namespace}"
+    fi
+  done
+  [[ -f "$RELEASE_GATE_RECEIPT" && ! -L "$RELEASE_GATE_RECEIPT" \
+      && "$(stat -c '%U:%G:%a' "$RELEASE_GATE_RECEIPT")" == 'root:root:600' ]] \
+    || fail 'recibo do gate de release ausente ou inseguro'
+  grep -Fxq "release_id=${release_id}" "$RELEASE_GATE_RECEIPT" \
+    || fail 'recibo do gate não corresponde à release'
+  ensure_ghcr_pull_secret
+  verify_runtime_material
 }
 
 wait_release() {
@@ -1378,7 +2051,9 @@ wait_release() {
 apply_cached_release() {
   local release_id="$1" rendered="${RELEASE_CACHE}/${release_id}/rendered"
   [[ -d "$rendered" && ! -L "$rendered" ]] || fail 'release não está validada no cache root-owned'
-  require_release_gates
+  require_release_gates "$release_id"
+  kube -n "$APP_NAMESPACE" annotate configmap blindou-runtime-config \
+    "blindou.io/release=${release_id}" --overwrite >/dev/null
   kube apply -f "$rendered/00-platform.yaml" >/dev/null
   kube apply -f "$rendered/10-services.yaml" >/dev/null
   kube apply -f "$rendered/20-nats-config.yaml" >/dev/null
@@ -1392,6 +2067,7 @@ apply_cached_release() {
   kube apply -f "$rendered/40-workloads.yaml" -l 'blindou.io/tier=app' >/dev/null
   kube apply -f "$rendered/workers" >/dev/null
   kube apply -f "$rendered/60-cloudflared.yaml" >/dev/null
+  attach_edge_pull_credential
   wait_release "$release_id" "$rendered"
   printf '%s\n' "$release_id" >"${CURRENT_RELEASE}.tmp"
   install -o root -g root -m 0600 "${CURRENT_RELEASE}.tmp" "$CURRENT_RELEASE"
@@ -1405,7 +2081,7 @@ rollback_release() {
   [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
   local rendered="${RELEASE_CACHE}/${release_id}/rendered"
   [[ -d "$rendered" && ! -L "$rendered" ]] || fail 'release de rollback ausente do cache'
-  require_release_gates
+  require_release_gates "$release_id"
   kube apply -f "$rendered/00-platform.yaml" >/dev/null
   kube apply -f "$rendered/10-services.yaml" >/dev/null
   kube apply -f "$rendered/20-nats-config.yaml" >/dev/null
@@ -1413,6 +2089,7 @@ rollback_release() {
   kube apply -f "$rendered/40-workloads.yaml" -l 'blindou.io/tier in (infra,app)' >/dev/null
   kube apply -f "$rendered/workers" >/dev/null
   kube apply -f "$rendered/60-cloudflared.yaml" >/dev/null
+  attach_edge_pull_credential
   local deployment
   for deployment in blindou-backend blindou-ml-affiliate-connector blindou-redirector; do
     kube -n "$APP_NAMESPACE" rollout status "deployment/${deployment}" --timeout=600s
@@ -1435,10 +2112,21 @@ apply_release() {
         || fail 'release falhou e rollback automático também falhou'
       fail "release falhou; workloads restaurados para ${previous}"
     fi
-    kube -n "$EDGE_NAMESPACE" delete deployment blindou-cloudflared --ignore-not-found >/dev/null || true
-    kube -n "$APP_NAMESPACE" scale deployment \
-      blindou-backend blindou-ml-affiliate-connector blindou-redirector --replicas=0 >/dev/null 2>&1 || true
-    fail 'primeira release falhou; entrada Cloudflare removida e aplicações escaladas a zero'
+    kube -n "$APP_NAMESPACE" delete deployment,statefulset,daemonset,job,cronjob \
+      --all --ignore-not-found --wait=true >/dev/null 2>&1 || true
+    kube -n "$APP_NAMESPACE" delete service --all --ignore-not-found --wait=true >/dev/null 2>&1 || true
+    kube -n "$EDGE_NAMESPACE" delete deployment blindou-cloudflared \
+      --ignore-not-found --wait=true >/dev/null 2>&1 || true
+    kube -n "$EDGE_NAMESPACE" delete secret "$GHCR_PULL_SECRET" \
+      --ignore-not-found --wait=true >/dev/null 2>&1 || true
+    kube label namespace "$APP_NAMESPACE" \
+      'platform.servidor.local/deployment-gate=secrets-only' --overwrite >/dev/null 2>&1 || true
+    kube annotate namespace "$APP_NAMESPACE" \
+      'platform.servidor.local/gate-reason=first-release-failed' --overwrite >/dev/null 2>&1 || true
+    kube apply -f "$EDGE_GATE_MANIFEST" >/dev/null 2>&1 || true
+    kube apply -f "$EDGE_RUNTIME_MANIFEST" >/dev/null 2>&1 || true
+    rm -f -- "$RELEASE_GATE_RECEIPT"
+    fail 'primeira release falhou; workloads removidos, aplicação bloqueada e conector isolado restaurado'
   fi
   pass "release assinada ${release_id} aplicada"
 }
@@ -1513,7 +2201,10 @@ show_status() {
   else
     printf 'current_release=absent\n'
   fi
-  if ( verify_edge_connector >/dev/null 2>&1 ); then
+  if [[ "$(namespace_label "$EDGE_NAMESPACE" 'platform\.servidor\.local/deployment-gate' 2>/dev/null || true)" == passed \
+      && "$(kube -n "$EDGE_NAMESPACE" get deployment blindou-cloudflared \
+        -o jsonpath='{.status.availableReplicas}' 2>/dev/null || true)" == '1' ]] \
+      || ( verify_edge_connector >/dev/null 2>&1 ); then
     printf 'cloudflare_connector=ready\n'
   else
     printf 'cloudflare_connector=absent_or_unhealthy\n'
@@ -1532,6 +2223,21 @@ show_status() {
     printf 'ghcr_candidate_pull_proof=%s\n' "$(<"$GHCR_PULL_PROOF_LATEST")"
   else
     printf 'ghcr_candidate_pull_proof=absent_or_insecure\n'
+  fi
+  if [[ -f "$RUNTIME_CONFIG_FILE" && ! -L "$RUNTIME_CONFIG_FILE" ]]; then
+    printf 'runtime_material=present\n'
+  else
+    printf 'runtime_material=absent\n'
+  fi
+  if [[ -f "$ALERT_RECEIPT" ]] && grep -Fxq 'status=confirmed' "$ALERT_RECEIPT"; then
+    printf 'external_alert_receiver=confirmed\n'
+  else
+    printf 'external_alert_receiver=absent_or_pending\n'
+  fi
+  if [[ -f "$OFFSITE_BACKUP_RECEIPT" ]]; then
+    printf 'offsite_backup_receipt=present\n'
+  else
+    printf 'offsite_backup_receipt=absent\n'
   fi
 }
 
@@ -1616,6 +2322,22 @@ case "${1:-}" in
     [[ $# -eq 1 ]] || fail 'uso: blindou-deployctl export-latest-backup'
     export_latest_backup
     ;;
+  provision-runtime-secrets)
+    [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl provision-runtime-secrets CONFIRMAÇÃO'
+    provision_runtime_secrets "$2"
+    ;;
+  confirm-alert-delivery)
+    [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl confirm-alert-delivery CONFIRMAÇÃO'
+    confirm_alert_delivery "$2"
+    ;;
+  confirm-offsite-backup)
+    [[ $# -eq 4 ]] || fail 'uso: blindou-deployctl confirm-offsite-backup BACKUP_ID SHA256 CONFIRMAÇÃO'
+    confirm_offsite_backup "$2" "$3" "$4"
+    ;;
+  activate-release-gates)
+    [[ $# -eq 3 ]] || fail 'uso: blindou-deployctl activate-release-gates RELEASE_ID CONFIRMAÇÃO'
+    activate_release_gates "$2" "$3"
+    ;;
   validate-release)
     [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl validate-release RELEASE_ID'
     require_root_and_host
@@ -1625,6 +2347,10 @@ case "${1:-}" in
     [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl apply RELEASE_ID'
     require_root_and_host
     apply_release "$2"
+    ;;
+  bootstrap-superadmin)
+    [[ $# -eq 3 ]] || fail 'uso: blindou-deployctl bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO'
+    bootstrap_superadmin "$2" "$3"
     ;;
   rollback)
     [[ $# -eq 3 ]] || fail 'uso: blindou-deployctl rollback RELEASE_ID CONFIRMAÇÃO'
@@ -1636,6 +2362,6 @@ case "${1:-}" in
     metrics
     ;;
   *)
-    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|validate-release RELEASE_ID|apply RELEASE_ID|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
+    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|provision-runtime-secrets CONFIRMAÇÃO|confirm-alert-delivery CONFIRMAÇÃO|confirm-offsite-backup BACKUP_ID SHA256 CONFIRMAÇÃO|activate-release-gates RELEASE_ID CONFIRMAÇÃO|validate-release RELEASE_ID|apply RELEASE_ID|bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
     ;;
 esac

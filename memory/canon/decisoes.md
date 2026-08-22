@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-decisoes
   source_path: memory/canon/decisoes.md
   generated_from: decisões do usuário e limites observados do laboratório
-  updated_at: 2026-08-21
+  updated_at: 2026-08-22
   status: canonical
 
 ## Resolvida D001 - Projetos admitidos pela plataforma
@@ -34,13 +34,19 @@ workloads. O Blindou poderá ser o primeiro uso operacional limitado do host,
 sem alegação de alta disponibilidade, somente depois que os gates temporários
 de D013 passarem.
 
-## Resolvida parcialmente D005 - Destino externo de alertas
+## Resolvida D005 - Alertas e continuidade da primeira operação
 
 O usuário escolheu `gleisonsette@gmail.com` como receptor externo, independente
-do servidor e do WhatsApp monitorado. A decisão do endereço está concluída. O
-gate operacional continua pendente até existir canal autenticado, credencial
-restrita, teste real de entrega e runbook de falha. A integração prevista é por
-e-mail; não inventar webhook, WhatsApp ou destino alternativo.
+do servidor e do WhatsApp monitorado. O canal aprovado usa Alertmanager restrito
+ao loopback e Resend por SMTP autenticado com TLS. A credencial fica fora do Git
+e a liberação do gate exige alerta sintético e confirmação humana de entrega.
+Não inventar webhook, WhatsApp ou destino alternativo.
+
+Para a primeira operação no servidor físico, o usuário aceitou RPO de 15
+minutos, RTO de 4 horas e retenção offsite de 30 dias. Antes de migrations, o
+controlador cria o dump lógico criptografado, a estação administrativa baixa e
+confere tamanho e SHA-256 e o host registra um recibo sem segredo. Esses valores
+são temporários e devem ser revistos quando a operação migrar ou crescer.
 
 ## Resolvida parcialmente D006 - Borda pública
 
@@ -139,8 +145,10 @@ superuser, criação de database/role ou replicação.
 O backup físico pgBackRest continua protegendo o cluster inteiro. O Blindou
 também produz dump lógico separado, valida o catálogo antes de criptografar e
 exporta somente o envelope CMS AES-256-GCM. A chave privada de recuperação e a
-chave de assinatura de release permanecem fora do servidor. Frequência,
-retenção, RPO/RTO e destino offsite continuam pendentes em D005.
+chave de assinatura de release permanecem fora do servidor. O primeiro deploy
+exige uma cópia na estação administrativa com retenção de 30 dias e recibo
+coerente com o backup mais recente. O objetivo operacional temporário é RPO de
+15 minutos e RTO de 4 horas, conforme D005.
 
 ## Resolvida D015 - Build efêmero e servidor somente leitura no GHCR
 
