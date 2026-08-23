@@ -122,6 +122,11 @@ grep -Fq "Read-Host 'Cole a chave de acesso secreta' -AsSecureString" "$R2_RUNTI
   || fail 'orquestrador R2 não protege a secret key no terminal'
 grep -Fq 'provision-r2-runtime-credential blindou-r2-runtime-credential' "$R2_RUNTIME_SCRIPT" \
   || fail 'orquestrador R2 não usa a interface fechada aprovada'
+grep -Fq '& scp.exe @sshArgs $archive' "$R2_RUNTIME_SCRIPT" \
+  || fail 'orquestrador R2 não transporta o controlador em uma única conexão SCP'
+if grep -Fq 'foreach ($file in $files)' "$R2_RUNTIME_SCRIPT"; then
+  fail 'orquestrador R2 ainda abre uma conexão SCP por arquivo'
+fi
 if grep -Eq 'Write-(Host|Output|Verbose|Debug).*(accessKey|secretKey|payload)' "$R2_RUNTIME_SCRIPT"; then
   fail 'orquestrador R2 pode revelar credencial em output'
 fi

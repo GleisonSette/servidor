@@ -7,6 +7,8 @@ $identity = Join-Path $env:LOCALAPPDATA 'apiwpp\ssh\apiwpp_admin_ed25519'
 $knownHosts = Join-Path $env:LOCALAPPDATA 'apiwpp\ssh\known_hosts'
 $remoteRoot = '/home/apiadmin/blindou-platform-bootstrap-r2-runtime'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
+$archiveDirectory = Join-Path $env:LOCALAPPDATA 'blindou\bootstrap'
+$archive = Join-Path $archiveDirectory 'blindou-r2-runtime-bootstrap.tar.gz'
 Import-Module (Join-Path $PSScriptRoot 'Blindou.SudoBootstrap.psm1') -Force
 $sshArgs = @(
     '-F', 'NUL',
@@ -109,24 +111,24 @@ foreach ($required in @($identity, $knownHosts)) {
     }
 }
 
-$files = @(
-    @{ Local = 'operations/remote/blindou-deployctl'; Remote = 'operations/remote/' },
-    @{ Local = 'operations/remote/blindou-deployctl.sudoers'; Remote = 'operations/remote/' },
-    @{ Local = 'operations/remote/blindou-release-emergencyctl'; Remote = 'operations/remote/' },
-    @{ Local = 'operations/remote/blindou-release-verify.py'; Remote = 'operations/remote/' },
-    @{ Local = 'operations/remote/blindou-ghcr-pull-verify.py'; Remote = 'operations/remote/' },
-    @{ Local = 'operations/remote/blindou-platform-metrics'; Remote = 'operations/remote/' },
-    @{ Local = 'operations/remote/blindou-platform-metrics.service'; Remote = 'operations/remote/' },
-    @{ Local = 'operations/remote/blindou-platform-metrics.timer'; Remote = 'operations/remote/' },
-    @{ Local = 'operations/remote/blindou-release-allowed-signers'; Remote = 'operations/remote/' },
-    @{ Local = 'operations/remote/blindou-backup-recipient.crt'; Remote = 'operations/remote/' },
-    @{ Local = 'operations/remote/bootstrap-blindou-deployctl.sh'; Remote = 'operations/remote/' },
-    @{ Local = 'platform/blindou/00-namespaces.yaml'; Remote = 'platform/blindou/' },
-    @{ Local = 'platform/blindou/10-quarantine.yaml'; Remote = 'platform/blindou/' },
-    @{ Local = 'platform/blindou/15-edge-connector-gate.yaml'; Remote = 'platform/blindou/' },
-    @{ Local = 'platform/blindou/16-edge-connector-runtime.yaml'; Remote = 'platform/blindou/' },
-    @{ Local = 'platform/blindou/20-production-workload-policy.yaml'; Remote = 'platform/blindou/' },
-    @{ Local = 'platform/base/service-exposure-policy.yaml'; Remote = 'platform/base/' }
+$archiveMembers = @(
+    'operations/remote/blindou-deployctl',
+    'operations/remote/blindou-deployctl.sudoers',
+    'operations/remote/blindou-release-emergencyctl',
+    'operations/remote/blindou-release-verify.py',
+    'operations/remote/blindou-ghcr-pull-verify.py',
+    'operations/remote/blindou-platform-metrics',
+    'operations/remote/blindou-platform-metrics.service',
+    'operations/remote/blindou-platform-metrics.timer',
+    'operations/remote/blindou-release-allowed-signers',
+    'operations/remote/blindou-backup-recipient.crt',
+    'operations/remote/bootstrap-blindou-deployctl.sh',
+    'platform/blindou/00-namespaces.yaml',
+    'platform/blindou/10-quarantine.yaml',
+    'platform/blindou/15-edge-connector-gate.yaml',
+    'platform/blindou/16-edge-connector-runtime.yaml',
+    'platform/blindou/20-production-workload-policy.yaml',
+    'platform/base/service-exposure-policy.yaml'
 )
 
 $accessKeySecure = $null
@@ -137,19 +139,29 @@ $payload = $null
 try {
     $Host.UI.RawUI.WindowTitle = 'Blindou - credencial R2 do runtime'
     Write-Host 'Atualizando o controlador fechado do Blindou.' -ForegroundColor Cyan
-    & ssh.exe @sshArgs $server (
-        "install -d -m 0700 " +
-        "$remoteRoot/operations/remote $remoteRoot/platform/blindou $remoteRoot/platform/base"
-    )
-    if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar o diretório remoto.' }
-    foreach ($file in $files) {
-        $localPath = Join-Path $repositoryRoot $file.Local
+    foreach ($member in $archiveMembers) {
+        $localPath = Join-Path $repositoryRoot $member
         if (-not (Test-Path -LiteralPath $localPath -PathType Leaf)) {
-            throw "Artefato local ausente: $($file.Local)"
+            throw "Artefato local ausente: $member"
         }
-        & scp.exe @sshArgs $localPath "${server}:$remoteRoot/$($file.Remote)"
-        if ($LASTEXITCODE -ne 0) { throw "Falha ao enviar $($file.Local)." }
     }
+    if (-not (Test-Path -LiteralPath $archiveDirectory -PathType Container)) {
+        [void](New-Item -ItemType Directory -Path $archiveDirectory -Force)
+    }
+    if (Test-Path -LiteralPath $archive) { Remove-Item -LiteralPath $archive -Force }
+    & tar.exe -czf $archive -C $repositoryRoot @archiveMembers
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $archive -PathType Leaf)) {
+        throw 'Falha ao criar o pacote fechado do controlador.'
+    }
+    & scp.exe @sshArgs $archive "${server}:/home/apiadmin/blindou-r2-runtime-bootstrap.tar.gz"
+    if ($LASTEXITCODE -ne 0) { throw 'Falha ao enviar o pacote fechado do controlador.' }
+    $remotePrepare = @"
+install -d -m 0700 $remoteRoot
+tar -xzf /home/apiadmin/blindou-r2-runtime-bootstrap.tar.gz -C $remoteRoot
+rm -f -- /home/apiadmin/blindou-r2-runtime-bootstrap.tar.gz
+"@
+    & ssh.exe @sshArgs $server $remotePrepare
+    if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar o pacote remoto.' }
     Invoke-BlindouSudoBootstrap `
         -ControllerSet DeployController `
         -SshArguments $sshArgs `
@@ -198,6 +210,9 @@ finally {
     $payload = $null
     if ($null -ne $accessKeySecure) { $accessKeySecure.Dispose() }
     if ($null -ne $secretKeySecure) { $secretKeySecure.Dispose() }
+    if (Test-Path -LiteralPath $archive -PathType Leaf) {
+        Remove-Item -LiteralPath $archive -Force
+    }
 }
 
 Read-Host 'Pressione ENTER para fechar'

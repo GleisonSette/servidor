@@ -352,10 +352,13 @@ Antes de republicar o runtime de revisão, executar na estação administrativa:
 O operador copia da página de criação da Cloudflare o ID e a chave secreta para
 dois campos protegidos. O script não lê a sessão do navegador, não salva os
 valores na estação e os transmite em base64 somente por `stdin` ao comando
-fechado `provision-r2-runtime-credential`. O controlador valida formato,
-escreve um objeto sentinela, lê o mesmo conteúdo pelo domínio público, compara
-SHA-256, exclui o objeto e só então instala os dois arquivos `root:root 0600`
-em `/etc/blindou/r2-media`. Falha antes da validação não persiste a credencial.
+fechado `provision-r2-runtime-credential`. Os artefatos públicos do controlador
+são empacotados e enviados em uma única conexão SCP para respeitar o limite de
+handshakes do SSH; a credencial não participa desse pacote. O controlador
+valida formato, escreve um objeto sentinela, lê o mesmo conteúdo pelo domínio
+público, compara SHA-256, exclui o objeto e só então instala os dois arquivos
+`root:root 0600` em `/etc/blindou/r2-media`. Falha antes da validação não
+persiste a credencial.
 
 Depois da prova viva, o próprio orquestrador repete
 `provision-ui-review-runtime`: `production.env` passa a expor somente os dados
