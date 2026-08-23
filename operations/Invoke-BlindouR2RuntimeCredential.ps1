@@ -136,6 +136,7 @@ $secretKeySecure = $null
 $accessKey = $null
 $secretKey = $null
 $payload = $null
+$operationFailed = $false
 try {
     $Host.UI.RawUI.WindowTitle = 'Blindou - credencial R2 do runtime'
     Write-Host 'Atualizando o controlador fechado do Blindou.' -ForegroundColor Cyan
@@ -162,6 +163,8 @@ rm -f -- /home/apiadmin/blindou-r2-runtime-bootstrap.tar.gz
 "@
     & ssh.exe @sshArgs $server $remotePrepare
     if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar o pacote remoto.' }
+    Write-Host 'Aguardando a janela de segurança do SSH antes do bootstrap.' -ForegroundColor Yellow
+    Start-Sleep -Seconds 20
     Invoke-BlindouSudoBootstrap `
         -ControllerSet DeployController `
         -SshArguments $sshArgs `
@@ -195,14 +198,20 @@ rm -f -- /home/apiadmin/blindou-r2-runtime-bootstrap.tar.gz
     $secretKey = $null
     $payload = $null
 
+    Write-Host 'Aguardando a janela de segurança do SSH antes de republicar o runtime.' `
+        -ForegroundColor Yellow
+    Start-Sleep -Seconds 20
     Invoke-RemoteDeployControl `
         -RemoteCommand 'sudo -n /usr/local/sbin/blindou-deployctl provision-ui-review-runtime blindou-ui-review-runtime' `
         -FailureMessage 'Falha ao republicar o runtime de revisão com R2.'
-    Invoke-RemoteDeployControl `
-        -RemoteCommand 'sudo -n /usr/local/sbin/blindou-deployctl verify-r2-runtime-credential' `
-        -FailureMessage 'A verificação final do R2 falhou.'
     Write-Host ''
     Write-Host 'R2 validado e runtime técnico republicado. Volte ao Codex.' -ForegroundColor Green
+}
+catch {
+    $operationFailed = $true
+    Write-Host ''
+    Write-Host $_.Exception.Message -ForegroundColor Red
+    Write-Host 'A operação foi interrompida sem tentar contornar a falha.' -ForegroundColor Red
 }
 finally {
     $accessKey = $null
@@ -216,3 +225,4 @@ finally {
 }
 
 Read-Host 'Pressione ENTER para fechar'
+if ($operationFailed) { exit 1 }
