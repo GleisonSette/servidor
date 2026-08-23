@@ -57,7 +57,8 @@ metadata:
   às credenciais Cloudflare for SaaS/GHCR, à release assinada e à prova de pull
   das quatro imagens privadas. O SHA-256 da
   fonte final é
-  `2851f28073b22840c3d52c4ea602a3b82498522bb94472744053f87f8a2306d8`.
+  `1aa65f272706e59923bca30a9bbb3fe5edfecc04f214554e9d8b31ed0a5e1553`;
+  o arquivo instalado no host possui o mesmo hash.
   A interface sudo sem senha continua restrita às operações fechadas do
   controlador; rollbacks destrutivos continuam fora da automação. D018 permite
   usar a senha local somente nos dois bootstraps versionados e fechados.
@@ -143,8 +144,12 @@ metadata:
 - O bucket de mídia `blindou-media-prod` está criado no R2 com domínio público
   `media.blindou.com` ativo, TLS mínimo 1.2, `r2.dev` desabilitado e CORS
   limitado a `GET`/`HEAD` de `https://app.blindou.com`. A credencial de objetos
-  restrita ao bucket foi criada na Cloudflare, mas ainda não foi entregue ao
-  cofre do host; a prova viva R2 permanece pendente.
+  restrita ao bucket foi entregue por entrada protegida e está no cofre
+  root-only do host. O controlador comprovou o ciclo vivo de escrita, leitura
+  pública com comparação SHA-256 e exclusão do sentinela. O estado autenticado
+  é `r2_runtime_credential_state=secure_local_store` e
+  `r2_runtime_live_probe=passed`; o runtime técnico foi republicado sem liberar
+  uma release corrente.
 - Prometheus, Node Exporter e PostgreSQL Exporter estão `up`, com três targets
   saudáveis e zero alertas ativos.
 - O coletor `stat_bgwriter`, incompatível com PostgreSQL 18 no exporter 0.15,
@@ -201,13 +206,15 @@ metadata:
   `migration_history_count=1`, `pg_stat_statements=present` e nenhum provedor
   externo configurado. Esse estado foi posteriormente substituído pela
   candidata `48bc9f0`.
-- O workflow `32612301391` aprovou `48bc9f0`, e a prova integral confirmou
-  quatro imagens, 25 blobs e 113.293.810 bytes. O backup
-  `blindou-20260823T025908Z` foi confirmado offsite. O `apply` registrou as oito
-  migrations, mas foi contido quando o worker `report-thumbnail` detectou R2
-  desabilitado. O estado autenticado atual é `migration_history_count=8`,
-  `current_release=absent`, aplicação em `secrets-only`, EDGE em
-  `connector-only` e Tunnel Ready.
+- O workflow `32645928340` aprovou `8e17210e34767935158ba5c8b863b48724297a93`,
+  inclusive bootstrap real com login runtime `NOBYPASSRLS`. A prova integral
+  confirmou quatro imagens, 25 blobs e 113.212.411 bytes. O backup
+  `blindou-20260823T152218Z` foi conferido e confirmado offsite. O rollout
+  concluiu com oito migrations já aplicadas, `current_release=8e17210`,
+  aplicação e EDGE em `passed`, Tunnel Ready, R2 comprovado e todos os
+  workloads Ready. UAZAPI, Resend e Pagar.me permanecem ausentes. A janela
+  protegida executou o bootstrap do superadmin e aguarda a confirmação visual
+  do resultado pelo operador.
 
 ## Manutenção
 

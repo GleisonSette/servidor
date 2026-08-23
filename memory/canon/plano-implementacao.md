@@ -207,18 +207,15 @@ Próxima ação exata:
 
 ## Fase 2E - Primeira release e capacidade do Blindou
 
-Status: as migrations `0001` a `0008` foram aplicadas pela candidata
-`48bc9f0fb14db6dedda34598ced3f702a96749bf`, mas o rollout foi contido antes de
-publicar uma release corrente porque `worker-report-thumbnail` recusou iniciar
-sem R2. O banco preserva oito registros SQLx, `current_release` permanece
-ausente e os gates voltaram a `secrets-only`/`connector-only`. O bucket
-`blindou-media-prod`, `media.blindou.com`, CORS e uma credencial de objetos
-restrita ao bucket foram criados na Cloudflare. O controlador e o orquestrador
-da entrada protegida estão preparados no repositório; ainda precisam ser
-instalados, receber os dois valores pelo operador, comprovar o ciclo vivo R2,
-republicar o runtime e repetir a mesma release assinada. Depois do rollout,
-criar e validar `gleisonsette@gmail.com` como superadmin. UAZAPI, Resend e
-Pagar.me continuam deliberadamente ausentes.
+Status: a release `8e17210e34767935158ba5c8b863b48724297a93` está aplicada
+com oito migrations, todos os workloads Ready, aplicação e EDGE em `passed`,
+Tunnel e R2 saudáveis e backup `blindou-20260823T152218Z` confirmado offsite.
+O gate de atualização foi corrigido para aceitar EDGE `passed` somente quando
+há um ponteiro seguro de release corrente; a primeira instalação continua
+exigindo `connector-only` e ausência desse ponteiro. A janela protegida do
+superadmin executou e aguarda confirmação visual do operador. Depois dessa
+confirmação, a próxima ação é revisar a UI. UAZAPI, Resend e Pagar.me continuam
+deliberadamente ausentes.
 
 Objetivos:
 

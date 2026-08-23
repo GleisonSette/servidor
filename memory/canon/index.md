@@ -69,18 +69,15 @@ corpus por padrão.
   grandes diferentes. O job de imagens foi pulado e não publicou candidatas.
 - Por D016, o Pages permanece automático: o `push` autorizado pode publicar o
   painel enquanto o workflow de imagens é acompanhado.
-- Por D019, a primeira release do núcleo e o login de superadmin precedem a
-  configuração de UAZAPI, Resend e Pagar.me. O modo inicial exige os três
-  provedores sem credenciais e explicitamente desabilitados; o canal externo de
-  alertas fica adiado até a aprovação visual. A candidata `48bc9f0` passou no
-  workflow `32612301391`, comprovou quatro imagens e recebeu o backup offsite
-  `blindou-20260823T025908Z`. As migrations `0001` a `0008` foram concluídas,
-  mas o rollout foi contido porque `worker-report-thumbnail` exige R2. O estado
-  vivo é `migration_history_count=8`, `current_release=absent`, aplicação em
-  `secrets-only` e conector em `connector-only` Ready. O bucket exclusivo
-  `blindou-media-prod`, `media.blindou.com`, CORS e a credencial restrita de
-  objetos foram criados; entrega protegida ao host, prova viva R2, reaplicação
-  da release e criação do superadmin permanecem como sequência imediata.
+- Por D019, UAZAPI, Resend e Pagar.me permanecem sem credenciais e desabilitados
+  até a aprovação visual. A release
+  `8e17210e34767935158ba5c8b863b48724297a93` passou no workflow
+  `32645928340`, no gate RLS de menor privilégio, nos scans, na prova integral
+  do host e no rollout. O estado vivo possui oito migrations,
+  `current_release=8e17210`, aplicação e EDGE em `passed`, Tunnel e R2
+  saudáveis e backup `blindou-20260823T152218Z` confirmado offsite. A janela
+  protegida de bootstrap já executou e aguarda somente a confirmação visual do
+  operador; depois disso, o próximo passo é a revisão da UI.
 
 ## Precedência
 

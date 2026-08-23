@@ -889,3 +889,47 @@ host no momento deste registro.
 - O orquestrador local solicita os dois valores em campos protegidos e os envia
   somente por `stdin`; não lê nem exporta o segredo da sessão autenticada do
   Chrome. Instalação, prova viva e repetição do rollout ainda estavam pendentes.
+
+## 2026-08-23 - Credencial R2 instalada e prova viva aprovada
+
+Resultado: cofre e runtime técnico concluídos; a release da aplicação continua
+ausente e será reaplicada em etapa própria.
+
+- O operador copiou o ID e a chave secreta diretamente da sessão autenticada
+  para os campos protegidos; nenhum valor foi lido, exibido, salvo ou indexado
+  pelo Codex.
+- O controlador guardou a credencial restrita no cofre root-only e executou no
+  bucket `blindou-media-prod` um ciclo assinado de escrita, leitura pública com
+  comparação SHA-256 e exclusão do sentinela.
+- Duas tentativas de republicação encontraram o lock transitório do coletor de
+  métricas; o retry classificado aguardou cinco segundos e concluiu sem repetir
+  o provisionamento da credencial.
+- `provision-ui-review-runtime` republicou o material técnico com R2 e manteve
+  UAZAPI, Resend, Pagar.me e alertas externos ausentes.
+- A verificação autenticada confirmou `r2_runtime_credential_state` em
+  `secure_local_store`, `r2_runtime_live_probe` em `passed`, conector Cloudflare
+  `ready`, oito migrations e `current_release=absent`.
+
+## 2026-08-23 - Hotfix RLS implantado e atualização segura concluída
+
+Resultado: a release `8e17210e34767935158ba5c8b863b48724297a93` está ativa e
+saudável; a confirmação visual do bootstrap do superadmin permanece com o
+operador.
+
+- O workflow `32645928340` passou Check, Clippy, suíte completa, PostgreSQL de
+  menor privilégio, bootstrap real `NOBYPASSRLS`, scans e publicação das quatro
+  imagens por digest.
+- A prova fechada confirmou quatro imagens, 25 blobs e 113.212.411 bytes sem
+  iniciar workload. O backup `blindou-20260823T152218Z` foi comparado ao
+  manifesto e confirmado offsite antes do rollout.
+- A primeira tentativa de liberar a candidata revelou que o controlador exigia
+  EDGE `connector-only` também durante atualização, embora a release corrente
+  saudável mantenha a EDGE em `passed`. O controlador passou a distinguir os
+  estados: primeira instalação exige ausência de `current_release`; atualização
+  exige ponteiro regular `root:root 0600` com SHA válido e EDGE verificada.
+- O rollout concluiu backend, redirector, NATS, Redis, 16 workers e
+  `cloudflared`; `current_release` aponta para `8e17210`, as oito migrations
+  permanecem registradas e API/painel responderam pela borda pública.
+- UAZAPI, Resend e Pagar.me permaneceram ausentes. O helper protegido adquiriu e
+  liberou o lock do bootstrap; seu resultado final ainda aguarda confirmação
+  visual do operador na janela local.
