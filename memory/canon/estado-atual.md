@@ -185,6 +185,16 @@ metadata:
   `verify-data` passou e o status confirmou `migration_history_count=0` e
   `pg_stat_statements=present`. O novo SHA Blindou `ccc4edd` está no workflow
   externo `32605412093`; ainda não existe release corrente.
+- O workflow `32605412093` aprovou `ccc4edd`, e a prova no host confirmou quatro
+  imagens, 25 blobs e 113.292.669 bytes. O backup criptografado
+  `blindou-20260823T002003Z` foi copiado e confirmado offsite antes do `apply`.
+  `0001` foi aplicada e registrada; `0002` falhou ao tentar revogar permissão
+  de `pg_stat_statements_reset`, cujo owner é `postgres`. O rollback restaurou
+  `secrets-only`/`connector-only`, o conector ficou Ready e
+  `current_release` permaneceu ausente. O status autenticado confirmou
+  `migration_history_count=1`, `pg_stat_statements=present` e nenhum provedor
+  externo configurado. A correção Blindou `6365832` está no workflow
+  `32608484692` com um novo gate de menor privilégio.
 
 ## Manutenção
 

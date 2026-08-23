@@ -207,16 +207,16 @@ Próxima ação exata:
 
 ## Fase 2E - Primeira release e capacidade do Blindou
 
-Status: candidata `794d922` assinada, comprovada e autorizada; a primeira
-tentativa chegou ao Job de migration e falhou fechada por timeout. Antes da
-repetição, o controlador instalou a observação de `Failed` com diagnóstico
-sanitizado e identificou `pg_stat_statements` como pré-requisito administrativo.
-A fundação corrigida foi publicada e instalada; a extensão está presente e o
-histórico SQLx continua vazio. O SHA Blindou `ccc4edd` foi publicado e o
-workflow `32605412093` está executando os gates. O próximo passo é, após sucesso,
-assinar e comprovar essa candidata, criar backup offsite recente, repetir o
-`apply` e criar o superadmin sem introduzir credenciais de UAZAPI, Resend ou
-Pagar.me.
+Status: a candidata `ccc4edd` foi assinada, comprovada e aplicada até a
+fronteira entre `0001` e `0002`. `0001` foi registrada; `0002` falhou fechada
+porque uma ACL em lote alcançou a função root-owned
+`pg_stat_statements_reset`. O rollback restaurou a contenção, o histórico SQLx
+ficou em um e não existe release corrente. O SHA Blindou corretivo `6365832`
+está no workflow `32608484692`; o gate agora executa o binário real de migration
+com login não administrativo e extensão sob outro owner. O próximo passo é,
+após o gate passar, assinar e comprovar a nova candidata, criar backup offsite
+recente, aplicar `0002` a `0008` e criar o superadmin sem introduzir credenciais
+de UAZAPI, Resend ou Pagar.me.
 
 Objetivos:
 

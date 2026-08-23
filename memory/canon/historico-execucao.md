@@ -823,3 +823,30 @@ aplicada.
   gateway privado saudáveis. Nenhum provedor externo do Blindou foi configurado.
 - O SHA Blindou `ccc4edd6a85e87b4c15100afbc5ec386bf94aac5` foi publicado e o
   workflow `32605412093` iniciado para gerar uma candidata integral nova.
+
+## 2026-08-22 - `0001` aplicada e ACL de `0002` contida por ownership
+
+Resultado: a candidata corrigiu a criação da extensão e concluiu `0001`, mas a
+ACL global de `0002` cruzou a fronteira de ownership; a falha foi diagnosticada
+e contida sem elevar a identidade de migration ou publicar release parcial.
+
+- O workflow `32605412093` aprovou o SHA
+  `ccc4edd6a85e87b4c15100afbc5ec386bf94aac5` em 43 minutos e 23 segundos,
+  incluindo testes Rust/PostgreSQL, scans e quatro imagens privadas.
+- A prova integral no host confirmou quatro imagens, 25 blobs e 113.292.669
+  bytes. O backup `blindou-20260823T002003Z` foi criptografado, baixado em
+  conexão única, comparado ao manifesto e confirmado offsite.
+- NATS e Redis ficaram Ready. `0001` foi concluída e registrada; `0002` tentou
+  executar `REVOKE` sobre `pg_stat_statements_reset`, pertencente a `postgres`,
+  e o PostgreSQL recusou `blindou_migration_login` como esperado.
+- O controlador publicou o diagnóstico sanitizado, removeu os workloads e
+  restaurou `secrets-only`/`connector-only`. O status autenticado confirmou
+  `migration_history_count=1`, `pg_stat_statements=present`,
+  `current_release=absent` e conector Ready.
+- A análise também encontrou `COMMENT ON ROLE` incompatível com a ausência de
+  `CREATEROLE`. O SHA Blindou `6365832bf1e271f4bfb49441b273a346ba0ba5c8`
+  limita ACL aos objetos de `CURRENT_USER`, não comenta roles do cluster e
+  adiciona ao workflow um ensaio do binário real com identidade não
+  administrativa e extensão de owner distinto.
+- O novo workflow `32608484692` foi iniciado. UAZAPI, Resend e Pagar.me
+  permaneceram ausentes durante toda a tentativa.

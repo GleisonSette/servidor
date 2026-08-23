@@ -77,11 +77,16 @@ corpus por padrão.
   prova de pull, mas o Job de migration não concluiu em 600 segundos. O rollback
   removeu os workloads, manteve `current_release` ausente e restaurou o
   conector. O diagnóstico fail-fast identificou a criação administrativa de
-  `pg_stat_statements` dentro de `0001`. A correção mantém a role de migration
-  sem superuser: a plataforma provisionou e verificou a extensão com owner
-  `postgres`, enquanto o histórico SQLx continua vazio. A nova candidata
-  `ccc4edd` remove sua criação e comentário do baseline da aplicação e está nos
-  gates externos do workflow `32605412093`.
+  `pg_stat_statements` dentro de `0001`. A correção manteve a role de migration
+  sem superuser e a plataforma provisionou a extensão com owner `postgres`.
+  A candidata `ccc4edd` passou no workflow `32605412093`, comprovou quatro
+  imagens e recebeu o backup offsite `blindou-20260823T002003Z`. `0001` foi
+  concluída, mas `0002` tentou alterar a ACL de
+  `pg_stat_statements_reset`, possuída por `postgres`; o rollback restaurou a
+  contenção. O estado vivo é `migration_history_count=1` e
+  `current_release=absent`. O SHA corretivo `6365832` está no workflow
+  `32608484692`, agora com gate de migration não administrativa equivalente à
+  produção.
 
 ## Precedência
 
