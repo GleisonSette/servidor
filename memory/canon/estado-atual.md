@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-estado-atual
   source_path: memory/canon/estado-atual.md
   generated_from: auditoria SSH, runtime K3s, Prometheus e repositórios locais
-  updated_at: 2026-08-22
+  updated_at: 2026-08-23
   status: canonical
 
 ## Host verificado
@@ -38,8 +38,9 @@ metadata:
   exceção temporária está ativa: UFW bloqueia redes privadas e entrada lateral,
   e o IPv6 da `enp2s0` está desabilitado. A fundação Kubernetes interna do
   Blindou está provisionada. Somente o conector Cloudflare está ativo em
-  `blindou-edge`; a aplicação, migrations e release continuam bloqueadas,
-  portanto nenhum deploy comercial do Blindou é autorizado no estado atual.
+  `blindou-edge`; os workloads e a release continuam bloqueados. O schema
+  possui oito migrations já aplicadas, mas nenhum deploy comercial do Blindou
+  está publicado no estado atual.
 
 - SSH utiliza chave pública permanente, usuário `apiadmin` e identidade de host
   validada. O acesso é limitado ao PC administrativo.
@@ -93,8 +94,8 @@ metadata:
   recusado.
 - `blindou-production` permanece sem workloads, com Pod Security `restricted`,
   default deny e gate `secrets-only`; contém somente Secrets, ConfigMaps e
-  controles admitidos por esse gate. A candidata `794d922` iniciou NATS, Redis
-  e o Job de migration, mas o Job não marcou conclusão em 600 segundos. O
+  controles admitidos por esse gate. A candidata `48bc9f0` concluiu as oito
+  migrations, mas o worker `report-thumbnail` recusou iniciar sem R2. O
   rollback de primeira release removeu workloads e Services, restaurou a
   contenção e manteve `current_release` ausente.
   `blindou-edge` está em gate `connector-only` e contém somente os três objetos
@@ -119,10 +120,10 @@ metadata:
 - O backup consistente do K3s está em
   `/var/backups/shared-lab/20260815T113334Z`, root-only, com SHA-256 validado. É
   uma cópia no mesmo HDD e não protege contra falha física.
-- O database vazio `blindou` foi criado com quatro logins sem privilégios
+- O database `blindou` foi criado com quatro logins sem privilégios
   administrativos e papéis separados para migration, runtime, redirector e
   conector ML. Conexões do CIDR K3s exigem `hostssl`, certificado de cliente
-  confiável e SCRAM; nenhuma migration foi executada.
+  confiável e SCRAM; as migrations `0001` a `0008` estão registradas.
 - O primeiro backup lógico Blindou é `blindou-20260820T111734Z`, armazenado
   somente como envelope CMS AES-256-GCM. O catálogo foi validado por
   `pg_restore` antes da criptografia; uma prova local abriu o envelope com a
@@ -139,6 +140,11 @@ metadata:
   `root:root 0600`. O controlador confirmou token ativo e acesso de leitura à
   coleção de custom hostnames da zona `blindou.com`; isso não libera criação de
   hostname, migration ou release.
+- O bucket de mídia `blindou-media-prod` está criado no R2 com domínio público
+  `media.blindou.com` ativo, TLS mínimo 1.2, `r2.dev` desabilitado e CORS
+  limitado a `GET`/`HEAD` de `https://app.blindou.com`. A credencial de objetos
+  restrita ao bucket foi criada na Cloudflare, mas ainda não foi entregue ao
+  cofre do host; a prova viva R2 permanece pendente.
 - Prometheus, Node Exporter e PostgreSQL Exporter estão `up`, com três targets
   saudáveis e zero alertas ativos.
 - O coletor `stat_bgwriter`, incompatível com PostgreSQL 18 no exporter 0.15,
@@ -193,8 +199,15 @@ metadata:
   `secrets-only`/`connector-only`, o conector ficou Ready e
   `current_release` permaneceu ausente. O status autenticado confirmou
   `migration_history_count=1`, `pg_stat_statements=present` e nenhum provedor
-  externo configurado. A correção Blindou `6365832` está no workflow
-  `32608484692` com um novo gate de menor privilégio.
+  externo configurado. Esse estado foi posteriormente substituído pela
+  candidata `48bc9f0`.
+- O workflow `32612301391` aprovou `48bc9f0`, e a prova integral confirmou
+  quatro imagens, 25 blobs e 113.293.810 bytes. O backup
+  `blindou-20260823T025908Z` foi confirmado offsite. O `apply` registrou as oito
+  migrations, mas foi contido quando o worker `report-thumbnail` detectou R2
+  desabilitado. O estado autenticado atual é `migration_history_count=8`,
+  `current_release=absent`, aplicação em `secrets-only`, EDGE em
+  `connector-only` e Tunnel Ready.
 
 ## Manutenção
 

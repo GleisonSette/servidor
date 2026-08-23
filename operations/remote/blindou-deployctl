@@ -31,6 +31,13 @@ readonly GHCR_PULL_TOKEN_FILE="${GHCR_SECRET_DIR}/pull-token"
 readonly GHCR_REGISTRY='ghcr.io'
 readonly GHCR_USERNAME='GleisonSette'
 readonly GHCR_PULL_SECRET='blindou-ghcr-pull'
+readonly R2_SECRET_DIR="${DATA_ROOT}/r2-media"
+readonly R2_ACCESS_KEY_FILE="${R2_SECRET_DIR}/access-key-id"
+readonly R2_SECRET_KEY_FILE="${R2_SECRET_DIR}/secret-access-key"
+readonly R2_ACCOUNT_ID='680e2ea12957a373a522592922c1e56d'
+readonly R2_BUCKET='blindou-media-prod'
+readonly R2_PUBLIC_BASE_URL='https://media.blindou.com'
+readonly R2_VERIFICATION_RECEIPT="${STATE_ROOT}/r2-media-verification.state"
 readonly DATABASE_SECRET_DIR="${DATA_ROOT}/database"
 readonly DATABASE_CREDENTIALS="${DATABASE_SECRET_DIR}/credentials.env"
 readonly CLIENT_CA_DIR="${DATA_ROOT}/postgres-ca"
@@ -63,6 +70,7 @@ readonly FOUNDATION_CONFIRMATION='blindou-platform-foundation'
 readonly EDGE_CONNECTOR_CONFIRMATION='blindou-edge-connector'
 readonly CLOUDFLARE_SAAS_TOKEN_CONFIRMATION='blindou-cloudflare-saas-token'
 readonly GHCR_PULL_CONFIRMATION='blindou-ghcr-pull-credential'
+readonly R2_CREDENTIAL_CONFIRMATION='blindou-r2-runtime-credential'
 readonly DATA_CONFIRMATION='blindou-data-foundation'
 readonly DATA_ROLLBACK_CONFIRMATION='blindou-empty-data-foundation'
 readonly BACKUP_CONFIRMATION='blindou-database-backup'
@@ -97,6 +105,8 @@ cleanup() {
       "${CLIENT_CERT_DIR}"/*.tmp|\
       "${CLOUDFLARE_SAAS_TOKEN_FILE}.tmp."*|\
       "${GHCR_PULL_TOKEN_FILE}.tmp."*|\
+      "${R2_ACCESS_KEY_FILE}.tmp."*|"${R2_SECRET_KEY_FILE}.tmp."*|\
+      "${R2_VERIFICATION_RECEIPT}.tmp"|/var/tmp/blindou-r2-probe.*|\
       /var/tmp/blindou-ghcr-headers.*|\
       "${GHCR_PULL_PROOF_ROOT}"/.tmp.*|\
       "${GHCR_PULL_PROOF_LATEST}.tmp."*|\
@@ -892,6 +902,183 @@ rollback_ghcr_pull_credential() {
   pass 'GHCR pull credential removed from the root-only provider store'
 }
 
+r2_access_key_format_is_valid() {
+  local value="$1"
+  [[ ${#value} -ge 20 && ${#value} -le 128 && "$value" =~ ^[A-Za-z0-9]+$ ]]
+}
+
+r2_secret_key_format_is_valid() {
+  local value="$1"
+  [[ ${#value} -ge 32 && ${#value} -le 256 && "$value" =~ ^[A-Za-z0-9]+$ ]]
+}
+
+r2_credential_files_are_secure() {
+  runtime_secret_file_is_secure "$R2_ACCESS_KEY_FILE" \
+    && runtime_secret_file_is_secure "$R2_SECRET_KEY_FILE" \
+    || return 1
+  local access_key secret_key
+  IFS= read -r access_key <"$R2_ACCESS_KEY_FILE" || return 1
+  IFS= read -r secret_key <"$R2_SECRET_KEY_FILE" || return 1
+  r2_access_key_format_is_valid "$access_key" \
+    && r2_secret_key_format_is_valid "$secret_key"
+  local result=$?
+  unset access_key secret_key
+  return "$result"
+}
+
+r2_signed_request() {
+  local access_key="$1" secret_key="$2" method="$3" object_key="$4"
+  local input_file="$5" output_file="$6"
+  {
+    printf '%s\n' \
+      'silent' \
+      'show-error' \
+      'proto = "=https"' \
+      'tlsv1.2' \
+      'connect-timeout = 10' \
+      'max-time = 30' \
+      'aws-sigv4 = "aws:amz:auto:s3"' \
+      "user = \"${access_key}:${secret_key}\"" \
+      "request = \"${method}\"" \
+      "url = \"https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${R2_BUCKET}/${object_key}\"" \
+      "output = \"${output_file}\"" \
+      'write-out = "%{http_code}"'
+    if [[ "$method" == 'PUT' ]]; then
+      printf '%s\n' \
+        "data-binary = \"@${input_file}\"" \
+        'header = "Content-Type: text/plain"' \
+        'header = "Cache-Control: no-store"'
+    fi
+  } | curl --config -
+}
+
+r2_public_get() {
+  local object_key="$1" output_file="$2"
+  printf '%s\n' \
+    'silent' \
+    'show-error' \
+    'proto = "=https"' \
+    'tlsv1.2' \
+    'connect-timeout = 10' \
+    'max-time = 30' \
+    "url = \"${R2_PUBLIC_BASE_URL}/${object_key}\"" \
+    "output = \"${output_file}\"" \
+    'write-out = "%{http_code}"' \
+    | curl --config -
+}
+
+r2_live_probe() {
+  local access_key="$1" secret_key="$2" workdir object_key payload public_copy sink
+  local put_code='' public_code='' delete_code='' result=0
+  workdir="$(mktemp -d /var/tmp/blindou-r2-probe.XXXXXX)"
+  cleanup_paths+=("$workdir")
+  object_key="health/runtime-credential-$(openssl rand -hex 12).txt"
+  payload="${workdir}/payload"
+  public_copy="${workdir}/public"
+  sink="${workdir}/sink"
+  openssl rand -hex 32 >"$payload"
+
+  put_code="$(r2_signed_request "$access_key" "$secret_key" PUT "$object_key" "$payload" "$sink")" \
+    || result=1
+  [[ "$put_code" == '200' ]] || result=1
+  if (( result == 0 )); then
+    public_code="$(r2_public_get "$object_key" "$public_copy")" || result=1
+    [[ "$public_code" == '200' ]] || result=1
+    if (( result == 0 )); then
+      [[ "$(sha256sum "$payload" | awk '{print $1}')" == \
+          "$(sha256sum "$public_copy" | awk '{print $1}')" ]] || result=1
+    fi
+  fi
+
+  delete_code="$(r2_signed_request "$access_key" "$secret_key" DELETE "$object_key" /dev/null "$sink")" \
+    || result=1
+  [[ "$delete_code" == '200' || "$delete_code" == '204' ]] || result=1
+  rm -rf -- "$workdir"
+  (( result == 0 ))
+}
+
+record_r2_verification() {
+  {
+    printf 'schema=1\naccount_id=%s\nbucket=%s\npublic_base_url=%s\n' \
+      "$R2_ACCOUNT_ID" "$R2_BUCKET" "$R2_PUBLIC_BASE_URL"
+    printf 'verified_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } >"${R2_VERIFICATION_RECEIPT}.tmp"
+  cleanup_paths+=("${R2_VERIFICATION_RECEIPT}.tmp")
+  install -o root -g root -m 0600 \
+    "${R2_VERIFICATION_RECEIPT}.tmp" "$R2_VERIFICATION_RECEIPT"
+  rm -f -- "${R2_VERIFICATION_RECEIPT}.tmp"
+}
+
+verify_r2_runtime_credential() {
+  require_platform_preconditions
+  r2_credential_files_are_secure \
+    || fail 'credencial R2 ausente, insegura ou fora do formato esperado'
+  local access_key secret_key
+  IFS= read -r access_key <"$R2_ACCESS_KEY_FILE" || fail 'R2 access key ausente'
+  IFS= read -r secret_key <"$R2_SECRET_KEY_FILE" || fail 'R2 secret key ausente'
+  if ! r2_live_probe "$access_key" "$secret_key"; then
+    unset access_key secret_key
+    fail 'R2 recusou o ciclo fechado de escrita, leitura pública e exclusão'
+  fi
+  unset access_key secret_key
+  record_r2_verification
+  pass 'R2 validado por escrita, leitura pública e exclusão no bucket exclusivo do Blindou'
+}
+
+provision_r2_runtime_credential() {
+  [[ "${1:-}" == "$R2_CREDENTIAL_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${R2_CREDENTIAL_CONFIRMATION}"
+  [[ ! -t 0 ]] || fail 'credencial R2 deve chegar por stdin não interativo'
+  require_platform_preconditions
+  [[ ! -f "$CURRENT_RELEASE" ]] \
+    || fail 'provisionamento inicial do R2 é fechado depois de uma release corrente'
+  local app_gate
+  app_gate="$(namespace_label "$APP_NAMESPACE" 'platform\.servidor\.local/deployment-gate')"
+  [[ "$app_gate" == 'blocked' || "$app_gate" == 'secrets-only' ]] \
+    || fail 'R2 só pode ser provisionado com a aplicação bloqueada ou em secrets-only'
+
+  local schema access_key_b64 secret_key_b64 access_key secret_key existing_access existing_secret
+  IFS= read -r schema || fail 'payload R2 ausente'
+  IFS= read -r access_key_b64 || fail 'R2 access key ausente'
+  IFS= read -r secret_key_b64 || fail 'R2 secret key ausente'
+  [[ "$schema" == 'schema=1' ]] || fail 'schema do payload R2 inválido'
+  [[ "$access_key_b64" =~ ^[A-Za-z0-9+/=]{28,256}$ \
+      && "$secret_key_b64" =~ ^[A-Za-z0-9+/=]{44,512}$ ]] \
+    || fail 'payload base64 R2 inválido'
+  access_key="$(printf '%s' "$access_key_b64" | base64 -d)" || fail 'R2 access key inválida'
+  secret_key="$(printf '%s' "$secret_key_b64" | base64 -d)" || fail 'R2 secret key inválida'
+  unset access_key_b64 secret_key_b64
+  r2_access_key_format_is_valid "$access_key" \
+    || { unset access_key secret_key; fail 'R2 access key possui formato inválido'; }
+  r2_secret_key_format_is_valid "$secret_key" \
+    || { unset access_key secret_key; fail 'R2 secret key possui formato inválido'; }
+
+  if [[ -e "$R2_ACCESS_KEY_FILE" || -L "$R2_ACCESS_KEY_FILE" \
+      || -e "$R2_SECRET_KEY_FILE" || -L "$R2_SECRET_KEY_FILE" ]]; then
+    r2_credential_files_are_secure \
+      || { unset access_key secret_key; fail 'credencial R2 existente está incompleta ou insegura'; }
+    IFS= read -r existing_access <"$R2_ACCESS_KEY_FILE"
+    IFS= read -r existing_secret <"$R2_SECRET_KEY_FILE"
+    [[ "$existing_access" == "$access_key" && "$existing_secret" == "$secret_key" ]] \
+      || { unset access_key secret_key existing_access existing_secret; fail 'uma credencial R2 diferente já está provisionada'; }
+    unset access_key secret_key existing_access existing_secret
+    verify_r2_runtime_credential >/dev/null
+    pass 'credencial R2 já estava provisionada e foi revalidada'
+    return
+  fi
+
+  if ! r2_live_probe "$access_key" "$secret_key"; then
+    unset access_key secret_key
+    fail 'credencial R2 recusada pelo ciclo de escrita, leitura pública e exclusão'
+  fi
+  install -d -o root -g root -m 0700 "$R2_SECRET_DIR"
+  write_runtime_value_to_path "$R2_ACCESS_KEY_FILE" "$access_key"
+  write_runtime_value_to_path "$R2_SECRET_KEY_FILE" "$secret_key"
+  unset access_key secret_key
+  record_r2_verification
+  pass 'credencial R2 validada e guardada no cofre root-only; runtime ainda não foi publicado'
+}
+
 ensure_ghcr_pull_secret() {
   verify_ghcr_pull_credential >/dev/null
   local token auth namespace
@@ -1422,7 +1609,16 @@ secret_has_keys() {
 runtime_secret_file_is_secure() {
   local path="$1"
   [[ -f "$path" && ! -L "$path" \
-      && "$(stat -c '%U:%G:%a' "$path")" == 'root:root:600' ]]
+    && "$(stat -c '%U:%G:%a' "$path")" == 'root:root:600' ]]
+}
+
+write_runtime_value_to_path() {
+  local path="$1" value="$2" temporary
+  temporary="$(mktemp "${path}.tmp.XXXXXX")"
+  cleanup_paths+=("$temporary")
+  printf '%s\n' "$value" >"$temporary"
+  install -o root -g root -m 0600 "$temporary" "$path"
+  rm -f -- "$temporary"
 }
 
 write_runtime_value() {
@@ -1704,6 +1900,13 @@ CLOUDFLARE_SAAS_ENABLED=true
 CLOUDFLARE_SAAS_ZONE_ID=${CLOUDFLARE_SAAS_ZONE_ID}
 CLOUDFLARE_SAAS_CNAME_TARGET=domains.blindou.com
 CLOUDFLARE_SAAS_REQUEST_TIMEOUT_SECS=15
+R2_PREVIEW_IMAGES_ENABLED=true
+R2_ACCOUNT_ID=${R2_ACCOUNT_ID}
+R2_BUCKET=${R2_BUCKET}
+R2_PUBLIC_BASE_URL=${R2_PUBLIC_BASE_URL}
+R2_OBJECT_PREFIX=link-previews
+R2_REQUEST_TIMEOUT_SECS=10
+R2_CACHE_MAX_AGE_SECS=2592000
 UAZAPI_BASE_URL=${uazapi_base_url}
 UAZAPI_PUBLIC_WEBHOOK_BASE=https://api.blindou.com
 UAZAPI_TOKEN_KEY_ID=uazapi-token-key-v1
@@ -1777,6 +1980,13 @@ CLOUDFLARE_SAAS_ENABLED=true
 CLOUDFLARE_SAAS_ZONE_ID=${CLOUDFLARE_SAAS_ZONE_ID}
 CLOUDFLARE_SAAS_CNAME_TARGET=domains.blindou.com
 CLOUDFLARE_SAAS_REQUEST_TIMEOUT_SECS=15
+R2_PREVIEW_IMAGES_ENABLED=true
+R2_ACCOUNT_ID=${R2_ACCOUNT_ID}
+R2_BUCKET=${R2_BUCKET}
+R2_PUBLIC_BASE_URL=${R2_PUBLIC_BASE_URL}
+R2_OBJECT_PREFIX=link-previews
+R2_REQUEST_TIMEOUT_SECS=10
+R2_CACHE_MAX_AGE_SECS=2592000
 UAZAPI_ENABLED=false
 UAZAPI_PUBLIC_WEBHOOK_BASE=https://api.blindou.com
 UAZAPI_TOKEN_KEY_ID=uazapi-token-key-v1
@@ -1842,6 +2052,8 @@ create_runtime_kubernetes_material() {
     --from-file=REDIS_PASSWORD="${RUNTIME_SECRET_DIR}/REDIS_PASSWORD"
     --from-file=METRICS_BEARER_TOKEN="${RUNTIME_SECRET_DIR}/CORE_METRICS_BEARER_TOKEN"
     --from-file=CLOUDFLARE_SAAS_API_TOKEN="$CLOUDFLARE_SAAS_TOKEN_FILE"
+    --from-file=R2_ACCESS_KEY_ID="$R2_ACCESS_KEY_FILE"
+    --from-file=R2_SECRET_ACCESS_KEY="$R2_SECRET_KEY_FILE"
   )
   if [[ -f "${RUNTIME_SECRET_DIR}/UAZAPI_ADMIN_TOKEN" ]]; then
     core_secret_args+=(--from-file=UAZAPI_ADMIN_TOKEN="${RUNTIME_SECRET_DIR}/UAZAPI_ADMIN_TOKEN")
@@ -1901,7 +2113,8 @@ verify_runtime_material() {
     AUTH_SECURITY_CODE_ENCRYPTION_KEY AUTH_SECURITY_CHANNEL_ENCRYPTION_KEY \
     AUTH_TRUST_HASH_SECRET UAZAPI_WEBHOOK_SECRET \
     UAZAPI_TOKEN_ENCRYPTION_KEY NATS_PASSWORD REDIS_PASSWORD \
-    METRICS_BEARER_TOKEN CLOUDFLARE_SAAS_API_TOKEN
+    METRICS_BEARER_TOKEN CLOUDFLARE_SAAS_API_TOKEN \
+    R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY
   local core_keys
   core_keys="$(kube -n "$APP_NAMESPACE" get secret blindou-core-secrets \
     -o go-template='{{range $key, $value := .data}}{{printf "%s\n" $key}}{{end}}')"
@@ -1919,6 +2132,16 @@ verify_runtime_material() {
   else
     secret_has_keys "$APP_NAMESPACE" blindou-core-secrets UAZAPI_ADMIN_TOKEN RESEND_API_KEY
   fi
+  grep -Fxq 'R2_PREVIEW_IMAGES_ENABLED=true' "$RUNTIME_CONFIG_FILE" \
+    || fail 'R2 deve permanecer habilitado para o worker report-thumbnail'
+  grep -Fxq "R2_ACCOUNT_ID=${R2_ACCOUNT_ID}" "$RUNTIME_CONFIG_FILE" \
+    || fail 'R2_ACCOUNT_ID diverge da conta Cloudflare aprovada'
+  grep -Fxq "R2_BUCKET=${R2_BUCKET}" "$RUNTIME_CONFIG_FILE" \
+    || fail 'R2_BUCKET diverge do bucket exclusivo do Blindou'
+  grep -Fxq "R2_PUBLIC_BASE_URL=${R2_PUBLIC_BASE_URL}" "$RUNTIME_CONFIG_FILE" \
+    || fail 'R2_PUBLIC_BASE_URL diverge do domínio de mídia aprovado'
+  r2_credential_files_are_secure \
+    || fail 'credencial R2 root-only ausente ou insegura'
   secret_has_keys "$APP_NAMESPACE" blindou-redirect-secrets \
     REDIRECTOR_DATABASE_URL REDIRECTOR_CODE_SECRET REDIRECTOR_HMAC_SECRET \
     REDIRECTOR_IP_HASH_SECRET REDIRECTOR_FINGERPRINT_HASH_SECRET METRICS_BEARER_TOKEN
@@ -1980,6 +2203,7 @@ provision_ui_review_runtime() {
   verify_data_foundation >/dev/null
   verify_cloudflare_saas_token >/dev/null
   verify_ghcr_pull_credential >/dev/null
+  verify_r2_runtime_credential >/dev/null
   for provider_file in UAZAPI_ADMIN_TOKEN RESEND_API_KEY PAGARME_SECRET_KEY PAGARME_WEBHOOK_SECRET; do
     [[ ! -e "${RUNTIME_SECRET_DIR}/${provider_file}" ]] \
       || fail "credencial ${provider_file} já existe; revisão sem provedores recusada"
@@ -2006,6 +2230,7 @@ provision_runtime_secrets() {
   verify_data_foundation >/dev/null
   verify_cloudflare_saas_token >/dev/null
   verify_ghcr_pull_credential >/dev/null
+  verify_r2_runtime_credential >/dev/null
   local schema uazapi_url_b64 uazapi_token_b64 resend_key_b64 email_from_b64
   IFS= read -r schema || fail 'payload de runtime ausente'
   IFS= read -r uazapi_url_b64 || fail 'UAZAPI_BASE_URL ausente'
@@ -2088,6 +2313,7 @@ activate_release_gates() {
   require_platform_preconditions
   verify_data_foundation >/dev/null
   verify_runtime_material
+  verify_r2_runtime_credential >/dev/null
   [[ "$(namespace_label "$APP_NAMESPACE" 'platform\.servidor\.local/deployment-gate')" == 'secrets-only' ]] \
     || fail 'aplicação não está no gate intermediário secrets-only'
   [[ "$(namespace_label "$EDGE_NAMESPACE" 'platform\.servidor\.local/deployment-gate')" == 'connector-only' ]] \
@@ -2335,7 +2561,7 @@ apply_release() {
 
 metrics() {
   require_root_and_host
-  local foundation=0 data=0 latest_backup=0 gate_app=0 gate_edge=0 cloudflare_saas_token=0 ghcr_pull_credential=0 ghcr_candidate_pull=0
+  local foundation=0 data=0 latest_backup=0 gate_app=0 gate_edge=0 cloudflare_saas_token=0 ghcr_pull_credential=0 ghcr_candidate_pull=0 r2_credential=0
   if ( verify_foundation >/dev/null 2>&1 ); then foundation=1; fi
   if ( verify_data_foundation >/dev/null 2>&1 ); then data=1; fi
   if [[ -f "${DATABASE_BACKUP_ROOT}/latest" ]]; then
@@ -2351,6 +2577,7 @@ metrics() {
   if cloudflare_saas_token_file_is_secure; then cloudflare_saas_token=1; fi
   if ghcr_token_file_is_secure; then ghcr_pull_credential=1; fi
   if ghcr_pull_latest_proof_is_secure; then ghcr_candidate_pull=1; fi
+  if r2_credential_files_are_secure; then r2_credential=1; fi
   cat <<EOF
 # HELP blindou_platform_foundation_up Fundação Kubernetes bloqueada e íntegra.
 # TYPE blindou_platform_foundation_up gauge
@@ -2374,6 +2601,9 @@ blindou_ghcr_pull_credential_secure ${ghcr_pull_credential}
 # HELP blindou_ghcr_candidate_pull_verified A candidata privada mais recente foi integralmente baixada e validada no host.
 # TYPE blindou_ghcr_candidate_pull_verified gauge
 blindou_ghcr_candidate_pull_verified ${ghcr_candidate_pull}
+# HELP blindou_r2_runtime_credential_secure Credencial R2 root-only do bucket exclusivo está presente no formato esperado.
+# TYPE blindou_r2_runtime_credential_secure gauge
+blindou_r2_runtime_credential_secure ${r2_credential}
 EOF
 }
 
@@ -2439,6 +2669,17 @@ show_status() {
   else
     printf 'ghcr_candidate_pull_proof=absent_or_insecure\n'
   fi
+  if r2_credential_files_are_secure; then
+    printf 'r2_runtime_credential_state=secure_local_store\n'
+  else
+    printf 'r2_runtime_credential_state=absent_or_insecure\n'
+  fi
+  if [[ -f "$R2_VERIFICATION_RECEIPT" && ! -L "$R2_VERIFICATION_RECEIPT" ]] \
+      && grep -Fxq "bucket=${R2_BUCKET}" "$R2_VERIFICATION_RECEIPT"; then
+    printf 'r2_runtime_live_probe=passed\n'
+  else
+    printf 'r2_runtime_live_probe=absent_or_failed\n'
+  fi
   if [[ -f "$RUNTIME_CONFIG_FILE" && ! -L "$RUNTIME_CONFIG_FILE" ]]; then
     printf 'runtime_material=present\n'
   else
@@ -2479,6 +2720,10 @@ case "${1:-}" in
     [[ $# -eq 1 ]] || fail 'usage: blindou-deployctl verify-ghcr-pull-credential'
     verify_ghcr_pull_credential
     ;;
+  verify-r2-runtime-credential)
+    [[ $# -eq 1 ]] || fail 'usage: blindou-deployctl verify-r2-runtime-credential'
+    verify_r2_runtime_credential
+    ;;
   verify-ghcr-candidate-pull)
     [[ $# -eq 2 ]] || fail 'usage: blindou-deployctl verify-ghcr-candidate-pull RELEASE_ID'
     verify_ghcr_candidate_pull "$2"
@@ -2486,6 +2731,10 @@ case "${1:-}" in
   provision-ghcr-pull-credential)
     [[ $# -eq 2 ]] || fail 'usage: blindou-deployctl provision-ghcr-pull-credential CONFIRMATION'
     provision_ghcr_pull_credential "$2"
+    ;;
+  provision-r2-runtime-credential)
+    [[ $# -eq 2 ]] || fail 'usage: blindou-deployctl provision-r2-runtime-credential CONFIRMATION'
+    provision_r2_runtime_credential "$2"
     ;;
   rollback-ghcr-pull-credential)
     [[ $# -eq 2 ]] || fail 'usage: blindou-deployctl rollback-ghcr-pull-credential CONFIRMATION'
@@ -2583,6 +2832,6 @@ case "${1:-}" in
     metrics
     ;;
   *)
-    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|provision-runtime-secrets CONFIRMAÇÃO|provision-ui-review-runtime CONFIRMAÇÃO|confirm-alert-delivery CONFIRMAÇÃO|confirm-offsite-backup BACKUP_ID SHA256 CONFIRMAÇÃO|activate-release-gates RELEASE_ID CONFIRMAÇÃO|validate-release RELEASE_ID|apply RELEASE_ID|bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
+    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-r2-runtime-credential|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|provision-r2-runtime-credential CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|provision-runtime-secrets CONFIRMAÇÃO|provision-ui-review-runtime CONFIRMAÇÃO|confirm-alert-delivery CONFIRMAÇÃO|confirm-offsite-backup BACKUP_ID SHA256 CONFIRMAÇÃO|activate-release-gates RELEASE_ID CONFIRMAÇÃO|validate-release RELEASE_ID|apply RELEASE_ID|bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
     ;;
 esac

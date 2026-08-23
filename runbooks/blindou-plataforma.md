@@ -336,6 +336,35 @@ destinada a essa revisão deve declarar `INITIAL_UI_REVIEW_MODE=true`,
 `AUTH_REQUIRE_2FA=false`, omitir todas as credenciais desses provedores e conter
 exatamente os 16 workers contínuos que não dependem de notificação externa.
 
+O worker `report-thumbnail` é uma dependência técnica desse núcleo e exige o
+armazenamento de mídia R2. Ele não é UAZAPI, Resend ou Pagar.me e não pode ser
+desabilitado silenciosamente para fazer o rollout passar. O bucket aprovado é
+`blindou-media-prod`, o único domínio público é `https://media.blindou.com` e a
+credencial S3 deve possuir somente leitura e gravação de objetos nesse bucket,
+sem administração de R2 e sem acesso aos buckets de outros produtos.
+
+Antes de republicar o runtime de revisão, executar na estação administrativa:
+
+```powershell
+.\operations\Invoke-BlindouR2RuntimeCredential.ps1
+```
+
+O operador copia da página de criação da Cloudflare o ID e a chave secreta para
+dois campos protegidos. O script não lê a sessão do navegador, não salva os
+valores na estação e os transmite em base64 somente por `stdin` ao comando
+fechado `provision-r2-runtime-credential`. O controlador valida formato,
+escreve um objeto sentinela, lê o mesmo conteúdo pelo domínio público, compara
+SHA-256, exclui o objeto e só então instala os dois arquivos `root:root 0600`
+em `/etc/blindou/r2-media`. Falha antes da validação não persiste a credencial.
+
+Depois da prova viva, o próprio orquestrador repete
+`provision-ui-review-runtime`: `production.env` passa a expor somente os dados
+não sensíveis do bucket e o Secret `blindou-core-secrets` recebe as duas chaves.
+O gate recusa a release se R2 estiver desabilitado, se a credencial local ou as
+duas chaves do Secret estiverem ausentes, ou se o novo ciclo vivo falhar antes
+da ativação. CORS permite somente `GET` e `HEAD` de
+`https://app.blindou.com`; o URL público `r2.dev` permanece desabilitado.
+
 Depois da prova integral da candidata e antes dos gates de release, preparar
 somente as chaves internas e os Secrets técnicos:
 

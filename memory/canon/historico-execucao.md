@@ -850,3 +850,42 @@ e contida sem elevar a identidade de migration ou publicar release parcial.
   administrativa e extensão de owner distinto.
 - O novo workflow `32608484692` foi iniciado. UAZAPI, Resend e Pagar.me
   permaneceram ausentes durante toda a tentativa.
+
+## 2026-08-23 - Oito migrations preservadas e release contida por ausência de R2
+
+Resultado: o schema inicial foi concluído, mas nenhum backend parcial ficou
+publicado; o próximo bloqueio foi isolado no armazenamento obrigatório do
+worker de miniaturas.
+
+- O SHA `48bc9f0fb14db6dedda34598ced3f702a96749bf` passou no workflow
+  `32612301391`, na assinatura e na prova integral de quatro imagens privadas,
+  25 blobs e 113.293.810 bytes.
+- O backup `blindou-20260823T025908Z` foi criptografado, transferido, conferido
+  e confirmado offsite antes do `apply`.
+- As migrations `0001` a `0008` foram registradas. NATS, Redis e os demais
+  workloads avançaram, mas `worker-report-thumbnail` recusou a configuração
+  porque `R2_PREVIEW_IMAGES_ENABLED` estava desabilitado.
+- O controlador removeu workloads e Services, restaurou
+  `secrets-only`/`connector-only`, manteve o Tunnel Ready e deixou
+  `current_release=absent`. O banco com oito migrations foi preservado.
+- UAZAPI, Resend e Pagar.me permaneceram ausentes; desabilitar o worker foi
+  recusado porque a função faz parte do núcleo já aprovado.
+
+## 2026-08-23 - Fronteira R2 preparada para o runtime Blindou
+
+Resultado: recursos Cloudflare foram criados e o caminho de provisionamento
+fechado foi preparado no repositório; a credencial ainda não foi entregue ao
+host no momento deste registro.
+
+- Foi criado o bucket exclusivo `blindou-media-prod` e ativado o domínio
+  `media.blindou.com`, com TLS mínimo 1.2; o URL público `r2.dev` permaneceu
+  desabilitado.
+- CORS permite somente `GET` e `HEAD` originados de
+  `https://app.blindou.com`. Uma credencial Account R2 de leitura/gravação de
+  objetos foi limitada somente ao bucket Blindou, sem permissão administrativa.
+- O controlador preparado fixa conta, bucket e domínio, guarda as chaves em
+  cofre root-only e exige um ciclo real de escrita, leitura pública, comparação
+  SHA-256 e exclusão antes do gate de release.
+- O orquestrador local solicita os dois valores em campos protegidos e os envia
+  somente por `stdin`; não lê nem exporta o segredo da sessão autenticada do
+  Chrome. Instalação, prova viva e repetição do rollout ainda estavam pendentes.

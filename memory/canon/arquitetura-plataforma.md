@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-arquitetura-plataforma
   source_path: memory/canon/arquitetura-plataforma.md
   generated_from: decisão do usuário, auditoria e requisitos de apiwpp/Blindou
-  updated_at: 2026-08-20
+  updated_at: 2026-08-23
   status: canonical
 
 ## Objetivo e limite
@@ -126,6 +126,15 @@ NATS e Redis do Blindou pertencem somente ao produto e rodam no seu namespace.
 Os namespaces históricos Pixel/CIA e SaferWPP permanecem vazios e não recebem
 banco, mensageria, identidade ou armazenamento neste servidor.
 
+As miniaturas de relatórios e as mídias de ofertas do Blindou usam o bucket R2
+exclusivo `blindou-media-prod`, publicado somente em `media.blindou.com`. Esse
+bucket é independente do repositório R2 do pgBackRest. A identidade do runtime
+possui somente leitura e gravação de objetos no bucket Blindou; não administra
+buckets e não alcança os buckets de outros produtos. A credencial permanece em
+cofre `root-only` no host e é materializada apenas em `blindou-core-secrets`.
+Antes de cada liberação de gate, o controlador executa um ciclo S3 assinado de
+escrita, leitura pública com comparação de SHA-256 e exclusão do sentinela.
+
 ## Entrada HTTP
 
 O primeiro acesso usa ClusterIP e port-forward administrativo. Um ingress
@@ -151,6 +160,9 @@ UPnP ou redirecionamento de porta para o servidor.
 - Controlador root-owned valida assinatura, digest, escopo e lock.
 - O controlador aceita uma interface fechada; não recebe comando shell,
   caminho arbitrário, kubeconfig root ou manifesto fora do contrato.
+- A credencial R2 chega por `stdin` em dois campos protegidos, nunca pela sessão
+  do navegador, argumento, arquivo `.env`, log ou repositório. O controlador
+  fixa conta, bucket e domínio público e recusa release sem uma prova viva.
 - Migration é bloqueante e usa papel separado.
 - Rollout, smoke test e rollback preservam a versão anterior.
 - A credencial GHCR permanece root-only fora do Kubernetes enquanto o runtime

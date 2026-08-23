@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-plano-implementacao
   source_path: memory/canon/plano-implementacao.md
   generated_from: plano aprovado pelo usuário em 2026-08-15
-  updated_at: 2026-08-22
+  updated_at: 2026-08-23
   status: canonical
 
 ## Regra de continuidade
@@ -207,16 +207,18 @@ Próxima ação exata:
 
 ## Fase 2E - Primeira release e capacidade do Blindou
 
-Status: a candidata `ccc4edd` foi assinada, comprovada e aplicada até a
-fronteira entre `0001` e `0002`. `0001` foi registrada; `0002` falhou fechada
-porque uma ACL em lote alcançou a função root-owned
-`pg_stat_statements_reset`. O rollback restaurou a contenção, o histórico SQLx
-ficou em um e não existe release corrente. O SHA Blindou corretivo `6365832`
-está no workflow `32608484692`; o gate agora executa o binário real de migration
-com login não administrativo e extensão sob outro owner. O próximo passo é,
-após o gate passar, assinar e comprovar a nova candidata, criar backup offsite
-recente, aplicar `0002` a `0008` e criar o superadmin sem introduzir credenciais
-de UAZAPI, Resend ou Pagar.me.
+Status: as migrations `0001` a `0008` foram aplicadas pela candidata
+`48bc9f0fb14db6dedda34598ced3f702a96749bf`, mas o rollout foi contido antes de
+publicar uma release corrente porque `worker-report-thumbnail` recusou iniciar
+sem R2. O banco preserva oito registros SQLx, `current_release` permanece
+ausente e os gates voltaram a `secrets-only`/`connector-only`. O bucket
+`blindou-media-prod`, `media.blindou.com`, CORS e uma credencial de objetos
+restrita ao bucket foram criados na Cloudflare. O controlador e o orquestrador
+da entrada protegida estão preparados no repositório; ainda precisam ser
+instalados, receber os dois valores pelo operador, comprovar o ciclo vivo R2,
+republicar o runtime e repetir a mesma release assinada. Depois do rollout,
+criar e validar `gleisonsette@gmail.com` como superadmin. UAZAPI, Resend e
+Pagar.me continuam deliberadamente ausentes.
 
 Objetivos:
 

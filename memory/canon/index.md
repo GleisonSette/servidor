@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-indice-canonico
   source_path: memory/canon/index.md
   generated_from: decisão do usuário e auditoria do servidor em 2026-08-15
-  updated_at: 2026-08-22
+  updated_at: 2026-08-23
   status: canonical
 
 ## Regra de entrada
@@ -72,21 +72,15 @@ corpus por padrão.
 - Por D019, a primeira release do núcleo e o login de superadmin precedem a
   configuração de UAZAPI, Resend e Pagar.me. O modo inicial exige os três
   provedores sem credenciais e explicitamente desabilitados; o canal externo de
-  alertas fica adiado até a aprovação visual. `blindou-production` ainda
-  permanece em `secrets-only`: a candidata `794d922` passou nos gates e na
-  prova de pull, mas o Job de migration não concluiu em 600 segundos. O rollback
-  removeu os workloads, manteve `current_release` ausente e restaurou o
-  conector. O diagnóstico fail-fast identificou a criação administrativa de
-  `pg_stat_statements` dentro de `0001`. A correção manteve a role de migration
-  sem superuser e a plataforma provisionou a extensão com owner `postgres`.
-  A candidata `ccc4edd` passou no workflow `32605412093`, comprovou quatro
-  imagens e recebeu o backup offsite `blindou-20260823T002003Z`. `0001` foi
-  concluída, mas `0002` tentou alterar a ACL de
-  `pg_stat_statements_reset`, possuída por `postgres`; o rollback restaurou a
-  contenção. O estado vivo é `migration_history_count=1` e
-  `current_release=absent`. O SHA corretivo `6365832` está no workflow
-  `32608484692`, agora com gate de migration não administrativa equivalente à
-  produção.
+  alertas fica adiado até a aprovação visual. A candidata `48bc9f0` passou no
+  workflow `32612301391`, comprovou quatro imagens e recebeu o backup offsite
+  `blindou-20260823T025908Z`. As migrations `0001` a `0008` foram concluídas,
+  mas o rollout foi contido porque `worker-report-thumbnail` exige R2. O estado
+  vivo é `migration_history_count=8`, `current_release=absent`, aplicação em
+  `secrets-only` e conector em `connector-only` Ready. O bucket exclusivo
+  `blindou-media-prod`, `media.blindou.com`, CORS e a credencial restrita de
+  objetos foram criados; entrega protegida ao host, prova viva R2, reaplicação
+  da release e criação do superadmin permanecem como sequência imediata.
 
 ## Precedência
 

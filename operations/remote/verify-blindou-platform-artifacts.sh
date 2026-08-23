@@ -6,6 +6,7 @@ readonly REMOTE_DIR="${REPOSITORY_ROOT}/operations/remote"
 readonly PULL_PROOF_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouGhcrCandidatePullProof.ps1"
 readonly SUDO_BOOTSTRAP_MODULE="${REPOSITORY_ROOT}/operations/Blindou.SudoBootstrap.psm1"
 readonly FIRST_RELEASE_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouFirstRelease.ps1"
+readonly R2_RUNTIME_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouR2RuntimeCredential.ps1"
 readonly EMERGENCY_CONTROLLER="${REMOTE_DIR}/blindou-release-emergencyctl"
 
 fail() {
@@ -19,6 +20,8 @@ fail() {
   || fail 'módulo fechado de bootstrap sudo ausente ou simbólico'
 [[ -f "$FIRST_RELEASE_SCRIPT" && ! -L "$FIRST_RELEASE_SCRIPT" ]] \
   || fail 'orquestrador fechado da primeira release ausente ou simbólico'
+[[ -f "$R2_RUNTIME_SCRIPT" && ! -L "$R2_RUNTIME_SCRIPT" ]] \
+  || fail 'orquestrador fechado da credencial R2 ausente ou simbólico'
 [[ -f "$EMERGENCY_CONTROLLER" && ! -L "$EMERGENCY_CONTROLLER" ]] \
   || fail 'controlador fechado de contenção emergencial ausente ou simbólico'
 bash -n "$EMERGENCY_CONTROLLER"
@@ -104,7 +107,8 @@ for orchestrator in \
   Invoke-BlindouCloudflareConnector.ps1 \
   Invoke-BlindouCloudflareSaasToken.ps1 \
   Invoke-BlindouGhcrPullCredential.ps1 \
-  Invoke-BlindouGhcrCandidatePullProof.ps1; do
+  Invoke-BlindouGhcrCandidatePullProof.ps1 \
+  Invoke-BlindouR2RuntimeCredential.ps1; do
   grep -Fq "Import-Module (Join-Path \$PSScriptRoot 'Blindou.SudoBootstrap.psm1') -Force" \
     "${REPOSITORY_ROOT}/operations/${orchestrator}" \
     || fail "orquestrador não importa helper sudo: ${orchestrator}"
@@ -112,6 +116,15 @@ for orchestrator in \
     "${REPOSITORY_ROOT}/operations/${orchestrator}" \
     || fail "orquestrador não usa helper sudo: ${orchestrator}"
 done
+grep -Fq "Read-Host 'Cole o ID da chave de acesso' -AsSecureString" "$R2_RUNTIME_SCRIPT" \
+  || fail 'orquestrador R2 não protege o access key no terminal'
+grep -Fq "Read-Host 'Cole a chave de acesso secreta' -AsSecureString" "$R2_RUNTIME_SCRIPT" \
+  || fail 'orquestrador R2 não protege a secret key no terminal'
+grep -Fq 'provision-r2-runtime-credential blindou-r2-runtime-credential' "$R2_RUNTIME_SCRIPT" \
+  || fail 'orquestrador R2 não usa a interface fechada aprovada'
+if grep -Eq 'Write-(Host|Output|Verbose|Debug).*(accessKey|secretKey|payload)' "$R2_RUNTIME_SCRIPT"; then
+  fail 'orquestrador R2 pode revelar credencial em output'
+fi
 for orchestrator in \
   Invoke-BlindouCloudflareConnector.ps1 \
   Invoke-BlindouCloudflareSaasToken.ps1; do
@@ -400,6 +413,22 @@ grep -Fq 'provision-runtime-secrets blindou-runtime-secrets' \
   "${REMOTE_DIR}/blindou-deployctl.sudoers" || fail 'sudoers não libera o provisionamento fechado'
 grep -Fq 'provision-ui-review-runtime blindou-ui-review-runtime' \
   "${REMOTE_DIR}/blindou-deployctl.sudoers" || fail 'sudoers não libera a revisão da UI'
+grep -Fq 'provision-r2-runtime-credential blindou-r2-runtime-credential' \
+  "${REMOTE_DIR}/blindou-deployctl.sudoers" || fail 'sudoers não libera o provisionamento fechado do R2'
+grep -Fq 'verify-r2-runtime-credential' \
+  "${REMOTE_DIR}/blindou-deployctl.sudoers" || fail 'sudoers não libera a prova fechada do R2'
+grep -Fq "readonly R2_BUCKET='blindou-media-prod'" \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'bucket R2 do Blindou não está fixado'
+grep -Fq "readonly R2_PUBLIC_BASE_URL='https://media.blindou.com'" \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'domínio público R2 não está fixado'
+grep -Fq 'aws-sigv4 = "aws:amz:auto:s3"' \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'prova R2 não assina requests S3'
+grep -Fq 'R2_PREVIEW_IMAGES_ENABLED=true' \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'runtime não habilita o armazenamento R2'
+grep -Fq 'R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY' \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'Secret do runtime não verifica as duas credenciais R2'
+grep -Fq 'blindou_r2_runtime_credential_secure' \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'métrica segura da credencial R2 ausente'
 grep -Fq 'bootstrap-superadmin * blindou-bootstrap-superadmin' \
   "${REMOTE_DIR}/blindou-deployctl.sudoers" || fail 'sudoers não libera o bootstrap fechado'
 grep -Fq "readonly GHCR_PULL_VERIFIER='/usr/local/lib/blindou-platform/blindou-ghcr-pull-verify.py'" \
