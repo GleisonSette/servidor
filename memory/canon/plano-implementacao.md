@@ -212,9 +212,9 @@ com oito migrations, todos os workloads Ready, aplicação e EDGE em `passed`,
 Tunnel e R2 saudáveis e backup `blindou-20260823T152218Z` confirmado offsite.
 O gate de atualização foi corrigido para aceitar EDGE `passed` somente quando
 há um ponteiro seguro de release corrente; a primeira instalação continua
-exigindo `connector-only` e ausência desse ponteiro. A janela protegida do
-superadmin executou e aguarda confirmação visual do operador. Depois dessa
-confirmação, a próxima ação é revisar a UI. UAZAPI, Resend e Pagar.me continuam
+exigindo `connector-only` e ausência desse ponteiro. A janela protegida criou
+`gleisonsette@gmail.com` como `super_admin` e validou o login real pela API
+pública. A próxima ação é revisar a UI. UAZAPI, Resend e Pagar.me continuam
 deliberadamente ausentes.
 
 Objetivos:

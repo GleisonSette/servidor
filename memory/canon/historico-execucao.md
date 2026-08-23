@@ -933,3 +933,18 @@ operador.
 - UAZAPI, Resend e Pagar.me permaneceram ausentes. O helper protegido adquiriu e
   liberou o lock do bootstrap; seu resultado final ainda aguarda confirmação
   visual do operador na janela local.
+
+## 2026-08-23 - Superadmin criado e login público validado
+
+Resultado: o primeiro acesso real do Blindou está pronto para a revisão da UI.
+
+- A janela protegida concluiu o bootstrap de `gleisonsette@gmail.com` como
+  `super_admin`, com tenant, usuário, ownership e membership criados na mesma
+  transação sob RLS.
+- A senha entrou somente pelo prompt oculto e não foi salva em arquivo, log ou
+  output; o registro técnico expôs apenas IDs operacionais e prefixo reduzido
+  do e-mail.
+- O controlador validou o login pela API pública sem exibir tokens e orientou o
+  acesso por `https://app.blindou.com`.
+- UAZAPI, Resend e Pagar.me continuam ausentes. A próxima ação é a validação da
+  interface pelo usuário; a ativação dos provedores permanece separada.

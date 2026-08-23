@@ -213,8 +213,8 @@ metadata:
   concluiu com oito migrations já aplicadas, `current_release=8e17210`,
   aplicação e EDGE em `passed`, Tunnel Ready, R2 comprovado e todos os
   workloads Ready. UAZAPI, Resend e Pagar.me permanecem ausentes. A janela
-  protegida executou o bootstrap do superadmin e aguarda a confirmação visual
-  do resultado pelo operador.
+  protegida criou `gleisonsette@gmail.com` como `super_admin`; o comando
+  concluiu e validou o login real pela API pública sem exibir tokens.
 
 ## Manutenção
 

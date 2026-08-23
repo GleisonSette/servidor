@@ -76,8 +76,8 @@ corpus por padrão.
   do host e no rollout. O estado vivo possui oito migrations,
   `current_release=8e17210`, aplicação e EDGE em `passed`, Tunnel e R2
   saudáveis e backup `blindou-20260823T152218Z` confirmado offsite. A janela
-  protegida de bootstrap já executou e aguarda somente a confirmação visual do
-  operador; depois disso, o próximo passo é a revisão da UI.
+  protegida criou `gleisonsette@gmail.com` como `super_admin` e o login real
+  passou pela API pública sem expor tokens. O próximo passo é a revisão da UI.
 
 ## Precedência
 
