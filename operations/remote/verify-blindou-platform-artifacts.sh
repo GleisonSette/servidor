@@ -124,6 +124,10 @@ grep -Fq 'provision-r2-runtime-credential blindou-r2-runtime-credential' "$R2_RU
   || fail 'orquestrador R2 não usa a interface fechada aprovada'
 grep -Fq '& scp.exe @sshArgs $archive' "$R2_RUNTIME_SCRIPT" \
   || fail 'orquestrador R2 não transporta o controlador em uma única conexão SCP'
+grep -Fq 'chmod 0755 $remoteRoot/operations/remote/bootstrap-blindou-deployctl.sh' \
+  "$R2_RUNTIME_SCRIPT" || fail 'pacote Windows não restaura o modo executável do bootstrap'
+grep -Fq "controllerStatus -match '(?m)^r2_runtime_credential_state='" \
+  "$R2_RUNTIME_SCRIPT" || fail 'orquestrador R2 não reconhece o controlador já instalado'
 if grep -Fq 'foreach ($file in $files)' "$R2_RUNTIME_SCRIPT"; then
   fail 'orquestrador R2 ainda abre uma conexão SCP por arquivo'
 fi

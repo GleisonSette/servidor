@@ -139,37 +139,47 @@ $payload = $null
 $operationFailed = $false
 try {
     $Host.UI.RawUI.WindowTitle = 'Blindou - credencial R2 do runtime'
-    Write-Host 'Atualizando o controlador fechado do Blindou.' -ForegroundColor Cyan
-    foreach ($member in $archiveMembers) {
-        $localPath = Join-Path $repositoryRoot $member
-        if (-not (Test-Path -LiteralPath $localPath -PathType Leaf)) {
-            throw "Artefato local ausente: $member"
+    $controllerStatus = (& ssh.exe @sshArgs $server `
+        'sudo -n /usr/local/sbin/blindou-deployctl status' 2>$null) -join "`n"
+    $controllerReady = $LASTEXITCODE -eq 0 -and
+        $controllerStatus -match '(?m)^r2_runtime_credential_state='
+    if ($controllerReady) {
+        Write-Host 'Controlador R2 já instalado e autenticado no host.' -ForegroundColor Green
+    }
+    else {
+        Write-Host 'Atualizando o controlador fechado do Blindou.' -ForegroundColor Cyan
+        foreach ($member in $archiveMembers) {
+            $localPath = Join-Path $repositoryRoot $member
+            if (-not (Test-Path -LiteralPath $localPath -PathType Leaf)) {
+                throw "Artefato local ausente: $member"
+            }
         }
-    }
-    if (-not (Test-Path -LiteralPath $archiveDirectory -PathType Container)) {
-        [void](New-Item -ItemType Directory -Path $archiveDirectory -Force)
-    }
-    if (Test-Path -LiteralPath $archive) { Remove-Item -LiteralPath $archive -Force }
-    & tar.exe -czf $archive -C $repositoryRoot @archiveMembers
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $archive -PathType Leaf)) {
-        throw 'Falha ao criar o pacote fechado do controlador.'
-    }
-    & scp.exe @sshArgs $archive "${server}:/home/apiadmin/blindou-r2-runtime-bootstrap.tar.gz"
-    if ($LASTEXITCODE -ne 0) { throw 'Falha ao enviar o pacote fechado do controlador.' }
-    $remotePrepare = @"
+        if (-not (Test-Path -LiteralPath $archiveDirectory -PathType Container)) {
+            [void](New-Item -ItemType Directory -Path $archiveDirectory -Force)
+        }
+        if (Test-Path -LiteralPath $archive) { Remove-Item -LiteralPath $archive -Force }
+        & tar.exe -czf $archive -C $repositoryRoot @archiveMembers
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $archive -PathType Leaf)) {
+            throw 'Falha ao criar o pacote fechado do controlador.'
+        }
+        & scp.exe @sshArgs $archive "${server}:/home/apiadmin/blindou-r2-runtime-bootstrap.tar.gz"
+        if ($LASTEXITCODE -ne 0) { throw 'Falha ao enviar o pacote fechado do controlador.' }
+        $remotePrepare = @"
 install -d -m 0700 $remoteRoot
 tar -xzf /home/apiadmin/blindou-r2-runtime-bootstrap.tar.gz -C $remoteRoot
 rm -f -- /home/apiadmin/blindou-r2-runtime-bootstrap.tar.gz
+chmod 0755 $remoteRoot/operations/remote/bootstrap-blindou-deployctl.sh
 "@
-    & ssh.exe @sshArgs $server $remotePrepare
-    if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar o pacote remoto.' }
-    Write-Host 'Aguardando a janela de segurança do SSH antes do bootstrap.' -ForegroundColor Yellow
-    Start-Sleep -Seconds 20
-    Invoke-BlindouSudoBootstrap `
-        -ControllerSet DeployController `
-        -SshArguments $sshArgs `
-        -Server $server `
-        -RemoteRoot $remoteRoot
+        & ssh.exe @sshArgs $server $remotePrepare
+        if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar o pacote remoto.' }
+        Write-Host 'Aguardando a janela de segurança do SSH antes do bootstrap.' -ForegroundColor Yellow
+        Start-Sleep -Seconds 45
+        Invoke-BlindouSudoBootstrap `
+            -ControllerSet DeployController `
+            -SshArguments $sshArgs `
+            -Server $server `
+            -RemoteRoot $remoteRoot
+    }
 
     Write-Host ''
     Write-Host 'Na aba da Cloudflare, copie primeiro “ID da chave de acesso”.' -ForegroundColor Cyan
