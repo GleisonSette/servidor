@@ -2676,8 +2676,9 @@ restart_pagarme_consumers() {
   for deployment in "${deployments[@]}"; do
     kube -n "$APP_NAMESPACE" rollout status "deployment/${deployment}" --timeout=600s >/dev/null
   done
-  kube -n "$APP_NAMESPACE" exec deployment/blindou-backend -- \
-    curl -fsS http://127.0.0.1:8080/ready >/dev/null
+  # O rollout só conclui depois das probes HTTP /ready declaradas na release
+  # assinada passarem pelo kubelet. A imagem mínima não carrega ferramentas de
+  # diagnóstico e a ativação não pode depender de executá-las dentro do Pod.
 }
 
 activate_pagarme_runtime() {

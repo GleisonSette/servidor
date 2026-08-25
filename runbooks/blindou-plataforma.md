@@ -479,6 +479,12 @@ fechado. Um journal root-only permanece até o recibo final; se o processo for
 interrompido, a próxima execução primeiro restaura o modo fechado e só então
 tenta uma nova ativação.
 
+A prontidão dessa transição usa `rollout status` sobre o backend e os 16
+workers. Esse gate só conclui quando as probes HTTP `/ready` da release assinada
+passam pelo kubelet. Não executar `curl`, shell ou outra ferramenta de
+diagnóstico dentro das imagens mínimas de produção; a ausência dessas
+ferramentas é parte do endurecimento e não pode quebrar ativação nem rollback.
+
 Os sete planos externos usam ciclo mensal, `billing_type=prepaid`, uma parcela,
 BRL, ausência de trial, produto não físico e descritor `BLINDOU`. Seus IDs não
 entram neste repositório; são vinculados no Blindou por migration aditiva

@@ -196,6 +196,10 @@ Em 2026-08-25, o contrato de transporte dos bootstraps foi fechado para exigir
 o mesmo conjunto completo de fontes em todos os seis orquestradores. Isso evita
 que a prova GHCR ou uma rotação de credencial falhe antes da instalação quando
 o controlador ganha um novo helper obrigatório.
+Na primeira ativação viva, o gate redundante que executava `curl` dentro da
+imagem mínima impediu também o rollback. O journal root-only foi preservado e o
+runtime continuou reportado como inativo; a correção mantém a prontidão pelas
+probes `/ready` observadas no rollout e proíbe dependência de ferramenta no Pod.
 
 1. secret key live validada e preservada somente no cofre root-only;
 2. webhook HTTPS cadastrado com segredo forte rotacionado;

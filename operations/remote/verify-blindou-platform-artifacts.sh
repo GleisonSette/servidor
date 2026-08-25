@@ -591,6 +591,17 @@ grep -Fq 'current_release_is_pagarme_compatible "$release_id"' \
 grep -Fq 'write_pagarme_first_runtime_config' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'restart_pagarme_consumers' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'ativação Pagar.me não materializa e reinicia os consumidores'
+pagarme_restart_function="$(sed -n '/^restart_pagarme_consumers()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+grep -Fq 'rollout status deployment/blindou-backend --timeout=600s' \
+  <<<"$pagarme_restart_function" \
+  && grep -Fq 'rollout status "deployment/${deployment}" --timeout=600s' \
+    <<<"$pagarme_restart_function" \
+  || fail 'ativação Pagar.me não aguarda as probes do backend e dos 16 workers'
+if grep -Fq 'exec deployment/blindou-backend' <<<"$pagarme_restart_function" \
+    || grep -Fq 'curl -fsS http://127.0.0.1:8080/ready' <<<"$pagarme_restart_function"; then
+  fail 'ativação Pagar.me depende indevidamente de ferramenta na imagem mínima'
+fi
 grep -Fq 'PAGARME_RUNTIME_ROLLBACK_CONFIG' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'journal preservado' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'ativação Pagar.me não preserva journal para recuperar interrupção'

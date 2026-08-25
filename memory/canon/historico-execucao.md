@@ -1021,3 +1021,23 @@ registrada separadamente depois do aceite no host.
   bootstrap.
 - Nenhum workload, migration, Secret ou gate de produção foi alterado pela
   tentativa recusada.
+
+## 2026-08-25 - Primeira ativação Pagar.me recusada pela checagem interna
+
+Resultado: a release e a migration foram aplicadas; a ativação não recebeu
+recibo de sucesso e preservou o journal para recuperação na próxima execução.
+
+- A release `ab15a31b8b0538b772763cb0b5a52d6ef3c7c463` passou na prova integral
+  das quatro imagens, aplicou a migration `0009` e deixou backend, redirector,
+  NATS, Redis, 16 workers e `cloudflared` Ready.
+- O backup `blindou-20260825T092915Z` foi criptografado, baixado e confirmado
+  offsite antes da migration.
+- A credencial Pagar.me live foi revalidada, mas a ativação tentou executar
+  `curl` dentro da imagem mínima do backend. A ferramenta não existe por
+  endurecimento; a mesma checagem impediu a conclusão formal do rollback.
+- O controlador preservou o journal root-only, não criou recibo de ativação e
+  continuou reportando `pagarme_runtime_state=inactive`. App e API públicos
+  permaneceram em HTTP 200.
+- A correção passa a usar o `rollout status`, que já depende das probes HTTP
+  `/ready` declaradas na release assinada, e o gate offline recusa dependência
+  de ferramenta executada dentro do Pod.

@@ -67,6 +67,10 @@ corpus por padrão.
 - Em 2026-08-25, todos os seis orquestradores que reinstalam o controlador do
   Blindou passaram a transportar o conjunto completo de fontes exigido pelo
   bootstrap; o gate offline impede regressão desse contrato.
+- A primeira tentativa de ativação Pagar.me preservou o journal e permaneceu
+  sem recibo ativo porque uma checagem redundante exigia `curl` na imagem
+  mínima. A correção usa as probes `/ready` já observadas pelo rollout e impede
+  reintroduzir ferramenta de diagnóstico no Pod.
 - O workflow `32442604845` executou o SHA Blindou `83e7f387` duas vezes:
   fmt/check/Clippy passaram, mas `rust-lld` caiu com `Bus error` ao ligar testes
   grandes diferentes. O job de imagens foi pulado e não publicou candidatas.
