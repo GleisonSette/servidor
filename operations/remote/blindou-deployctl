@@ -38,6 +38,15 @@ readonly R2_ACCOUNT_ID='680e2ea12957a373a522592922c1e56d'
 readonly R2_BUCKET='blindou-media-prod'
 readonly R2_PUBLIC_BASE_URL='https://media.blindou.com'
 readonly R2_VERIFICATION_RECEIPT="${STATE_ROOT}/r2-media-verification.state"
+readonly PAGARME_SECRET_DIR="${DATA_ROOT}/pagarme"
+readonly PAGARME_SECRET_KEY_FILE="${PAGARME_SECRET_DIR}/secret-key"
+readonly PAGARME_WEBHOOK_SECRET_FILE="${PAGARME_SECRET_DIR}/webhook-secret"
+readonly PAGARME_API_BASE_URL='https://api.pagar.me/core/v5'
+readonly PAGARME_PLAN_PROVISIONER='/usr/local/lib/blindou-platform/blindou-pagarme-plans.py'
+readonly PAGARME_PLANS_RECEIPT="${STATE_ROOT}/pagarme-plans.json"
+readonly PAGARME_VERIFICATION_RECEIPT="${STATE_ROOT}/pagarme-credential.state"
+readonly PAGARME_RUNTIME_RECEIPT="${STATE_ROOT}/pagarme-runtime.state"
+readonly PAGARME_RUNTIME_ROLLBACK_CONFIG="${STATE_ROOT}/pagarme-runtime.rollback.env"
 readonly DATABASE_SECRET_DIR="${DATA_ROOT}/database"
 readonly DATABASE_CREDENTIALS="${DATABASE_SECRET_DIR}/credentials.env"
 readonly CLIENT_CA_DIR="${DATA_ROOT}/postgres-ca"
@@ -71,6 +80,10 @@ readonly EDGE_CONNECTOR_CONFIRMATION='blindou-edge-connector'
 readonly CLOUDFLARE_SAAS_TOKEN_CONFIRMATION='blindou-cloudflare-saas-token'
 readonly GHCR_PULL_CONFIRMATION='blindou-ghcr-pull-credential'
 readonly R2_CREDENTIAL_CONFIRMATION='blindou-r2-runtime-credential'
+readonly PAGARME_CREDENTIAL_CONFIRMATION='blindou-pagarme-credential'
+readonly PAGARME_WEBHOOK_ROTATION_CONFIRMATION='blindou-pagarme-webhook-rotation'
+readonly PAGARME_PLANS_CONFIRMATION='blindou-pagarme-plans'
+readonly PAGARME_RUNTIME_CONFIRMATION='blindou-pagarme-runtime'
 readonly DATA_CONFIRMATION='blindou-data-foundation'
 readonly DATA_ROLLBACK_CONFIRMATION='blindou-empty-data-foundation'
 readonly BACKUP_CONFIRMATION='blindou-database-backup'
@@ -107,6 +120,11 @@ cleanup() {
       "${GHCR_PULL_TOKEN_FILE}.tmp."*|\
       "${R2_ACCESS_KEY_FILE}.tmp."*|"${R2_SECRET_KEY_FILE}.tmp."*|\
       "${R2_VERIFICATION_RECEIPT}.tmp"|/var/tmp/blindou-r2-probe.*|\
+      "${PAGARME_SECRET_KEY_FILE}.tmp."*|"${PAGARME_WEBHOOK_SECRET_FILE}.tmp."*|\
+       "${PAGARME_SECRET_DIR}.tmp."*|\
+       "${PAGARME_VERIFICATION_RECEIPT}.tmp"|"${PAGARME_PLANS_RECEIPT}.tmp."*|\
+       "${PAGARME_RUNTIME_RECEIPT}.tmp"|\
+      "${PAGARME_RUNTIME_ROLLBACK_CONFIG}.tmp"|\
       /var/tmp/blindou-ghcr-headers.*|\
       "${GHCR_PULL_PROOF_ROOT}"/.tmp.*|\
       "${GHCR_PULL_PROOF_LATEST}.tmp."*|\
@@ -1079,6 +1097,298 @@ provision_r2_runtime_credential() {
   pass 'credencial R2 validada e guardada no cofre root-only; runtime ainda não foi publicado'
 }
 
+pagarme_secret_key_format_is_valid() {
+  local value="$1"
+  [[ ${#value} -ge 19 && ${#value} -le 512 \
+      && "$value" =~ ^sk_[A-Za-z0-9]+$ \
+      && "$value" != sk_test_* ]]
+}
+
+pagarme_webhook_secret_format_is_valid() {
+  local value="$1"
+  [[ ${#value} -ge 43 && ${#value} -le 256 \
+      && "$value" =~ ^[A-Za-z0-9_-]+$ ]]
+}
+
+pagarme_credential_files_are_secure() {
+  runtime_secret_file_is_secure "$PAGARME_SECRET_KEY_FILE" \
+    && runtime_secret_file_is_secure "$PAGARME_WEBHOOK_SECRET_FILE" \
+    || return 1
+  [[ "$(wc -l <"$PAGARME_SECRET_KEY_FILE")" == '1' \
+      && "$(wc -l <"$PAGARME_WEBHOOK_SECRET_FILE")" == '1' ]] \
+    || return 1
+  local secret_key webhook_secret
+  IFS= read -r secret_key <"$PAGARME_SECRET_KEY_FILE" || return 1
+  IFS= read -r webhook_secret <"$PAGARME_WEBHOOK_SECRET_FILE" || return 1
+  pagarme_secret_key_format_is_valid "$secret_key" \
+    && pagarme_webhook_secret_format_is_valid "$webhook_secret"
+  local result=$?
+  unset secret_key webhook_secret
+  return "$result"
+}
+
+pagarme_live_probe() {
+  local secret_key="$1" http_code
+  http_code="$({
+    printf '%s\n' \
+      'silent' \
+      'show-error' \
+      'proto = "=https"' \
+      'tlsv1.2' \
+      'connect-timeout = 10' \
+      'max-time = 30' \
+      "user = \"${secret_key}:\"" \
+      'request = "GET"' \
+      "url = \"${PAGARME_API_BASE_URL}/plans?page=1&size=1\"" \
+      'output = "/dev/null"' \
+      'write-out = "%{http_code}"'
+  } | curl --config -)" || return 1
+  [[ "$http_code" == '200' ]]
+}
+
+record_pagarme_verification() {
+  install -d -o root -g root -m 0700 "$STATE_ROOT"
+  if [[ -e "$PAGARME_VERIFICATION_RECEIPT" \
+      || -L "$PAGARME_VERIFICATION_RECEIPT" ]]; then
+    runtime_secret_file_is_secure "$PAGARME_VERIFICATION_RECEIPT" \
+      || fail 'recibo de validação Pagar.me existente está inseguro'
+  fi
+  [[ ! -e "${PAGARME_VERIFICATION_RECEIPT}.tmp" \
+      && ! -L "${PAGARME_VERIFICATION_RECEIPT}.tmp" ]] \
+    || fail 'arquivo temporário inesperado no recibo Pagar.me'
+  {
+    printf 'schema=1\nenvironment=live\nprovider=pagarme-v5\n'
+    printf 'verified_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } >"${PAGARME_VERIFICATION_RECEIPT}.tmp"
+  cleanup_paths+=("${PAGARME_VERIFICATION_RECEIPT}.tmp")
+  install -o root -g root -m 0600 \
+    "${PAGARME_VERIFICATION_RECEIPT}.tmp" "$PAGARME_VERIFICATION_RECEIPT"
+  rm -f -- "${PAGARME_VERIFICATION_RECEIPT}.tmp"
+}
+
+pagarme_runtime_receipt_is_secure() {
+  [[ -f "$PAGARME_RUNTIME_RECEIPT" \
+      && ! -L "$PAGARME_RUNTIME_RECEIPT" \
+      && "$(stat -c '%U:%G:%a' "$PAGARME_RUNTIME_RECEIPT" 2>/dev/null)" == 'root:root:600' \
+      && "$(wc -l <"$PAGARME_RUNTIME_RECEIPT")" == '5' ]] \
+    || return 1
+  grep -Fxq 'schema=1' "$PAGARME_RUNTIME_RECEIPT" \
+    && grep -Fxq 'provider=pagarme-v5' "$PAGARME_RUNTIME_RECEIPT" \
+    && grep -Fxq 'environment=live' "$PAGARME_RUNTIME_RECEIPT" \
+    && grep -Eq '^release_id=[0-9a-f]{40}$' "$PAGARME_RUNTIME_RECEIPT" \
+    && grep -Eq '^activated_at_utc=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' \
+      "$PAGARME_RUNTIME_RECEIPT"
+}
+
+verify_pagarme_credential() {
+  require_platform_preconditions
+  pagarme_credential_files_are_secure \
+    || fail 'credencial Pagar.me ausente, insegura ou fora do formato live esperado'
+  local secret_key
+  IFS= read -r secret_key <"$PAGARME_SECRET_KEY_FILE" \
+    || fail 'chave Pagar.me não pôde ser lida do cofre'
+  if ! pagarme_live_probe "$secret_key"; then
+    unset secret_key
+    fail 'Pagar.me recusou a validação autenticada da chave live'
+  fi
+  unset secret_key
+  record_pagarme_verification
+  pass 'credencial Pagar.me live validada e preservada no cofre root-only'
+}
+
+provision_pagarme_credential() {
+  [[ "${1:-}" == "$PAGARME_CREDENTIAL_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${PAGARME_CREDENTIAL_CONFIRMATION}"
+  [[ ! -t 0 ]] || fail 'credenciais Pagar.me devem chegar por stdin não interativo'
+  require_platform_preconditions
+  [[ -f "$CURRENT_RELEASE" && ! -L "$CURRENT_RELEASE" \
+      && "$(stat -c '%U:%G:%a' "$CURRENT_RELEASE")" == 'root:root:600' \
+      && "$(<"$CURRENT_RELEASE")" =~ $RELEASE_PATTERN ]] \
+    || fail 'release corrente segura é obrigatória antes do cofre Pagar.me'
+  [[ "$(namespace_label "$APP_NAMESPACE" 'platform\.servidor\.local/deployment-gate')" == 'passed' \
+      && "$(namespace_label "$EDGE_NAMESPACE" 'platform\.servidor\.local/deployment-gate')" == 'passed' ]] \
+    || fail 'credencial Pagar.me só pode ser provisionada com aplicação e EDGE em passed'
+  grep -Fxq 'INITIAL_UI_REVIEW_MODE=true' "$RUNTIME_CONFIG_FILE" \
+    || fail 'provisionamento inicial Pagar.me exige o runtime ainda em revisão fechada'
+  grep -Fxq 'UAZAPI_ENABLED=false' "$RUNTIME_CONFIG_FILE" \
+    || fail 'UAZAPI deve permanecer desabilitada durante o provisionamento Pagar.me'
+  grep -Fxq 'EMAIL_PROVIDER=disabled' "$RUNTIME_CONFIG_FILE" \
+    || fail 'Resend deve permanecer desabilitado durante o provisionamento Pagar.me'
+  local core_keys
+  core_keys="$(kube -n "$APP_NAMESPACE" get secret blindou-core-secrets \
+    -o go-template='{{range $key, $value := .data}}{{printf "%s\n" $key}}{{end}}')"
+  for forbidden_key in PAGARME_SECRET_KEY PAGARME_WEBHOOK_SECRET; do
+    ! grep -Fxq "$forbidden_key" <<<"$core_keys" \
+      || fail "${forbidden_key} já apareceu no Kubernetes antes da ativação compatível"
+  done
+
+  local schema secret_key_b64 webhook_secret_b64 secret_key webhook_secret
+  local existing_secret_key existing_webhook_secret
+  local temporary_secret_dir
+  IFS= read -r schema || fail 'payload Pagar.me ausente'
+  IFS= read -r secret_key_b64 || fail 'PAGARME_SECRET_KEY ausente'
+  IFS= read -r webhook_secret_b64 || fail 'PAGARME_WEBHOOK_SECRET ausente'
+  [[ "$schema" == 'schema=1' ]] || fail 'schema do payload Pagar.me inválido'
+  [[ "$secret_key_b64" =~ ^[A-Za-z0-9+/=]{32,1024}$ \
+      && "$webhook_secret_b64" =~ ^[A-Za-z0-9+/=]{60,512}$ ]] \
+    || fail 'payload base64 Pagar.me inválido'
+  secret_key="$(printf '%s' "$secret_key_b64" | base64 -d)" \
+    || fail 'PAGARME_SECRET_KEY inválida'
+  webhook_secret="$(printf '%s' "$webhook_secret_b64" | base64 -d)" \
+    || { unset secret_key; fail 'PAGARME_WEBHOOK_SECRET inválido'; }
+  unset secret_key_b64 webhook_secret_b64
+  pagarme_secret_key_format_is_valid "$secret_key" \
+    || { unset secret_key webhook_secret; fail 'PAGARME_SECRET_KEY não é uma chave live válida'; }
+  pagarme_webhook_secret_format_is_valid "$webhook_secret" \
+    || { unset secret_key webhook_secret; fail 'PAGARME_WEBHOOK_SECRET deve ser URL-safe e ter ao menos 43 caracteres'; }
+  pagarme_live_probe "$secret_key" \
+    || { unset secret_key webhook_secret; fail 'Pagar.me recusou a chave live informada'; }
+
+  if [[ -e "$PAGARME_SECRET_KEY_FILE" || -L "$PAGARME_SECRET_KEY_FILE" \
+      || -e "$PAGARME_WEBHOOK_SECRET_FILE" || -L "$PAGARME_WEBHOOK_SECRET_FILE" ]]; then
+    pagarme_credential_files_are_secure \
+      || { unset secret_key webhook_secret; fail 'credencial Pagar.me existente está incompleta ou insegura'; }
+    IFS= read -r existing_secret_key <"$PAGARME_SECRET_KEY_FILE"
+    IFS= read -r existing_webhook_secret <"$PAGARME_WEBHOOK_SECRET_FILE"
+    [[ "$existing_secret_key" == "$secret_key" \
+        && "$existing_webhook_secret" == "$webhook_secret" ]] \
+      || { unset secret_key webhook_secret existing_secret_key existing_webhook_secret; fail 'uma credencial Pagar.me diferente já está provisionada'; }
+    unset secret_key webhook_secret existing_secret_key existing_webhook_secret
+    record_pagarme_verification
+    pass 'credencial Pagar.me já estava provisionada e foi revalidada'
+    return
+  fi
+
+  temporary_secret_dir="$(mktemp -d "${PAGARME_SECRET_DIR}.tmp.XXXXXX")"
+  cleanup_paths+=("$temporary_secret_dir")
+  install -d -o root -g root -m 0700 "$temporary_secret_dir"
+  printf '%s\n' "$secret_key" >"${temporary_secret_dir}/secret-key"
+  printf '%s\n' "$webhook_secret" >"${temporary_secret_dir}/webhook-secret"
+  chown root:root "${temporary_secret_dir}/secret-key" \
+    "${temporary_secret_dir}/webhook-secret"
+  chmod 0600 "${temporary_secret_dir}/secret-key" \
+    "${temporary_secret_dir}/webhook-secret"
+  unset secret_key webhook_secret
+  mv -- "$temporary_secret_dir" "$PAGARME_SECRET_DIR"
+  record_pagarme_verification
+  pass 'credencial Pagar.me validada e guardada fora do Kubernetes; runtime não foi alterado'
+}
+
+rotate_pagarme_webhook_secret() {
+  [[ "${1:-}" == "$PAGARME_WEBHOOK_ROTATION_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${PAGARME_WEBHOOK_ROTATION_CONFIRMATION}"
+  [[ ! -t 0 ]] || fail 'novo segredo do webhook Pagar.me deve chegar por stdin não interativo'
+  require_platform_preconditions
+  pagarme_credential_files_are_secure \
+    || fail 'credencial Pagar.me existente está ausente ou insegura'
+  [[ ! -f "$PAGARME_RUNTIME_RECEIPT" ]] \
+    || fail 'rotação pré-ativação recusada porque o runtime Pagar.me já foi ativado'
+  grep -Fxq 'INITIAL_UI_REVIEW_MODE=true' "$RUNTIME_CONFIG_FILE" \
+    || fail 'rotação pré-ativação exige o runtime ainda em revisão fechada'
+  local core_keys
+  core_keys="$(kube -n "$APP_NAMESPACE" get secret blindou-core-secrets \
+    -o go-template='{{range $key, $value := .data}}{{printf "%s\n" $key}}{{end}}')"
+  for forbidden_key in PAGARME_SECRET_KEY PAGARME_WEBHOOK_SECRET; do
+    ! grep -Fxq "$forbidden_key" <<<"$core_keys" \
+      || fail "${forbidden_key} apareceu no Kubernetes antes da rotação pré-ativação"
+  done
+
+  local schema webhook_secret_b64 webhook_secret existing_webhook_secret secret_key
+  local temporary_webhook_file
+  IFS= read -r schema || fail 'payload da rotação Pagar.me ausente'
+  IFS= read -r webhook_secret_b64 || fail 'novo PAGARME_WEBHOOK_SECRET ausente'
+  [[ "$schema" == 'schema=1' \
+      && "$webhook_secret_b64" =~ ^[A-Za-z0-9+/=]{60,512}$ ]] \
+    || fail 'payload base64 da rotação Pagar.me inválido'
+  webhook_secret="$(printf '%s' "$webhook_secret_b64" | base64 -d)" \
+    || fail 'novo PAGARME_WEBHOOK_SECRET inválido'
+  unset webhook_secret_b64
+  pagarme_webhook_secret_format_is_valid "$webhook_secret" \
+    || { unset webhook_secret; fail 'novo PAGARME_WEBHOOK_SECRET deve ser URL-safe e ter ao menos 43 caracteres'; }
+  IFS= read -r existing_webhook_secret <"$PAGARME_WEBHOOK_SECRET_FILE"
+  [[ "$webhook_secret" != "$existing_webhook_secret" ]] \
+    || { unset webhook_secret existing_webhook_secret; fail 'rotação recebeu o segredo Pagar.me já vigente'; }
+  unset existing_webhook_secret
+  IFS= read -r secret_key <"$PAGARME_SECRET_KEY_FILE"
+  if ! pagarme_live_probe "$secret_key"; then
+    unset secret_key webhook_secret
+    fail 'Pagar.me recusou a secret key já guardada durante a rotação do webhook'
+  fi
+  unset secret_key
+
+  temporary_webhook_file="$(mktemp "${PAGARME_WEBHOOK_SECRET_FILE}.tmp.XXXXXX")"
+  cleanup_paths+=("$temporary_webhook_file")
+  printf '%s\n' "$webhook_secret" >"$temporary_webhook_file"
+  unset webhook_secret
+  chown root:root "$temporary_webhook_file"
+  chmod 0600 "$temporary_webhook_file"
+  mv -- "$temporary_webhook_file" "$PAGARME_WEBHOOK_SECRET_FILE"
+  record_pagarme_verification
+  pass 'segredo do webhook Pagar.me rotacionado no cofre; secret key e runtime não foram alterados'
+}
+
+pagarme_plan_provisioner_is_secure() {
+  [[ -f "$PAGARME_PLAN_PROVISIONER" \
+      && ! -L "$PAGARME_PLAN_PROVISIONER" \
+      && "$(stat -c '%U:%G:%a' "$PAGARME_PLAN_PROVISIONER" 2>/dev/null)" == 'root:root:755' ]]
+}
+
+pagarme_plans_receipt_is_secure() {
+  [[ -f "$PAGARME_PLANS_RECEIPT" \
+      && ! -L "$PAGARME_PLANS_RECEIPT" \
+      && "$(stat -c '%U:%G:%a' "$PAGARME_PLANS_RECEIPT" 2>/dev/null)" == 'root:root:600' ]] \
+    || return 1
+  pagarme_plan_provisioner_is_secure || return 1
+  "$PAGARME_PLAN_PROVISIONER" \
+    --mode verify-receipt \
+    --receipt "$PAGARME_PLANS_RECEIPT" >/dev/null
+}
+
+require_pagarme_catalog_preconditions() {
+  require_platform_preconditions
+  pagarme_credential_files_are_secure \
+    || fail 'credencial Pagar.me ausente ou insegura no cofre root-only'
+  pagarme_plan_provisioner_is_secure \
+    || fail 'provisionador fechado de planos Pagar.me ausente ou inseguro'
+  [[ ! -f "$PAGARME_RUNTIME_RECEIPT" ]] \
+    || fail 'operação do catálogo pré-ativação recusada após ativação do runtime Pagar.me'
+  grep -Fxq 'INITIAL_UI_REVIEW_MODE=true' "$RUNTIME_CONFIG_FILE" \
+    || fail 'catálogo Pagar.me exige o runtime ainda em revisão fechada'
+  grep -Fxq 'UAZAPI_ENABLED=false' "$RUNTIME_CONFIG_FILE" \
+    || fail 'UAZAPI deve permanecer desabilitada durante o provisionamento Pagar.me'
+  grep -Fxq 'EMAIL_PROVIDER=disabled' "$RUNTIME_CONFIG_FILE" \
+    || fail 'Resend deve permanecer desabilitado durante o provisionamento Pagar.me'
+}
+
+verify_pagarme_plans() {
+  require_pagarme_catalog_preconditions
+  pagarme_plans_receipt_is_secure \
+    || fail 'recibo root-only dos sete planos Pagar.me está ausente ou inválido'
+  "$PAGARME_PLAN_PROVISIONER" \
+    --mode verify \
+    --secret-key-file "$PAGARME_SECRET_KEY_FILE" \
+    --receipt "$PAGARME_PLANS_RECEIPT" >/dev/null \
+    || fail 'catálogo live Pagar.me diverge do recibo canônico'
+  pass 'sete planos live Pagar.me conferidos contra o catálogo canônico'
+}
+
+provision_pagarme_plans() {
+  [[ "${1:-}" == "$PAGARME_PLANS_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${PAGARME_PLANS_CONFIRMATION}"
+  require_pagarme_catalog_preconditions
+  "$PAGARME_PLAN_PROVISIONER" \
+    --mode provision \
+    --secret-key-file "$PAGARME_SECRET_KEY_FILE" \
+    --receipt "$PAGARME_PLANS_RECEIPT" \
+    || fail 'provisionamento fechado dos planos Pagar.me falhou'
+  pagarme_plans_receipt_is_secure \
+    || fail 'recibo final dos planos Pagar.me não passou na verificação root-only'
+  pass 'sete planos live Pagar.me criados ou reconciliados e conferidos; runtime não foi alterado'
+  printf 'pagarme_plans_receipt_base64='
+  base64 -w 0 "$PAGARME_PLANS_RECEIPT"
+  printf '\n'
+}
+
 ensure_ghcr_pull_secret() {
   verify_ghcr_pull_credential >/dev/null
   local token auth namespace
@@ -1880,6 +2190,7 @@ write_runtime_config() {
   cat >"${RUNTIME_CONFIG_FILE}.tmp" <<EOF
 RUST_ENV=production
 RUST_LOG=info
+INITIAL_UI_REVIEW_MODE=false
 BACKEND_HOST=0.0.0.0
 BACKEND_PORT=8080
 DEPLOY_LANE=blue
@@ -1890,6 +2201,8 @@ PASSWORD_PEPPER_CURRENT_ID=v1
 AUTH_SECURITY_CODE_ENCRYPTION_KEY_ID=auth-code-key-v1
 AUTH_SECURITY_CHANNEL_ENCRYPTION_KEY_ID=auth-channel-key-v1
 BILLING_ADMIN_NOTIFY_EMAIL=${SUPERADMIN_EMAIL}
+PAGARME_ENABLED=true
+PAGARME_REQUEST_TIMEOUT_SECS=20
 REDIRECTOR_CODE_KEY_ID=v1
 REDIRECTOR_HMAC_KEY_ID=v1
 REDIRECTOR_RAW_RETENTION_DAYS=90
@@ -1907,6 +2220,7 @@ R2_PUBLIC_BASE_URL=${R2_PUBLIC_BASE_URL}
 R2_OBJECT_PREFIX=link-previews
 R2_REQUEST_TIMEOUT_SECS=10
 R2_CACHE_MAX_AGE_SECS=2592000
+UAZAPI_ENABLED=true
 UAZAPI_BASE_URL=${uazapi_base_url}
 UAZAPI_PUBLIC_WEBHOOK_BASE=https://api.blindou.com
 UAZAPI_TOKEN_KEY_ID=uazapi-token-key-v1
@@ -1955,11 +2269,15 @@ EOF
   rm -f -- "${RUNTIME_CONFIG_FILE}.tmp"
 }
 
-write_ui_review_runtime_config() {
+write_deferred_provider_runtime_config() {
+  local initial_ui_review_mode="$1" pagarme_enabled="$2"
+  [[ "$initial_ui_review_mode" =~ ^(true|false)$ \
+      && "$pagarme_enabled" =~ ^(true|false)$ ]] \
+    || fail 'modo de runtime externo inválido'
   cat >"${RUNTIME_CONFIG_FILE}.tmp" <<EOF
 RUST_ENV=production
 RUST_LOG=info
-INITIAL_UI_REVIEW_MODE=true
+INITIAL_UI_REVIEW_MODE=${initial_ui_review_mode}
 BACKEND_HOST=0.0.0.0
 BACKEND_PORT=8080
 DEPLOY_LANE=blue
@@ -1970,6 +2288,8 @@ PASSWORD_PEPPER_CURRENT_ID=v1
 AUTH_SECURITY_CODE_ENCRYPTION_KEY_ID=auth-code-key-v1
 AUTH_SECURITY_CHANNEL_ENCRYPTION_KEY_ID=auth-channel-key-v1
 BILLING_ADMIN_NOTIFY_EMAIL=${SUPERADMIN_EMAIL}
+PAGARME_ENABLED=${pagarme_enabled}
+PAGARME_REQUEST_TIMEOUT_SECS=20
 REDIRECTOR_CODE_KEY_ID=v1
 REDIRECTOR_HMAC_KEY_ID=v1
 REDIRECTOR_RAW_RETENTION_DAYS=90
@@ -2031,6 +2351,14 @@ EOF
   rm -f -- "${RUNTIME_CONFIG_FILE}.tmp"
 }
 
+write_ui_review_runtime_config() {
+  write_deferred_provider_runtime_config true false
+}
+
+write_pagarme_first_runtime_config() {
+  write_deferred_provider_runtime_config false true
+}
+
 create_runtime_kubernetes_material() {
   kube -n "$APP_NAMESPACE" create configmap blindou-runtime-config \
     --from-env-file="$RUNTIME_CONFIG_FILE" --dry-run=client -o yaml \
@@ -2060,6 +2388,14 @@ create_runtime_kubernetes_material() {
   fi
   if [[ -f "${RUNTIME_SECRET_DIR}/RESEND_API_KEY" ]]; then
     core_secret_args+=(--from-file=RESEND_API_KEY="${RUNTIME_SECRET_DIR}/RESEND_API_KEY")
+  fi
+  if grep -Fxq 'PAGARME_ENABLED=true' "$RUNTIME_CONFIG_FILE"; then
+    pagarme_credential_files_are_secure \
+      || fail 'Pagar.me está habilitado sem o par seguro no cofre root-only'
+    core_secret_args+=(
+      --from-file=PAGARME_SECRET_KEY="$PAGARME_SECRET_KEY_FILE"
+      --from-file=PAGARME_WEBHOOK_SECRET="$PAGARME_WEBHOOK_SECRET_FILE"
+    )
   fi
   kube -n "$APP_NAMESPACE" create secret generic blindou-core-secrets \
     "${core_secret_args[@]}" --dry-run=client -o yaml | kube apply -f - >/dev/null
@@ -2118,19 +2454,48 @@ verify_runtime_material() {
   local core_keys
   core_keys="$(kube -n "$APP_NAMESPACE" get secret blindou-core-secrets \
     -o go-template='{{range $key, $value := .data}}{{printf "%s\n" $key}}{{end}}')"
+  if grep -Fxq 'UAZAPI_ENABLED=true' "$RUNTIME_CONFIG_FILE"; then
+    secret_has_keys "$APP_NAMESPACE" blindou-core-secrets UAZAPI_ADMIN_TOKEN
+  else
+    grep -Fxq 'UAZAPI_ENABLED=false' "$RUNTIME_CONFIG_FILE" \
+      || fail 'UAZAPI_ENABLED deve declarar true ou false explicitamente'
+    ! grep -Fxq UAZAPI_ADMIN_TOKEN <<<"$core_keys" \
+      || fail 'UAZAPI_ADMIN_TOKEN apareceu com UAZAPI desabilitada'
+    [[ ! -e "${RUNTIME_SECRET_DIR}/UAZAPI_ADMIN_TOKEN" ]] \
+      || fail 'UAZAPI_ADMIN_TOKEN apareceu no cofre com UAZAPI desabilitada'
+  fi
+  if grep -Fxq 'EMAIL_PROVIDER=resend' "$RUNTIME_CONFIG_FILE"; then
+    secret_has_keys "$APP_NAMESPACE" blindou-core-secrets RESEND_API_KEY
+  else
+    grep -Fxq 'EMAIL_PROVIDER=disabled' "$RUNTIME_CONFIG_FILE" \
+      || fail 'EMAIL_PROVIDER deve permanecer disabled ou usar Resend'
+    ! grep -Fxq RESEND_API_KEY <<<"$core_keys" \
+      || fail 'RESEND_API_KEY apareceu com o provider de e-mail desabilitado'
+    [[ ! -e "${RUNTIME_SECRET_DIR}/RESEND_API_KEY" ]] \
+      || fail 'RESEND_API_KEY apareceu no cofre com o provider de e-mail desabilitado'
+  fi
+  if grep -Fxq 'PAGARME_ENABLED=true' "$RUNTIME_CONFIG_FILE"; then
+    pagarme_credential_files_are_secure \
+      || fail 'Pagar.me foi habilitado sem credencial segura no cofre dedicado'
+    secret_has_keys "$APP_NAMESPACE" blindou-core-secrets \
+      PAGARME_SECRET_KEY PAGARME_WEBHOOK_SECRET
+  else
+    grep -Fxq 'PAGARME_ENABLED=false' "$RUNTIME_CONFIG_FILE" \
+      || fail 'PAGARME_ENABLED deve declarar true ou false explicitamente'
+    for forbidden_key in PAGARME_SECRET_KEY PAGARME_WEBHOOK_SECRET; do
+      ! grep -Fxq "$forbidden_key" <<<"$core_keys" \
+        || fail "${forbidden_key} apareceu com Pagar.me desabilitado"
+    done
+  fi
+  for misplaced_key in PAGARME_SECRET_KEY PAGARME_WEBHOOK_SECRET; do
+    [[ ! -e "${RUNTIME_SECRET_DIR}/${misplaced_key}" ]] \
+      || fail "${misplaced_key} deve permanecer somente no cofre Pagar.me dedicado"
+  done
   if grep -Fxq 'INITIAL_UI_REVIEW_MODE=true' "$RUNTIME_CONFIG_FILE"; then
     grep -Fxq 'UAZAPI_ENABLED=false' "$RUNTIME_CONFIG_FILE" \
-      || fail 'UAZAPI deve permanecer desabilitada durante a revisão da UI'
-    grep -Fxq 'EMAIL_PROVIDER=disabled' "$RUNTIME_CONFIG_FILE" \
-      || fail 'Resend deve permanecer desabilitado durante a revisão da UI'
-    for forbidden_key in UAZAPI_ADMIN_TOKEN RESEND_API_KEY PAGARME_SECRET_KEY PAGARME_WEBHOOK_SECRET; do
-      ! grep -Fxq "$forbidden_key" <<<"$core_keys" \
-        || fail "segredo externo ${forbidden_key} apareceu durante a revisão da UI"
-      [[ ! -e "${RUNTIME_SECRET_DIR}/${forbidden_key}" ]] \
-        || fail "credencial externa ${forbidden_key} apareceu no cofre durante a revisão da UI"
-    done
-  else
-    secret_has_keys "$APP_NAMESPACE" blindou-core-secrets UAZAPI_ADMIN_TOKEN RESEND_API_KEY
+      && grep -Fxq 'EMAIL_PROVIDER=disabled' "$RUNTIME_CONFIG_FILE" \
+      && grep -Fxq 'PAGARME_ENABLED=false' "$RUNTIME_CONFIG_FILE" \
+      || fail 'revisão da UI exige todos os provedores externos desabilitados'
   fi
   grep -Fxq 'R2_PREVIEW_IMAGES_ENABLED=true' "$RUNTIME_CONFIG_FILE" \
     || fail 'R2 deve permanecer habilitado para o worker report-thumbnail'
@@ -2268,6 +2633,153 @@ provision_runtime_secrets() {
 
   publish_runtime_material
   pass 'segredos, configuração e provedores preparados; workloads continuam bloqueados'
+}
+
+current_release_is_pagarme_compatible() {
+  local release_id="$1" worker_json
+  [[ "$release_id" =~ $RELEASE_PATTERN \
+      && -f "$CURRENT_RELEASE" \
+      && ! -L "$CURRENT_RELEASE" \
+      && "$(stat -c '%U:%G:%a' "$CURRENT_RELEASE")" == 'root:root:600' \
+      && "$(<"$CURRENT_RELEASE")" == "$release_id" ]] \
+    || return 1
+  [[ "$(kube -n "$APP_NAMESPACE" get deployment blindou-backend \
+      -o jsonpath='{.spec.template.metadata.annotations.blindou\.io/pagarme-first-compatible}')" == 'true' \
+      && "$(kube -n "$APP_NAMESPACE" get deployment blindou-backend \
+      -o jsonpath='{.spec.template.metadata.annotations.blindou\.io/release}')" == "$release_id" ]] \
+    || return 1
+  worker_json="$(kube -n "$APP_NAMESPACE" get deployment \
+    -l blindou.io/tier=worker -o json)" || return 1
+  jq -e --arg release_id "$release_id" '
+    (.items | length) == 16
+    and all(.items[];
+      .spec.template.metadata.annotations["blindou.io/pagarme-first-compatible"] == "true"
+      and .spec.template.metadata.annotations["blindou.io/release"] == $release_id
+    )
+  ' <<<"$worker_json" >/dev/null
+}
+
+restart_pagarme_consumers() {
+  local -a deployments=()
+  mapfile -t deployments < <(
+    kube -n "$APP_NAMESPACE" get deployment -l blindou.io/tier=worker \
+      -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | sort
+  )
+  [[ "${#deployments[@]}" -eq 16 ]] \
+    || fail 'ativação Pagar.me exige exatamente os 16 workers contínuos'
+  kube -n "$APP_NAMESPACE" rollout restart deployment/blindou-backend >/dev/null
+  local deployment
+  for deployment in "${deployments[@]}"; do
+    kube -n "$APP_NAMESPACE" rollout restart "deployment/${deployment}" >/dev/null
+  done
+  kube -n "$APP_NAMESPACE" rollout status deployment/blindou-backend --timeout=600s >/dev/null
+  for deployment in "${deployments[@]}"; do
+    kube -n "$APP_NAMESPACE" rollout status "deployment/${deployment}" --timeout=600s >/dev/null
+  done
+  kube -n "$APP_NAMESPACE" exec deployment/blindou-backend -- \
+    curl -fsS http://127.0.0.1:8080/ready >/dev/null
+}
+
+activate_pagarme_runtime() {
+  local release_id="$1" confirmation="$2" activation_status rollback_status
+  [[ "$confirmation" == "$PAGARME_RUNTIME_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${PAGARME_RUNTIME_CONFIRMATION}"
+  [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id Pagar.me inválido'
+  require_platform_preconditions
+  [[ "$(namespace_label "$APP_NAMESPACE" 'platform\.servidor\.local/deployment-gate')" == 'passed' \
+      && "$(namespace_label "$EDGE_NAMESPACE" 'platform\.servidor\.local/deployment-gate')" == 'passed' ]] \
+    || fail 'ativação Pagar.me exige aplicação e EDGE em passed'
+  current_release_is_pagarme_compatible "$release_id" \
+    || fail 'release corrente não declara compatibilidade Pagar.me-first'
+  verify_pagarme_credential >/dev/null
+
+  if pagarme_runtime_receipt_is_secure \
+      && grep -Fxq "release_id=${release_id}" "$PAGARME_RUNTIME_RECEIPT" \
+      && grep -Fxq 'PAGARME_ENABLED=true' "$RUNTIME_CONFIG_FILE"; then
+    verify_runtime_material >/dev/null
+    if [[ -e "$PAGARME_RUNTIME_ROLLBACK_CONFIG" \
+        || -L "$PAGARME_RUNTIME_ROLLBACK_CONFIG" ]]; then
+      runtime_secret_file_is_secure "$PAGARME_RUNTIME_ROLLBACK_CONFIG" \
+        || fail 'journal residual Pagar.me está inseguro; remoção automática recusada'
+      rm -f -- "$PAGARME_RUNTIME_ROLLBACK_CONFIG"
+    fi
+    pass "runtime Pagar.me já está ativo na release ${release_id}"
+    return
+  fi
+
+  if [[ -e "$PAGARME_RUNTIME_ROLLBACK_CONFIG" \
+      || -L "$PAGARME_RUNTIME_ROLLBACK_CONFIG" ]]; then
+    runtime_secret_file_is_secure "$PAGARME_RUNTIME_ROLLBACK_CONFIG" \
+      || fail 'ativação Pagar.me interrompida deixou journal inseguro; recuperação recusada'
+    install -o root -g root -m 0600 \
+      "$PAGARME_RUNTIME_ROLLBACK_CONFIG" "$RUNTIME_CONFIG_FILE"
+    create_runtime_kubernetes_material
+    verify_runtime_material
+    restart_pagarme_consumers
+    rm -f -- "$PAGARME_RUNTIME_ROLLBACK_CONFIG"
+  fi
+
+  grep -Fxq 'INITIAL_UI_REVIEW_MODE=true' "$RUNTIME_CONFIG_FILE" \
+    && grep -Fxq 'PAGARME_ENABLED=false' "$RUNTIME_CONFIG_FILE" \
+    && grep -Fxq 'UAZAPI_ENABLED=false' "$RUNTIME_CONFIG_FILE" \
+    && grep -Fxq 'EMAIL_PROVIDER=disabled' "$RUNTIME_CONFIG_FILE" \
+    || fail 'ativação Pagar.me exige o runtime compatível ainda no modo fechado anterior'
+  verify_runtime_material >/dev/null
+
+  [[ ! -e "${PAGARME_RUNTIME_ROLLBACK_CONFIG}.tmp" \
+      && ! -L "${PAGARME_RUNTIME_ROLLBACK_CONFIG}.tmp" ]] \
+    || fail 'arquivo temporário inesperado no journal Pagar.me'
+  install -o root -g root -m 0600 "$RUNTIME_CONFIG_FILE" \
+    "${PAGARME_RUNTIME_ROLLBACK_CONFIG}.tmp"
+  cleanup_paths+=("${PAGARME_RUNTIME_ROLLBACK_CONFIG}.tmp")
+  mv -- "${PAGARME_RUNTIME_ROLLBACK_CONFIG}.tmp" \
+    "$PAGARME_RUNTIME_ROLLBACK_CONFIG"
+  set +e
+  (
+    set -Eeuo pipefail
+    write_pagarme_first_runtime_config
+    create_runtime_kubernetes_material
+    verify_runtime_material
+    restart_pagarme_consumers
+  )
+  activation_status=$?
+  set -e
+  if (( activation_status != 0 )); then
+    set +e
+    (
+      set -Eeuo pipefail
+      install -o root -g root -m 0600 \
+        "$PAGARME_RUNTIME_ROLLBACK_CONFIG" "$RUNTIME_CONFIG_FILE"
+      create_runtime_kubernetes_material
+      verify_runtime_material
+      restart_pagarme_consumers
+    )
+    rollback_status=$?
+    set -e
+    (( rollback_status == 0 )) \
+      || fail 'ativação Pagar.me falhou e o rollback automático também falhou; journal preservado'
+    rm -f -- "$PAGARME_RUNTIME_ROLLBACK_CONFIG"
+    fail 'ativação Pagar.me falhou; configuração e workloads anteriores foram restaurados'
+  fi
+  if [[ -e "$PAGARME_RUNTIME_RECEIPT" \
+      || -L "$PAGARME_RUNTIME_RECEIPT" ]]; then
+    pagarme_runtime_receipt_is_secure \
+      || fail 'recibo de ativação Pagar.me existente está inseguro'
+  fi
+  [[ ! -e "${PAGARME_RUNTIME_RECEIPT}.tmp" \
+      && ! -L "${PAGARME_RUNTIME_RECEIPT}.tmp" ]] \
+    || fail 'arquivo temporário inesperado no recibo de ativação Pagar.me'
+  {
+    printf 'schema=1\nprovider=pagarme-v5\nenvironment=live\n'
+    printf 'release_id=%s\nactivated_at_utc=%s\n' \
+      "$release_id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } >"${PAGARME_RUNTIME_RECEIPT}.tmp"
+  cleanup_paths+=("${PAGARME_RUNTIME_RECEIPT}.tmp")
+  install -o root -g root -m 0600 \
+    "${PAGARME_RUNTIME_RECEIPT}.tmp" "$PAGARME_RUNTIME_RECEIPT"
+  rm -f -- "${PAGARME_RUNTIME_RECEIPT}.tmp"
+  rm -f -- "$PAGARME_RUNTIME_ROLLBACK_CONFIG"
+  pass "Pagar.me ativado na release compatível ${release_id}; UAZAPI e Resend permanecem ausentes"
 }
 
 confirm_alert_delivery() {
@@ -2576,7 +3088,7 @@ apply_release() {
 
 metrics() {
   require_root_and_host
-  local foundation=0 data=0 latest_backup=0 gate_app=0 gate_edge=0 cloudflare_saas_token=0 ghcr_pull_credential=0 ghcr_candidate_pull=0 r2_credential=0
+  local foundation=0 data=0 latest_backup=0 gate_app=0 gate_edge=0 cloudflare_saas_token=0 ghcr_pull_credential=0 ghcr_candidate_pull=0 r2_credential=0 pagarme_credential=0 pagarme_runtime=0
   if ( verify_foundation >/dev/null 2>&1 ); then foundation=1; fi
   if ( verify_data_foundation >/dev/null 2>&1 ); then data=1; fi
   if [[ -f "${DATABASE_BACKUP_ROOT}/latest" ]]; then
@@ -2593,6 +3105,11 @@ metrics() {
   if ghcr_token_file_is_secure; then ghcr_pull_credential=1; fi
   if ghcr_pull_latest_proof_is_secure; then ghcr_candidate_pull=1; fi
   if r2_credential_files_are_secure; then r2_credential=1; fi
+  if pagarme_credential_files_are_secure; then pagarme_credential=1; fi
+  if pagarme_runtime_receipt_is_secure \
+      && grep -Fxq 'PAGARME_ENABLED=true' "$RUNTIME_CONFIG_FILE"; then
+    pagarme_runtime=1
+  fi
   cat <<EOF
 # HELP blindou_platform_foundation_up Fundação Kubernetes bloqueada e íntegra.
 # TYPE blindou_platform_foundation_up gauge
@@ -2619,6 +3136,12 @@ blindou_ghcr_candidate_pull_verified ${ghcr_candidate_pull}
 # HELP blindou_r2_runtime_credential_secure Credencial R2 root-only do bucket exclusivo está presente no formato esperado.
 # TYPE blindou_r2_runtime_credential_secure gauge
 blindou_r2_runtime_credential_secure ${r2_credential}
+# HELP blindou_pagarme_credential_secure Credencial live Pagar.me está presente no cofre root-only dedicado.
+# TYPE blindou_pagarme_credential_secure gauge
+blindou_pagarme_credential_secure ${pagarme_credential}
+# HELP blindou_pagarme_runtime_active Runtime Pagar.me foi ativado por operação fechada em release compatível.
+# TYPE blindou_pagarme_runtime_active gauge
+blindou_pagarme_runtime_active ${pagarme_runtime}
 EOF
 }
 
@@ -2695,6 +3218,22 @@ show_status() {
   else
     printf 'r2_runtime_live_probe=absent_or_failed\n'
   fi
+  if pagarme_credential_files_are_secure; then
+    printf 'pagarme_credential_state=secure_local_store\n'
+  else
+    printf 'pagarme_credential_state=absent_or_insecure\n'
+  fi
+  if pagarme_plans_receipt_is_secure; then
+    printf 'pagarme_plans_state=seven_live_verified\n'
+  else
+    printf 'pagarme_plans_state=absent_or_invalid\n'
+  fi
+  if pagarme_runtime_receipt_is_secure \
+      && grep -Fxq 'PAGARME_ENABLED=true' "$RUNTIME_CONFIG_FILE"; then
+    printf 'pagarme_runtime_state=active\n'
+  else
+    printf 'pagarme_runtime_state=inactive\n'
+  fi
   if [[ -f "$RUNTIME_CONFIG_FILE" && ! -L "$RUNTIME_CONFIG_FILE" ]]; then
     printf 'runtime_material=present\n'
   else
@@ -2702,6 +3241,8 @@ show_status() {
   fi
   if [[ -f "$ALERT_RECEIPT" ]] && grep -Fxq 'status=confirmed' "$ALERT_RECEIPT"; then
     printf 'external_alert_receiver=confirmed\n'
+  elif pagarme_runtime_receipt_is_secure; then
+    printf 'external_alert_receiver=deferred_uazapi_resend\n'
   elif [[ -f "$UI_REVIEW_RECEIPT" ]] && grep -Fxq 'status=authorized' "$UI_REVIEW_RECEIPT"; then
     printf 'external_alert_receiver=deferred_ui_review\n'
   else
@@ -2739,6 +3280,14 @@ case "${1:-}" in
     [[ $# -eq 1 ]] || fail 'usage: blindou-deployctl verify-r2-runtime-credential'
     verify_r2_runtime_credential
     ;;
+  verify-pagarme-credential)
+    [[ $# -eq 1 ]] || fail 'uso: blindou-deployctl verify-pagarme-credential'
+    verify_pagarme_credential
+    ;;
+  verify-pagarme-plans)
+    [[ $# -eq 1 ]] || fail 'uso: blindou-deployctl verify-pagarme-plans'
+    verify_pagarme_plans
+    ;;
   verify-ghcr-candidate-pull)
     [[ $# -eq 2 ]] || fail 'usage: blindou-deployctl verify-ghcr-candidate-pull RELEASE_ID'
     verify_ghcr_candidate_pull "$2"
@@ -2750,6 +3299,18 @@ case "${1:-}" in
   provision-r2-runtime-credential)
     [[ $# -eq 2 ]] || fail 'usage: blindou-deployctl provision-r2-runtime-credential CONFIRMATION'
     provision_r2_runtime_credential "$2"
+    ;;
+  provision-pagarme-credential)
+    [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl provision-pagarme-credential CONFIRMAÇÃO'
+    provision_pagarme_credential "$2"
+    ;;
+  rotate-pagarme-webhook-secret)
+    [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl rotate-pagarme-webhook-secret CONFIRMAÇÃO'
+    rotate_pagarme_webhook_secret "$2"
+    ;;
+  provision-pagarme-plans)
+    [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl provision-pagarme-plans CONFIRMAÇÃO'
+    provision_pagarme_plans "$2"
     ;;
   rollback-ghcr-pull-credential)
     [[ $# -eq 2 ]] || fail 'usage: blindou-deployctl rollback-ghcr-pull-credential CONFIRMATION'
@@ -2811,6 +3372,10 @@ case "${1:-}" in
     [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl provision-ui-review-runtime CONFIRMAÇÃO'
     provision_ui_review_runtime "$2"
     ;;
+  activate-pagarme-runtime)
+    [[ $# -eq 3 ]] || fail 'uso: blindou-deployctl activate-pagarme-runtime RELEASE_ID CONFIRMAÇÃO'
+    activate_pagarme_runtime "$2" "$3"
+    ;;
   confirm-alert-delivery)
     [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl confirm-alert-delivery CONFIRMAÇÃO'
     confirm_alert_delivery "$2"
@@ -2847,6 +3412,6 @@ case "${1:-}" in
     metrics
     ;;
   *)
-    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-r2-runtime-credential|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|provision-r2-runtime-credential CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|provision-runtime-secrets CONFIRMAÇÃO|provision-ui-review-runtime CONFIRMAÇÃO|confirm-alert-delivery CONFIRMAÇÃO|confirm-offsite-backup BACKUP_ID SHA256 CONFIRMAÇÃO|activate-release-gates RELEASE_ID CONFIRMAÇÃO|validate-release RELEASE_ID|apply RELEASE_ID|bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
+    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-r2-runtime-credential|verify-pagarme-credential|verify-pagarme-plans|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|provision-r2-runtime-credential CONFIRMAÇÃO|provision-pagarme-credential CONFIRMAÇÃO|rotate-pagarme-webhook-secret CONFIRMAÇÃO|provision-pagarme-plans CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|provision-runtime-secrets CONFIRMAÇÃO|provision-ui-review-runtime CONFIRMAÇÃO|activate-pagarme-runtime RELEASE_ID CONFIRMAÇÃO|confirm-alert-delivery CONFIRMAÇÃO|confirm-offsite-backup BACKUP_ID SHA256 CONFIRMAÇÃO|activate-release-gates RELEASE_ID CONFIRMAÇÃO|validate-release RELEASE_ID|apply RELEASE_ID|bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
     ;;
 esac

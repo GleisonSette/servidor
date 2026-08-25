@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-historico-execucao
   source_path: memory/canon/historico-execucao.md
   generated_from: auditorias e implementações autorizadas no laboratório
-  updated_at: 2026-08-22
+  updated_at: 2026-08-24
   status: canonical
 
 ## Regra de registro
@@ -948,3 +948,76 @@ Resultado: o primeiro acesso real do Blindou está pronto para a revisão da UI.
   acesso por `https://app.blindou.com`.
 - UAZAPI, Resend e Pagar.me continuam ausentes. A próxima ação é a validação da
   interface pelo usuário; a ativação dos provedores permanece separada.
+
+## 2026-08-24 - Fluxo Pagar.me-first preparado após aprovação da UI
+
+Resultado: o repositório passou a descrever provisionamento e ativação segura
+do Pagar.me; nenhum controlador, segredo, plano ou workload foi alterado no
+host por esta etapa.
+
+- A UI foi aprovada e a D020 fixou a ordem Pagar.me, domínio personalizado,
+  marketplaces e UAZAPI/Resend.
+- Os sete planos live serão mensais `prepaid`, com descritor `BLINDOU`, preços
+  e limites idênticos ao catálogo versionado no repositório Blindou.
+- A secret key chega por prompt protegido, é validada contra a API live e fica
+  com o segredo aleatório do webhook em cofre dedicado, fora do Kubernetes.
+- A ativação exige uma release assinada corrente com o marcador explícito de
+  compatibilidade no backend e nos 16 workers; falha de prontidão restaura
+  ConfigMap, Secret e workloads anteriores.
+- Os verificadores de artefatos e de bundle rejeitam ausência do marcador,
+  exposição por argumento e contratos sudo mais amplos que os comandos
+  fechados. UAZAPI e Resend permanecem desligados.
+
+## 2026-08-24 - Convenção atual de chaves e executor dos planos Pagar.me
+
+Resultado: a regra de prefixos foi alinhada à API V5 e o executor local dos
+sete planos foi preparado; neste registro ainda não houve chamada de criação,
+mudança no host, Secret Kubernetes, migration ou ativação do runtime.
+
+- Produção passou a aceitar `sk_*` e recusar explicitamente `sk_test_*`; a
+  secret key continua sujeita à prova autenticada antes de qualquer efeito.
+- O executor usa entrada protegida, catálogo fechado equivalente à `0005`,
+  confirmação humana imediatamente antes dos `POST`, metadata por código e
+  reconciliação sem retry cego.
+- O recibo operacional fica fora dos repositórios e contém somente IDs
+  `plan_*`; a vinculação ao catálogo local continua dependendo de migration
+  separadamente autorizada.
+
+## 2026-08-24 - Credencial, webhook e sete planos Pagar.me provisionados
+
+Resultado: a fronteira externa Pagar.me foi cadastrada e verificada, enquanto o
+runtime permaneceu deliberadamente inativo e sem segredo no Kubernetes.
+
+- A secret key live foi autenticada contra a API V5 e guardada somente em
+  `/etc/blindou/pagarme`, com owner `root`, modo `0600` e recibo de validação.
+- A primeira URL de webhook deixou de ser confiável após exposição no chat. O
+  segredo foi rotacionado no cofre, a URL substituta foi cadastrada no painel
+  para assinatura, cobrança, fatura e pedido, e a área de transferência foi
+  limpa sem registrar o valor.
+- O Iniciante criado durante a codificação antiga foi corrigido por atualização
+  autenticada e fetch-back. Operador Júnior, Operador Pleno, Operador Sênior,
+  Elite I, Elite II e Elite III foram criados com idempotência própria.
+- A verificação independente confirmou sete planos live mensais `prepaid`, uma
+  parcela, sem trial, não físicos e com descritor `BLINDOU`. O recibo root-only
+  e a cópia local não secreta contêm somente os IDs externos.
+- `pagarme_credential_state=secure_local_store`,
+  `pagarme_plans_state=seven_live_verified` e
+  `pagarme_runtime_state=inactive` foram confirmados após a operação.
+- Public key do frontend, migration dos IDs, candidata assinada, deploy e
+  ativação do runtime permanecem operações futuras com autorização própria.
+
+## 2026-08-25 - Transporte completo dos bootstraps Blindou
+
+Resultado: corrigido no repositório; a repetição da prova viva permanece
+registrada separadamente depois do aceite no host.
+
+- A primeira tentativa de provar a candidata Pagar.me-first parou antes de
+  instalar o controlador porque o orquestrador GHCR não transportava o novo
+  provisionador fechado de planos exigido pelo bootstrap.
+- Os seis orquestradores que reinstalam o `blindou-deployctl` passaram a incluir
+  controlador emergencial, verificador GHCR e provisionador Pagar.me.
+- O verificador offline agora compara todos eles contra o conjunto obrigatório,
+  evitando que a evolução de um módulo quebre silenciosamente outro caminho de
+  bootstrap.
+- Nenhum workload, migration, Secret ou gate de produção foi alterado pela
+  tentativa recusada.

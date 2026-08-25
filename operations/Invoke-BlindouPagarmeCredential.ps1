@@ -1,14 +1,22 @@
-[CmdletBinding()]
-param()
+﻿[CmdletBinding()]
+param(
+    [switch]$SelfTest,
+    [switch]$RotateWebhook,
+    [switch]$ControllerOnly
+)
 
 $ErrorActionPreference = 'Stop'
+$utf8Encoding = [Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = $utf8Encoding
+$OutputEncoding = $utf8Encoding
 $server = 'apiadmin@192.168.100.59'
 $identity = Join-Path $env:LOCALAPPDATA 'apiwpp\ssh\apiwpp_admin_ed25519'
 $knownHosts = Join-Path $env:LOCALAPPDATA 'apiwpp\ssh\known_hosts'
-$remoteRoot = '/home/apiadmin/blindou-platform-bootstrap-r2-runtime'
+$remoteRoot = '/home/apiadmin/blindou-platform-bootstrap-pagarme'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $archiveDirectory = Join-Path $env:LOCALAPPDATA 'blindou\bootstrap'
-$archive = Join-Path $archiveDirectory 'blindou-r2-runtime-bootstrap.tar.gz'
+$archive = Join-Path $archiveDirectory 'blindou-pagarme-bootstrap.tar.gz'
+$webhookBaseUrl = 'https://api.blindou.com/webhooks/pagarme/'
 Import-Module (Join-Path $PSScriptRoot 'Blindou.SudoBootstrap.psm1') -Force
 $sshArgs = @(
     '-F', 'NUL',
@@ -36,23 +44,16 @@ function ConvertTo-Base64Utf8 {
     return [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Value))
 }
 
-function Invoke-RemoteDeployControl {
-    param(
-        [Parameter(Mandatory = $true)][string]$RemoteCommand,
-        [Parameter(Mandatory = $true)][string]$FailureMessage
-    )
-
-    for ($attempt = 1; $attempt -le 12; $attempt++) {
-        & ssh.exe @sshArgs $server $RemoteCommand
-        $exitCode = $LASTEXITCODE
-        if ($exitCode -eq 0) { return }
-        if ($exitCode -ne 2) { throw $FailureMessage }
-        if ($attempt -eq 12) {
-            throw "$FailureMessage O controlador permaneceu ocupado por um minuto."
-        }
-        Write-Host 'O coletor de métricas está usando o controlador; nova tentativa em 5 segundos.' `
-            -ForegroundColor Yellow
-        Start-Sleep -Seconds 5
+function New-WebhookSecret {
+    $bytes = [byte[]]::new(32)
+    $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $generator.GetBytes($bytes)
+        return [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+    }
+    finally {
+        $generator.Dispose()
+        [Array]::Clear($bytes, 0, $bytes.Length)
     }
 }
 
@@ -79,6 +80,8 @@ function Invoke-ClosedSshInput {
         $startInfo.RedirectStandardInput = $true
         $startInfo.RedirectStandardOutput = $true
         $startInfo.RedirectStandardError = $true
+        $startInfo.StandardOutputEncoding = $utf8Encoding
+        $startInfo.StandardErrorEncoding = $utf8Encoding
         $process = [Diagnostics.Process]::new()
         $process.StartInfo = $startInfo
         if (-not $process.Start()) { throw 'Não foi possível iniciar o SSH seguro.' }
@@ -94,7 +97,7 @@ function Invoke-ClosedSshInput {
         if ($process.ExitCode -eq 0) { return }
         if ($process.ExitCode -ne 2) {
             if ($stderr) { Write-Host $stderr.TrimEnd() -ForegroundColor Red }
-            throw 'Provisionamento fechado da credencial R2 falhou.'
+            throw 'Provisionamento fechado da credencial Pagar.me falhou.'
         }
         if ($attempt -eq 12) {
             throw 'O controlador permaneceu ocupado por um minuto.'
@@ -103,6 +106,42 @@ function Invoke-ClosedSshInput {
             -ForegroundColor Yellow
         Start-Sleep -Seconds 5
     }
+}
+
+function Get-ControllerStatusWithLockRetry {
+    for ($attempt = 1; $attempt -le 12; $attempt++) {
+        $status = (& ssh.exe @sshArgs $server `
+            'sudo -n /usr/local/sbin/blindou-deployctl status' 2>$null) -join "`n"
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -eq 0) { return $status }
+        if ($exitCode -ne 2) { return '' }
+        if ($attempt -eq 12) {
+            throw 'O controlador permaneceu ocupado por um minuto durante a verificação inicial.'
+        }
+        Write-Host 'O coletor de métricas está usando o controlador; nova verificação em 5 segundos.' `
+            -ForegroundColor Yellow
+        Start-Sleep -Seconds 5
+    }
+}
+
+if ((@($SelfTest.IsPresent, $RotateWebhook.IsPresent, $ControllerOnly.IsPresent) |
+        Where-Object { $_ }).Count -gt 1) {
+    throw 'SelfTest, RotateWebhook e ControllerOnly são opções mutuamente exclusivas.'
+}
+if ($SelfTest) {
+    $secretFixture = New-WebhookSecret
+    if ($secretFixture -cnotmatch '^[A-Za-z0-9_-]{43}$') {
+        throw 'Self-test não gerou segredo de webhook com 32 bytes em base64url.'
+    }
+    $expectedPortuguese = -join ([char[]](112, 114, 111, 100, 117, 231, 227, 111))
+    if ('produção' -cne $expectedPortuguese) {
+        throw 'Self-test detectou codificação incompatível com Windows PowerShell 5.1.'
+    }
+    $processEncodingFixture = [Diagnostics.ProcessStartInfo]::new()
+    $processEncodingFixture.StandardOutputEncoding = $utf8Encoding
+    $processEncodingFixture.StandardErrorEncoding = $utf8Encoding
+    Write-Host 'Self-test da credencial Pagar.me: aprovado.' -ForegroundColor Green
+    exit 0
 }
 
 foreach ($required in @($identity, $knownHosts)) {
@@ -132,20 +171,20 @@ $archiveMembers = @(
     'platform/base/service-exposure-policy.yaml'
 )
 
-$accessKeySecure = $null
 $secretKeySecure = $null
-$accessKey = $null
 $secretKey = $null
+$webhookSecret = $null
+$webhookUrl = $null
 $payload = $null
+$clipboardContainsWebhook = $false
 $operationFailed = $false
 try {
-    $Host.UI.RawUI.WindowTitle = 'Blindou - credencial R2 do runtime'
-    $controllerStatus = (& ssh.exe @sshArgs $server `
-        'sudo -n /usr/local/sbin/blindou-deployctl status' 2>$null) -join "`n"
-    $controllerReady = $LASTEXITCODE -eq 0 -and
-        $controllerStatus -match '(?m)^r2_runtime_credential_state='
+    $Host.UI.RawUI.WindowTitle = 'Blindou - credencial Pagar.me live'
+    $controllerStatus = Get-ControllerStatusWithLockRetry
+    $controllerReady = $controllerStatus -match '(?m)^pagarme_credential_state='
+    if ($RotateWebhook -or $ControllerOnly) { $controllerReady = $false }
     if ($controllerReady) {
-        Write-Host 'Controlador R2 já instalado e autenticado no host.' -ForegroundColor Green
+        Write-Host 'Controlador Pagar.me já instalado no host.' -ForegroundColor Green
     }
     else {
         Write-Host 'Atualizando o controlador fechado do Blindou.' -ForegroundColor Cyan
@@ -163,12 +202,12 @@ try {
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $archive -PathType Leaf)) {
             throw 'Falha ao criar o pacote fechado do controlador.'
         }
-        & scp.exe @sshArgs $archive "${server}:/home/apiadmin/blindou-r2-runtime-bootstrap.tar.gz"
+        & scp.exe @sshArgs $archive "${server}:/home/apiadmin/blindou-pagarme-bootstrap.tar.gz"
         if ($LASTEXITCODE -ne 0) { throw 'Falha ao enviar o pacote fechado do controlador.' }
         $remotePrepare = @"
 install -d -m 0700 $remoteRoot
-tar -xzf /home/apiadmin/blindou-r2-runtime-bootstrap.tar.gz -C $remoteRoot
-rm -f -- /home/apiadmin/blindou-r2-runtime-bootstrap.tar.gz
+tar -xzf /home/apiadmin/blindou-pagarme-bootstrap.tar.gz -C $remoteRoot
+rm -f -- /home/apiadmin/blindou-pagarme-bootstrap.tar.gz
 chmod 0755 $remoteRoot/operations/remote/bootstrap-blindou-deployctl.sh
 "@
         & ssh.exe @sshArgs $server $remotePrepare
@@ -182,41 +221,76 @@ chmod 0755 $remoteRoot/operations/remote/bootstrap-blindou-deployctl.sh
             -RemoteRoot $remoteRoot
     }
 
+    if ($ControllerOnly) {
+        Write-Host 'Controlador fechado atualizado; credenciais e runtime não foram alterados.' `
+            -ForegroundColor Green
+        return
+    }
+
+    if ($RotateWebhook) {
+        $webhookSecret = New-WebhookSecret
+        $payload = @(
+            'schema=1',
+            (ConvertTo-Base64Utf8 $webhookSecret)
+        ) -join "`n"
+        $payload += "`n"
+        Invoke-ClosedSshInput `
+            -RemoteCommand 'sudo -n /usr/local/sbin/blindou-deployctl rotate-pagarme-webhook-secret blindou-pagarme-webhook-rotation' `
+            -Payload $payload
+        $payload = $null
+
+        $webhookUrl = $webhookBaseUrl + $webhookSecret
+        Set-Clipboard -Value $webhookUrl
+        $clipboardContainsWebhook = $true
+        Write-Host ''
+        Write-Host 'Nova URL secreta do webhook copiada para a área de transferência.' -ForegroundColor Cyan
+        Write-Host 'Aguardando o cadastro no painel Pagar.me; o valor não será exibido.' -ForegroundColor Yellow
+        $clipboardConfirmation = Read-Host 'Depois do cadastro, pressione ENTER para limpar a área de transferência' -AsSecureString
+        if ($null -ne $clipboardConfirmation) { $clipboardConfirmation.Dispose() }
+        Set-Clipboard -Value ' '
+        $clipboardContainsWebhook = $false
+        $webhookUrl = $null
+        $webhookSecret = $null
+        Write-Host 'Webhook rotacionado e área de transferência limpa. O runtime não foi alterado.' `
+            -ForegroundColor Green
+        return
+    }
+
     Write-Host ''
-    Write-Host 'Na aba da Cloudflare, copie primeiro “ID da chave de acesso”.' -ForegroundColor Cyan
-    Write-Host 'Os valores ficarão mascarados e não serão salvos neste computador.' -ForegroundColor Yellow
-    $accessKeySecure = Read-Host 'Cole o ID da chave de acesso' -AsSecureString
-    Write-Host 'Agora copie “Chave de acesso secreta” na mesma página.' -ForegroundColor Cyan
-    $secretKeySecure = Read-Host 'Cole a chave de acesso secreta' -AsSecureString
-    $accessKey = (ConvertFrom-ProtectedValue $accessKeySecure).Trim()
+    Write-Host 'Copie a secret key de produção no painel Pagar.me.' -ForegroundColor Cyan
+    Write-Host 'O valor ficará mascarado e não será salvo nesta estação.' -ForegroundColor Yellow
+    $secretKeySecure = Read-Host 'Cole a secret key de produção' -AsSecureString
     $secretKey = (ConvertFrom-ProtectedValue $secretKeySecure).Trim()
-    if ($accessKey -notmatch '^[A-Za-z0-9]{20,128}$') {
-        throw 'O ID da chave de acesso não possui o formato esperado.'
+    if ($secretKey -cnotmatch '^sk_[A-Za-z0-9]{16,509}$' -or $secretKey.StartsWith('sk_test_', [StringComparison]::Ordinal)) {
+        throw 'A secret key não possui o formato de produção sk_* esperado ou pertence ao sandbox.'
     }
-    if ($secretKey -notmatch '^[A-Za-z0-9]{32,256}$') {
-        throw 'A chave secreta não possui o formato esperado.'
-    }
+    $webhookSecret = New-WebhookSecret
     $payload = @(
         'schema=1',
-        (ConvertTo-Base64Utf8 $accessKey),
-        (ConvertTo-Base64Utf8 $secretKey)
+        (ConvertTo-Base64Utf8 $secretKey),
+        (ConvertTo-Base64Utf8 $webhookSecret)
     ) -join "`n"
     $payload += "`n"
     Invoke-ClosedSshInput `
-        -RemoteCommand 'sudo -n /usr/local/sbin/blindou-deployctl provision-r2-runtime-credential blindou-r2-runtime-credential' `
+        -RemoteCommand 'sudo -n /usr/local/sbin/blindou-deployctl provision-pagarme-credential blindou-pagarme-credential' `
         -Payload $payload
-    $accessKey = $null
     $secretKey = $null
     $payload = $null
 
-    Write-Host 'Aguardando a janela de segurança do SSH antes de republicar o runtime.' `
-        -ForegroundColor Yellow
-    Start-Sleep -Seconds 20
-    Invoke-RemoteDeployControl `
-        -RemoteCommand 'sudo -n /usr/local/sbin/blindou-deployctl provision-ui-review-runtime blindou-ui-review-runtime' `
-        -FailureMessage 'Falha ao republicar o runtime de revisão com R2.'
+    $webhookUrl = $webhookBaseUrl + $webhookSecret
+    Set-Clipboard -Value $webhookUrl
+    $clipboardContainsWebhook = $true
     Write-Host ''
-    Write-Host 'R2 validado e runtime técnico republicado. Volte ao Codex.' -ForegroundColor Green
+    Write-Host 'A URL secreta do webhook foi copiada para a área de transferência.' -ForegroundColor Cyan
+    Write-Host 'Cole-a diretamente no painel Pagar.me; não envie a URL ao chat.' -ForegroundColor Yellow
+    $clipboardConfirmation = Read-Host 'Depois de cadastrar o webhook, pressione ENTER para limpar a área de transferência' -AsSecureString
+    if ($null -ne $clipboardConfirmation) { $clipboardConfirmation.Dispose() }
+    Set-Clipboard -Value ' '
+    $clipboardContainsWebhook = $false
+    $webhookUrl = $null
+    $webhookSecret = $null
+    Write-Host 'Credencial validada e guardada. O runtime e os workloads não foram alterados.' `
+        -ForegroundColor Green
 }
 catch {
     $operationFailed = $true
@@ -225,10 +299,13 @@ catch {
     Write-Host 'A operação foi interrompida sem tentar contornar a falha.' -ForegroundColor Red
 }
 finally {
-    $accessKey = $null
+    if ($clipboardContainsWebhook) {
+        try { Set-Clipboard -Value ' ' } catch { }
+    }
     $secretKey = $null
+    $webhookSecret = $null
+    $webhookUrl = $null
     $payload = $null
-    if ($null -ne $accessKeySecure) { $accessKeySecure.Dispose() }
     if ($null -ne $secretKeySecure) { $secretKeySecure.Dispose() }
     if (Test-Path -LiteralPath $archive -PathType Leaf) {
         Remove-Item -LiteralPath $archive -Force

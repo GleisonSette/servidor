@@ -52,6 +52,12 @@ O bootstrap instala arquivos com ownership fixo, valida Python/YAML, certificado
 assinante e sudoers, habilita apenas a coleta de métricas e termina consultando
 o status. Ele não aplica namespaces nem dados.
 
+Todo orquestrador que reinstala o `blindou-deployctl` transporta o conjunto
+completo de fontes exigido pelo bootstrap, inclusive o controlador emergencial,
+o verificador GHCR e o provisionador fechado de planos Pagar.me. O gate offline
+compara os seis orquestradores contra esse contrato para impedir que uma
+integração nova quebre um caminho antigo de bootstrap.
+
 ## Fundação Kubernetes bloqueada
 
 ```bash
@@ -396,6 +402,88 @@ token. A configuração posterior de cada provedor exige nova autorização e um
 release compatível; não reutilizar o modo de revisão como estado operacional
 definitivo.
 
+### Pagar.me-first depois da aprovação da interface
+
+Por D020, a UI já foi aprovada e a próxima integração é Pagar.me. UAZAPI e
+Resend permanecem desabilitados. O fluxo é deliberadamente dividido para que a
+custódia da chave não ative cobrança em uma release antiga.
+
+Primeiro, para custodiar a credencial fora do Kubernetes, executar:
+
+```powershell
+.\operations\Invoke-BlindouPagarmeCredential.ps1
+```
+
+O script solicita a secret key de produção `sk_*` em campo protegido, recusa
+explicitamente `sk_test_*`, gera 32 bytes
+aleatórios para o caminho do webhook e envia ambos somente por `stdin` ao
+controlador fechado. A chave é validada por chamada autenticada a
+`https://api.pagar.me/core/v5`; os valores ficam em `/etc/blindou/pagarme` com
+owner `root`, modo `0600` e fora do Kubernetes. A URL completa do webhook é
+colocada temporariamente na área de transferência para cadastro direto no
+painel Pagar.me e é apagada depois da confirmação ou de uma falha. Não copiar a
+URL para chat, ticket, log ou documento.
+
+No painel, cadastrar somente as categorias **Assinatura**, **Cobrança**,
+**Fatura** e **Pedido**, com máximo de três tentativas. A autenticação adicional
+do painel permanece desligada porque o backend já autentica, em tempo constante,
+o segredo forte no caminho e depois confirma cada efeito por fetch-back.
+
+Depois do webhook ser cadastrado no painel, os planos usam somente a secret key
+já guardada no host:
+
+```powershell
+.\operations\Invoke-BlindouPagarmePlans.ps1 -ConfirmCreation
+```
+
+O executor não solicita nem copia a chave. O controlador root-only lista todo o
+catálogo antes de qualquer escrita e reutiliza somente um plano vivo com a
+metadata canônica. Se esse plano divergir, o `PUT /plans/{id}` autorizado pela
+API V5 corrige o contrato e uma nova leitura confirma o efeito; colisão ou
+duplicata interrompe a operação. Cada criação usa identidade estável, resposta
+ambígua é reconciliada por nova leitura e nunca recebe retry cego. O recibo em
+`%LOCALAPPDATA%\blindou\pagarme\plans-receipt.json` contém apenas IDs `plan_*`,
+sem credencial, e não autoriza migration.
+
+Em 2026-08-24, a secret key foi validada e guardada em
+`/etc/blindou/pagarme`, o webhook foi cadastrado com segredo rotacionado e os
+sete planos live passaram na verificação autenticada. O runtime continua
+inativo e nenhum segredo Pagar.me foi publicado no Kubernetes.
+
+Essa etapa não altera `production.env`, ConfigMap, Secret Kubernetes ou
+workload. Depois de atualizar o controlador e antes de publicar a candidata,
+reexecutar `provision-ui-review-runtime blindou-ui-review-runtime`: isso mantém
+todos os provedores desligados, preserva o cofre Pagar.me separado e acrescenta
+`PAGARME_ENABLED=false` ao ConfigMap consumido pela release compatível.
+
+Em seguida, publicar pelo processo normal uma release assinada em que backend
+e os 16 workers tenham a annotation
+`blindou.io/pagarme-first-compatible: "true"`. O verificador recusa o bundle se
+o marcador estiver ausente.
+
+Com a candidata aplicada e somente mediante autorização operacional própria,
+executar:
+
+```powershell
+.\operations\Invoke-BlindouPagarmeActivation.ps1 `
+  -ReleaseId <SHA-GIT-COMPLETO>
+```
+
+O operador confirma `ATIVAR PAGARME`. O controlador revalida a chave live,
+confere o SHA corrente e os marcadores, muda para
+`INITIAL_UI_REVIEW_MODE=false`/`PAGARME_ENABLED=true`, publica somente o par de
+segredos Pagar.me e reinicia backend e 16 workers. UAZAPI e Resend continuam
+ausentes. Se materialização, rollout ou readiness falhar, a configuração e o
+Secret anteriores são restaurados e os consumidores voltam a iniciar no modo
+fechado. Um journal root-only permanece até o recibo final; se o processo for
+interrompido, a próxima execução primeiro restaura o modo fechado e só então
+tenta uma nova ativação.
+
+Os sete planos externos usam ciclo mensal, `billing_type=prepaid`, uma parcela,
+BRL, ausência de trial, produto não físico e descritor `BLINDOU`. Seus IDs não
+entram neste repositório; são vinculados no Blindou por migration aditiva
+separadamente autorizada.
+
 O coletor de métricas usa o mesmo lock do controlador. Se ele vencer uma corrida
 curta entre duas etapas, o orquestrador repete somente o retorno específico de
 lock ocupado (`exit 2`), por no máximo 12 tentativas com intervalo de cinco
@@ -452,10 +540,12 @@ divergência recusa a contenção.
 - estado do gate de cada namespace;
 - presença segura local da credencial Cloudflare for SaaS, sem testar ou expor
   seu valor no coletor;
+- presença segura da credencial Pagar.me no cofre dedicado;
+- recibo de ativação do runtime Pagar.me em release compatível;
 - sucesso da própria coleta.
 
 Falha de coleta produz uma métrica explícita com valor zero. Alertas externos
-por Resend permanecem adiados durante D019 e o scrape dos workloads depende da
+por Resend permanecem adiados durante D020 e o scrape dos workloads depende da
 existência do runtime.
 Como o controlador usa lock exclusivo, uma auditoria manual concorrente pode
 fazer um ciclo do coletor falhar fechado em zero; o ciclo seguinte deve voltar

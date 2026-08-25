@@ -12,6 +12,7 @@ readonly CONTROLLER_SOURCE="${SOURCE_DIRECTORY}/blindou-deployctl"
 readonly EMERGENCY_CONTROLLER_SOURCE="${SOURCE_DIRECTORY}/blindou-release-emergencyctl"
 readonly VERIFIER_SOURCE="${SOURCE_DIRECTORY}/blindou-release-verify.py"
 readonly GHCR_PULL_VERIFIER_SOURCE="${SOURCE_DIRECTORY}/blindou-ghcr-pull-verify.py"
+readonly PAGARME_PLAN_PROVISIONER_SOURCE="${SOURCE_DIRECTORY}/blindou-pagarme-plans.py"
 readonly METRICS_SOURCE="${SOURCE_DIRECTORY}/blindou-platform-metrics"
 readonly METRICS_SERVICE_SOURCE="${SOURCE_DIRECTORY}/blindou-platform-metrics.service"
 readonly METRICS_TIMER_SOURCE="${SOURCE_DIRECTORY}/blindou-platform-metrics.timer"
@@ -37,7 +38,7 @@ fail() {
 [[ "$(hostname)" == "$EXPECTED_HOSTNAME" ]] || fail 'hostname inesperado'
 for source in \
   "$CONTROLLER_SOURCE" "$EMERGENCY_CONTROLLER_SOURCE" "$VERIFIER_SOURCE" \
-  "$GHCR_PULL_VERIFIER_SOURCE" "$METRICS_SOURCE" \
+  "$GHCR_PULL_VERIFIER_SOURCE" "$PAGARME_PLAN_PROVISIONER_SOURCE" "$METRICS_SOURCE" \
   "$METRICS_SERVICE_SOURCE" "$METRICS_TIMER_SOURCE" "$SUDOERS_SOURCE" \
   "$SIGNERS_SOURCE" "$RECIPIENT_SOURCE" "$SERVICE_POLICY_SOURCE" \
   "${PLATFORM_SOURCE}/00-namespaces.yaml" \
@@ -65,6 +66,7 @@ import sys
 source = Path(sys.argv[1]).read_text(encoding="utf-8")
 compile(source, sys.argv[1], "exec")
 PY
+python3 "$PAGARME_PLAN_PROVISIONER_SOURCE" --mode self-test >/dev/null
 python3 - "$PLATFORM_SOURCE" "$SERVICE_POLICY_SOURCE" <<'PY'
 from pathlib import Path
 import sys
@@ -98,6 +100,8 @@ install -o root -g root -m 0755 "$EMERGENCY_CONTROLLER_SOURCE" \
 install -o root -g root -m 0755 "$VERIFIER_SOURCE" "${LIBRARY_TARGET}/blindou-release-verify.py"
 install -o root -g root -m 0755 "$GHCR_PULL_VERIFIER_SOURCE" \
   "${LIBRARY_TARGET}/blindou-ghcr-pull-verify.py"
+install -o root -g root -m 0755 "$PAGARME_PLAN_PROVISIONER_SOURCE" \
+  "${LIBRARY_TARGET}/blindou-pagarme-plans.py"
 install -o root -g root -m 0755 "$METRICS_SOURCE" "$METRICS_TARGET"
 install -o root -g root -m 0644 \
   "${PLATFORM_SOURCE}/00-namespaces.yaml" "${FOUNDATION_TARGET}/00-namespaces.yaml"
@@ -128,5 +132,16 @@ systemctl enable --now blindou-platform-metrics.timer >/dev/null
 systemctl start --wait blindou-platform-metrics.service
 [[ "$(systemctl show blindou-platform-metrics.service --property=Result --value)" == 'success' ]] \
   || fail 'coleta inicial de métricas falhou'
-sudo -u apiadmin sudo -n "$CONTROLLER_TARGET" status >/dev/null
+for attempt in $(seq 1 12); do
+  if sudo -u apiadmin sudo -n "$CONTROLLER_TARGET" status >/dev/null; then
+    break
+  else
+    result=$?
+  fi
+  [[ "$result" == '2' ]] \
+    || fail 'verificação final do controlador falhou'
+  [[ "$attempt" != '12' ]] \
+    || fail 'controlador permaneceu ocupado por um minuto após o bootstrap'
+  sleep 5
+done
 printf '%s\n' 'blindou_deployctl_bootstrap=installed'

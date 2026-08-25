@@ -7,6 +7,10 @@ readonly PULL_PROOF_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouGhcrCand
 readonly SUDO_BOOTSTRAP_MODULE="${REPOSITORY_ROOT}/operations/Blindou.SudoBootstrap.psm1"
 readonly FIRST_RELEASE_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouFirstRelease.ps1"
 readonly R2_RUNTIME_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouR2RuntimeCredential.ps1"
+readonly PAGARME_CREDENTIAL_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouPagarmeCredential.ps1"
+readonly PAGARME_ACTIVATION_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouPagarmeActivation.ps1"
+readonly PAGARME_PLANS_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouPagarmePlans.ps1"
+readonly PAGARME_PLAN_PROVISIONER="${REMOTE_DIR}/blindou-pagarme-plans.py"
 readonly EMERGENCY_CONTROLLER="${REMOTE_DIR}/blindou-release-emergencyctl"
 
 fail() {
@@ -22,6 +26,15 @@ fail() {
   || fail 'orquestrador fechado da primeira release ausente ou simbólico'
 [[ -f "$R2_RUNTIME_SCRIPT" && ! -L "$R2_RUNTIME_SCRIPT" ]] \
   || fail 'orquestrador fechado da credencial R2 ausente ou simbólico'
+[[ -f "$PAGARME_CREDENTIAL_SCRIPT" && ! -L "$PAGARME_CREDENTIAL_SCRIPT" ]] \
+  || fail 'orquestrador fechado da credencial Pagar.me ausente ou simbólico'
+[[ -f "$PAGARME_ACTIVATION_SCRIPT" && ! -L "$PAGARME_ACTIVATION_SCRIPT" ]] \
+  || fail 'orquestrador fechado da ativação Pagar.me ausente ou simbólico'
+[[ -f "$PAGARME_PLANS_SCRIPT" && ! -L "$PAGARME_PLANS_SCRIPT" ]] \
+  || fail 'executor fechado dos planos Pagar.me ausente ou simbólico'
+[[ -f "$PAGARME_PLAN_PROVISIONER" && ! -L "$PAGARME_PLAN_PROVISIONER" ]] \
+  || fail 'provisionador root-only dos planos Pagar.me ausente ou simbólico'
+python3 "$PAGARME_PLAN_PROVISIONER" --mode self-test >/dev/null
 [[ -f "$EMERGENCY_CONTROLLER" && ! -L "$EMERGENCY_CONTROLLER" ]] \
   || fail 'controlador fechado de contenção emergencial ausente ou simbólico'
 bash -n "$EMERGENCY_CONTROLLER"
@@ -108,7 +121,8 @@ for orchestrator in \
   Invoke-BlindouCloudflareSaasToken.ps1 \
   Invoke-BlindouGhcrPullCredential.ps1 \
   Invoke-BlindouGhcrCandidatePullProof.ps1 \
-  Invoke-BlindouR2RuntimeCredential.ps1; do
+  Invoke-BlindouR2RuntimeCredential.ps1 \
+  Invoke-BlindouPagarmeCredential.ps1; do
   grep -Fq "Import-Module (Join-Path \$PSScriptRoot 'Blindou.SudoBootstrap.psm1') -Force" \
     "${REPOSITORY_ROOT}/operations/${orchestrator}" \
     || fail "orquestrador não importa helper sudo: ${orchestrator}"
@@ -134,12 +148,105 @@ fi
 if grep -Eq 'Write-(Host|Output|Verbose|Debug).*(accessKey|secretKey|payload)' "$R2_RUNTIME_SCRIPT"; then
   fail 'orquestrador R2 pode revelar credencial em output'
 fi
+grep -Fq "Read-Host 'Cole a secret key de produção' -AsSecureString" \
+  "$PAGARME_CREDENTIAL_SCRIPT" \
+  || fail 'secret key Pagar.me não usa entrada protegida'
+grep -Fq '[Security.Cryptography.RandomNumberGenerator]::Create()' \
+  "$PAGARME_CREDENTIAL_SCRIPT" \
+  && grep -Fq '$generator.GetBytes($bytes)' "$PAGARME_CREDENTIAL_SCRIPT" \
+  && grep -Fq '$generator.Dispose()' "$PAGARME_CREDENTIAL_SCRIPT" \
+  || fail 'segredo do webhook Pagar.me não usa gerador criptográfico'
+grep -Fq 'provision-pagarme-credential blindou-pagarme-credential' \
+  "$PAGARME_CREDENTIAL_SCRIPT" \
+  || fail 'credencial Pagar.me não usa a interface fechada aprovada'
+grep -Fq 'Invoke-ClosedSshInput' "$PAGARME_CREDENTIAL_SCRIPT" \
+  || fail 'credencial Pagar.me não chega ao controlador por stdin fechado'
+grep -Fq 'Get-ControllerStatusWithLockRetry' "$PAGARME_CREDENTIAL_SCRIPT" \
+  && grep -Fq 'if ($exitCode -ne 2)' "$PAGARME_CREDENTIAL_SCRIPT" \
+  || fail 'verificação inicial Pagar.me não classifica contenção do lock'
+grep -Fq '$clipboardContainsWebhook = $true' "$PAGARME_CREDENTIAL_SCRIPT" \
+  && grep -Fq 'if ($clipboardContainsWebhook)' "$PAGARME_CREDENTIAL_SCRIPT" \
+  && grep -Fq "Set-Clipboard -Value ' '" "$PAGARME_CREDENTIAL_SCRIPT" \
+  && grep -Fq "pressione ENTER para limpar a área de transferência' -AsSecureString" \
+    "$PAGARME_CREDENTIAL_SCRIPT" \
+  || fail 'URL secreta do webhook não possui limpeza garantida da área de transferência'
+grep -Fq '[switch]$RotateWebhook' "$PAGARME_CREDENTIAL_SCRIPT" \
+  && grep -Fq 'rotate-pagarme-webhook-secret blindou-pagarme-webhook-rotation' \
+    "$PAGARME_CREDENTIAL_SCRIPT" \
+  || fail 'orquestrador Pagar.me não suporta rotação sem redigitar a secret key'
+if grep -Eq 'Write-(Host|Output|Verbose|Debug).*(secretKey|webhookSecret|webhookUrl|payload)' \
+    "$PAGARME_CREDENTIAL_SCRIPT"; then
+  fail 'orquestrador Pagar.me pode revelar credencial ou webhook em output'
+fi
+if grep -Fq 'Read-Host' "$PAGARME_PLANS_SCRIPT"; then
+  fail 'executor de planos Pagar.me não pode voltar a solicitar a secret key já custodiada'
+fi
+grep -Fq '[switch]$ConfirmCreation' "$PAGARME_PLANS_SCRIPT" \
+  && grep -Fq 'provision-pagarme-plans blindou-pagarme-plans' \
+    "$PAGARME_PLANS_SCRIPT" \
+  || fail 'executor de planos não usa confirmação e controlador fechado no servidor'
+grep -Fq 'blindou-catalog-{CATALOG_VERSION}-{spec.code}' \
+  "$PAGARME_PLAN_PROVISIONER" \
+  || fail 'provisionador de planos não fixa identidade idempotente por item'
+grep -Fq "blindou_catalog_code = \$Spec.Code" "$PAGARME_PLANS_SCRIPT" \
+  && grep -Fq "statement_descriptor = 'BLINDOU'" "$PAGARME_PLANS_SCRIPT" \
+  && grep -Fq "billing_type = 'prepaid'" "$PAGARME_PLANS_SCRIPT" \
+  || fail 'executor de planos Pagar.me diverge do catálogo externo aprovado'
+plan_payload_function="$(sed -n '/^function New-BlindouPlanPayload {/,/^}/p' \
+  "$PAGARME_PLANS_SCRIPT")"
+if grep -Fq 'trial_period_days' <<<"$plan_payload_function"; then
+  fail 'executor de planos Pagar.me não pode enviar trial no payload'
+fi
+for price in 29700 49700 89700 99700 249700 379700 749700; do
+  grep -Fq "PriceCents = ${price}" "$PAGARME_PLANS_SCRIPT" \
+    || fail "executor de planos Pagar.me perdeu preço aprovado: ${price}"
+done
+if grep -Eq 'Write-(Host|Output|Verbose|Debug).*(secretKey|authorization)' \
+    "$PAGARME_PLANS_SCRIPT"; then
+  fail 'executor de planos Pagar.me pode revelar a credencial em output'
+fi
+grep -Fq 'plan.get("shippable") not in {None, False}' \
+  "$PAGARME_PLAN_PROVISIONER" \
+  || fail 'provisionador não trata a normalização shippable ausente/false do Pagar.me'
+grep -Fq 'nenhum retry cego de criação foi executado' \
+  "$PAGARME_PLAN_PROVISIONER" \
+  || fail 'provisionador não fecha resposta ambígua sem retry cego'
+grep -Fq '"PUT",' "$PAGARME_PLAN_PROVISIONER" \
+  && grep -Fq 'repair_existing=create_missing' "$PAGARME_PLAN_PROVISIONER" \
+  || fail 'provisionador não corrige plano canônico divergente antes de criar outro'
+for powershell_script in \
+  "$PAGARME_CREDENTIAL_SCRIPT" \
+  "$PAGARME_PLANS_SCRIPT" \
+  "$PAGARME_ACTIVATION_SCRIPT"; do
+  bom="$(od -An -tx1 -N3 "$powershell_script" | tr -d ' \n')"
+  [[ "$bom" == 'efbbbf' ]] \
+    || fail "script Pagar.me não possui UTF-8 BOM para Windows PowerShell 5.1: ${powershell_script}"
+done
+grep -Fq "[ValidatePattern('^[0-9a-f]{40}$')]" "$PAGARME_ACTIVATION_SCRIPT" \
+  || fail 'ativação Pagar.me não fixa o SHA completo da release'
+grep -Fq "if (\$confirmation -cne 'ATIVAR PAGARME')" "$PAGARME_ACTIVATION_SCRIPT" \
+  || fail 'ativação Pagar.me não exige confirmação humana exata'
+grep -Fq 'verify-pagarme-credential' "$PAGARME_ACTIVATION_SCRIPT" \
+  && grep -Fq 'activate-pagarme-runtime $ReleaseId blindou-pagarme-runtime' \
+    "$PAGARME_ACTIVATION_SCRIPT" \
+  || fail 'ativação Pagar.me não valida a credencial antes da transição fechada'
+grep -Fq 'if ($exitCode -ne 2)' "$PAGARME_ACTIVATION_SCRIPT" \
+  || fail 'retry da ativação Pagar.me não está restrito ao lock ocupado'
 for orchestrator in \
   Invoke-BlindouCloudflareConnector.ps1 \
-  Invoke-BlindouCloudflareSaasToken.ps1; do
-  grep -Fq 'operations/remote/blindou-ghcr-pull-verify.py' \
-    "${REPOSITORY_ROOT}/operations/${orchestrator}" \
-    || fail "orquestrador não transporta verificador GHCR: ${orchestrator}"
+  Invoke-BlindouCloudflareSaasToken.ps1 \
+  Invoke-BlindouGhcrPullCredential.ps1 \
+  Invoke-BlindouR2RuntimeCredential.ps1 \
+  Invoke-BlindouPagarmeCredential.ps1 \
+  Invoke-BlindouGhcrCandidatePullProof.ps1; do
+  orchestrator_path="${REPOSITORY_ROOT}/operations/${orchestrator}"
+  for required_source in \
+    operations/remote/blindou-release-emergencyctl \
+    operations/remote/blindou-ghcr-pull-verify.py \
+    operations/remote/blindou-pagarme-plans.py; do
+    grep -Fq "$required_source" "$orchestrator_path" \
+      || fail "orquestrador não transporta fonte obrigatória ${required_source}: ${orchestrator}"
+  done
 done
 
 for script in \
@@ -320,6 +427,12 @@ ui_review_config_line="$(grep -nF 'write_ui_review_runtime_config' \
 [[ "$ui_review_dir_line" =~ ^[0-9]+$ && "$ui_review_config_line" =~ ^[0-9]+$ \
   && "$ui_review_dir_line" -lt "$ui_review_config_line" ]] \
   || fail 'cofre da revisão da UI não precede a gravação de production.env'
+grep -Fq 'write_deferred_provider_runtime_config true false' \
+  "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'runtime fechado não declara PAGARME_ENABLED=false explicitamente'
+if grep -Fq 'PAGARME_SECRET_DIR' <<<"$ui_review_runtime_function"; then
+  fail 'runtime fechado não pode recusar o cofre Pagar.me dedicado e ainda inativo'
+fi
 grep -Fq "[[ ! -t 0 ]] || fail 'segredos de runtime devem chegar por stdin" \
   "${REMOTE_DIR}/blindou-deployctl" || fail 'Secrets de runtime não exigem stdin fechado'
 grep -Fq 'AUTH_REQUIRE_2FA=false' "${REMOTE_DIR}/blindou-deployctl" \
@@ -448,6 +561,63 @@ grep -Fq 'R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY' \
   "${REMOTE_DIR}/blindou-deployctl" || fail 'Secret do runtime não verifica as duas credenciais R2'
 grep -Fq 'blindou_r2_runtime_credential_secure' \
   "${REMOTE_DIR}/blindou-deployctl" || fail 'métrica segura da credencial R2 ausente'
+grep -Fq "readonly PAGARME_API_BASE_URL='https://api.pagar.me/core/v5'" \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'endpoint live fixo Pagar.me ausente'
+grep -Fq "readonly PAGARME_SECRET_DIR=\"\${DATA_ROOT}/pagarme\"" \
+  "${REMOTE_DIR}/blindou-deployctl" || fail 'cofre dedicado Pagar.me ausente'
+grep -Fq 'provision-pagarme-credential)' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'rotate-pagarme-webhook-secret)' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'provision-pagarme-plans)' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'verify-pagarme-plans)' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'activate-pagarme-runtime)' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'operações fechadas Pagar.me ausentes'
+grep -Fq 'Pagar.me recusou a validação autenticada da chave live' \
+  "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'credencial Pagar.me não possui validação autenticada live'
+grep -Fq 'temporary_secret_dir="$(mktemp -d "${PAGARME_SECRET_DIR}.tmp.XXXXXX")"' \
+  "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'mv -- "$temporary_secret_dir" "$PAGARME_SECRET_DIR"' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'par Pagar.me não é publicado atomicamente no cofre dedicado'
+pagarme_probe_function="$(sed -n '/^pagarme_live_probe()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+grep -Fq 'url = \"${PAGARME_API_BASE_URL}/plans?page=1&size=1\"' \
+  <<<"$pagarme_probe_function" \
+  && grep -Fq 'curl --config -)' <<<"$pagarme_probe_function" \
+  || fail 'prova Pagar.me não protege a chave dos argumentos do processo'
+grep -Fq 'current_release_is_pagarme_compatible "$release_id"' \
+  "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'ativação Pagar.me não exige release compatível corrente'
+grep -Fq 'write_pagarme_first_runtime_config' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'restart_pagarme_consumers' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'ativação Pagar.me não materializa e reinicia os consumidores'
+grep -Fq 'PAGARME_RUNTIME_ROLLBACK_CONFIG' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'journal preservado' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'ativação Pagar.me não preserva journal para recuperar interrupção'
+grep -Fq 'blindou_pagarme_credential_secure' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'blindou_pagarme_runtime_active' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'métricas seguras Pagar.me ausentes'
+grep -Fq 'provision-pagarme-credential blindou-pagarme-credential' \
+  "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  && grep -Fq 'rotate-pagarme-webhook-secret blindou-pagarme-webhook-rotation' \
+    "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  && grep -Fq 'provision-pagarme-plans blindou-pagarme-plans' \
+    "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  && grep -Fq 'verify-pagarme-plans' \
+    "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  && grep -Fq 'activate-pagarme-runtime * blindou-pagarme-runtime' \
+    "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  || fail 'sudoers não limita as operações Pagar.me ao contrato fechado'
+grep -Fq 'blindou.io/pagarme-first-compatible' \
+  "${REMOTE_DIR}/blindou-release-verify.py" \
+  || fail 'release assinada não exige marcador de compatibilidade Pagar.me-first'
+grep -Fq 'controlador permaneceu ocupado por um minuto após o bootstrap' \
+  "${REMOTE_DIR}/bootstrap-blindou-deployctl.sh" \
+  || fail 'bootstrap do controlador não trata contenção do coletor de métricas'
+grep -Fq 'PAGARME_PLAN_PROVISIONER_SOURCE' \
+  "${REMOTE_DIR}/bootstrap-blindou-deployctl.sh" \
+  && grep -Fq 'blindou-pagarme-plans.py' "$PAGARME_CREDENTIAL_SCRIPT" \
+  || fail 'bootstrap Pagar.me não transporta e instala o provisionador fechado de planos'
 grep -Fq 'bootstrap-superadmin * blindou-bootstrap-superadmin' \
   "${REMOTE_DIR}/blindou-deployctl.sudoers" || fail 'sudoers não libera o bootstrap fechado'
 grep -Fq "readonly GHCR_PULL_VERIFIER='/usr/local/lib/blindou-platform/blindou-ghcr-pull-verify.py'" \

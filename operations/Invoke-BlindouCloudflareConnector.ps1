@@ -26,8 +26,10 @@ if (-not (Test-Path -LiteralPath $knownHosts -PathType Leaf)) {
 $files = @(
     @{ Local = "operations/remote/blindou-deployctl"; Remote = "operations/remote/" },
     @{ Local = "operations/remote/blindou-deployctl.sudoers"; Remote = "operations/remote/" },
+    @{ Local = "operations/remote/blindou-release-emergencyctl"; Remote = "operations/remote/" },
     @{ Local = "operations/remote/blindou-release-verify.py"; Remote = "operations/remote/" },
     @{ Local = "operations/remote/blindou-ghcr-pull-verify.py"; Remote = "operations/remote/" },
+    @{ Local = "operations/remote/blindou-pagarme-plans.py"; Remote = "operations/remote/" },
     @{ Local = "operations/remote/blindou-platform-metrics"; Remote = "operations/remote/" },
     @{ Local = "operations/remote/blindou-platform-metrics.service"; Remote = "operations/remote/" },
     @{ Local = "operations/remote/blindou-platform-metrics.timer"; Remote = "operations/remote/" },

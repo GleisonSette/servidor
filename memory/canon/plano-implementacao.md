@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-plano-implementacao
   source_path: memory/canon/plano-implementacao.md
   generated_from: plano aprovado pelo usuário em 2026-08-15
-  updated_at: 2026-08-23
+  updated_at: 2026-08-24
   status: canonical
 
 ## Regra de continuidade
@@ -190,17 +190,27 @@ Aceite:
 - `apiwpp-deployctl verify` continua aprovado;
 - backup, alertas, rollback e monitor externo comprovados.
 
-Próxima ação exata:
+Estado Pagar.me concluído nesta etapa:
 
-1. publicar uma nova candidata assinada com o modo explícito de revisão da UI,
-   sem UAZAPI, Resend e Pagar.me e com 16 workers contínuos;
-2. comprovar o pull integral dessa candidata e preparar somente os segredos
-   internos, sem credenciais dos três provedores;
-3. criar backup, cópia offsite e recibo, liberar os gates para o mesmo SHA,
-   executar migrations, aplicar a release e criar
-   `gleisonsette@gmail.com` como `super_admin` por entrada protegida;
-4. validar login público, API e painel; somente depois da aprovação visual do
-   usuário iniciar trabalhos separados para UAZAPI, Resend e Pagar.me;
+Em 2026-08-25, o contrato de transporte dos bootstraps foi fechado para exigir
+o mesmo conjunto completo de fontes em todos os seis orquestradores. Isso evita
+que a prova GHCR ou uma rotação de credencial falhe antes da instalação quando
+o controlador ganha um novo helper obrigatório.
+
+1. secret key live validada e preservada somente no cofre root-only;
+2. webhook HTTPS cadastrado com segredo forte rotacionado;
+3. sete planos live mensais `prepaid`, com descritor `BLINDOU`, criados ou
+   corrigidos e conferidos contra o catálogo versionado.
+
+Próxima ação exata, ainda dependente de autorizações próprias:
+
+1. provisionar a public key `pk_*` no frontend sem expor a secret key;
+2. publicar e validar uma nova candidata assinada marcada como compatível com
+   Pagar.me-first, mantendo UAZAPI e Resend desligados;
+3. mediante autorizações próprias de deploy e migration, aplicar a candidata,
+   vincular os sete IDs e executar a ativação fechada do runtime Pagar.me;
+4. validar tokenização direta, assinatura, webhook, reconciliação e rollback
+   sem PAN/CVV na API, logs ou banco;
 5. manter a cota global da aplicação em 90 custom hostnames e revalidar a
    origem de fallback antes do primeiro fluxo autorizado de domínio por
    conta/tenant.
@@ -214,8 +224,11 @@ O gate de atualização foi corrigido para aceitar EDGE `passed` somente quando
 há um ponteiro seguro de release corrente; a primeira instalação continua
 exigindo `connector-only` e ausência desse ponteiro. A janela protegida criou
 `gleisonsette@gmail.com` como `super_admin` e validou o login real pela API
-pública. A próxima ação é revisar a UI. UAZAPI, Resend e Pagar.me continuam
-deliberadamente ausentes.
+pública. A UI foi aprovada em 2026-08-24. A próxima ação externa é Pagar.me;
+  UAZAPI e Resend continuam deliberadamente ausentes até a última etapa da D020.
+  A credencial live, o webhook e os sete planos já foram provisionados e
+  verificados; o controlador está instalado, mas o runtime continua inativo e
+  sem segredo Pagar.me no Kubernetes.
 
 Objetivos:
 

@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-decisoes
   source_path: memory/canon/decisoes.md
   generated_from: decisões do usuário e limites observados do laboratório
-  updated_at: 2026-08-22
+  updated_at: 2026-08-24
   status: canonical
 
 ## Resolvida D001 - Projetos admitidos pela plataforma
@@ -233,3 +233,41 @@ Depois que o usuário validar a interface, a ativação de cada provedor será u
 mudança separada e autorizada, com credencial por entrada protegida, validação
 real e atualização coerente da release. D005 continua definindo o canal futuro
 de alertas, mas sua ativação deixou de preceder o primeiro login.
+
+## Resolvida D020 - Ativação externa Pagar.me-first após aprovação da UI
+
+Em 2026-08-24 o usuário aprovou a UI e determinou a nova ordem externa:
+Pagar.me, domínio personalizado, marketplaces e, por último, UAZAPI/Resend.
+Para os sete planos live, decidiu cobrança mensal `prepaid` e descritor
+`BLINDOU`, preservando preços e limites do catálogo versionado no Blindou.
+
+A credencial Pagar.me entra somente por prompt protegido. O controlador valida
+a chave na API live e guarda secret key e segredo aleatório do webhook no cofre
+dedicado `/etc/blindou/pagarme`, `root:root 0600`, sem alterar ConfigMap, Secret
+Kubernetes ou workload. UAZAPI e Resend continuam ausentes nessa etapa.
+
+A ativação do runtime é uma segunda operação. Ela exige uma release assinada
+corrente cuja API e 16 workers declarem
+`blindou.io/pagarme-first-compatible=true`, aplicação e EDGE em `passed` e a
+credencial live novamente validada. A transição publica somente o par Pagar.me,
+mantém UAZAPI/Resend desligados, reinicia consumidores e restaura a configuração
+anterior se a prontidão falhar. Preparar o fluxo no repositório não autoriza
+instalar o controlador no host, aplicar release, migration ou ativar cobrança.
+
+## Resolvida D021 - Prefixos atuais e criação fechada dos planos Pagar.me
+
+Em 2026-08-24, o painel real e a documentação oficial da API V5 mostraram que
+produção usa `sk_*` e `pk_*`, enquanto sandbox usa `sk_test_*` e `pk_test_*`.
+O usuário autorizou substituir a suposição anterior `*_live_*` nos gates do
+Blindou e da plataforma. Produção recusa explicitamente os prefixos de teste e
+a secret key ainda precisa passar por leitura autenticada na API fixa antes de
+qualquer efeito.
+
+Depois do provisionamento inicial, a secret key não volta à estação. Os sete
+planos são criados pelo controlador root-only usando a chave já guardada,
+catálogo imutável equivalente à migration `0005`, confirmação explícita,
+metadata por código, identidade idempotente e reconciliação de resposta ambígua
+sem retry cego. Um plano canônico divergente pode ser corrigido por `PUT` e
+fetch-back antes de qualquer nova criação. O recibo local contém somente IDs
+`plan_*`; criar planos não publica segredo no Kubernetes, não aplica migration
+e não ativa o runtime.

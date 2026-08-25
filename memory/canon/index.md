@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-indice-canonico
   source_path: memory/canon/index.md
   generated_from: decisão do usuário e auditoria do servidor em 2026-08-15
-  updated_at: 2026-08-23
+  updated_at: 2026-08-24
   status: canonical
 
 ## Regra de entrada
@@ -64,20 +64,29 @@ corpus por padrão.
   `0ba8384` passou nos gates, no scan fechado, na validação do bundle no cache e
   na prova integral viva do host. A prova confirmou quatro imagens, 24 blobs e
   111.683.519 bytes sem criar Secret, migration ou workload.
+- Em 2026-08-25, todos os seis orquestradores que reinstalam o controlador do
+  Blindou passaram a transportar o conjunto completo de fontes exigido pelo
+  bootstrap; o gate offline impede regressão desse contrato.
 - O workflow `32442604845` executou o SHA Blindou `83e7f387` duas vezes:
   fmt/check/Clippy passaram, mas `rust-lld` caiu com `Bus error` ao ligar testes
   grandes diferentes. O job de imagens foi pulado e não publicou candidatas.
 - Por D016, o Pages permanece automático: o `push` autorizado pode publicar o
   painel enquanto o workflow de imagens é acompanhado.
-- Por D019, UAZAPI, Resend e Pagar.me permanecem sem credenciais e desabilitados
-  até a aprovação visual. A release
+- A D019 permitiu a primeira release sem provedores. A release
   `8e17210e34767935158ba5c8b863b48724297a93` passou no workflow
   `32645928340`, no gate RLS de menor privilégio, nos scans, na prova integral
   do host e no rollout. O estado vivo possui oito migrations,
   `current_release=8e17210`, aplicação e EDGE em `passed`, Tunnel e R2
   saudáveis e backup `blindou-20260823T152218Z` confirmado offsite. A janela
   protegida criou `gleisonsette@gmail.com` como `super_admin` e o login real
-  passou pela API pública sem expor tokens. O próximo passo é a revisão da UI.
+  passou pela API pública sem expor tokens. Em 2026-08-24, a UI foi aprovada e
+  a D020 definiu Pagar.me, domínio personalizado, marketplaces e UAZAPI/Resend
+  como nova ordem. A secret key Pagar.me live já foi validada e guardada no
+  cofre root-only do host, o webhook HTTPS foi cadastrado após rotação do
+  segredo exposto e os sete planos mensais `prepaid` com descritor `BLINDOU`
+  passaram na verificação autenticada. O runtime permanece inativo: nenhum
+  segredo Pagar.me entrou no Kubernetes, nenhuma migration vinculou os IDs e a
+  ativação ainda exige release assinada marcada como compatível.
 
 ## Precedência
 

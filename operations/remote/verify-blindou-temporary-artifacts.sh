@@ -103,7 +103,7 @@ PY
 
 if grep -R -nE \
   --exclude='verify-blindou-temporary-artifacts.sh' \
-  '(sk_live_|sk_test_|eyJ[a-zA-Z0-9_-]{20,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY)' \
+  '(sk_(test_)?[A-Za-z0-9]{16,}|eyJ[a-zA-Z0-9_-]{20,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY)' \
   "$REPOSITORY_ROOT/operations" "$REPOSITORY_ROOT/platform" >/dev/null; then
   printf '%s\n' 'material sensível detectado' >&2
   exit 1

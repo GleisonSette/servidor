@@ -36,6 +36,7 @@ $files = @(
     'operations/remote/blindou-deployctl.sudoers',
     'operations/remote/blindou-release-verify.py',
     'operations/remote/blindou-ghcr-pull-verify.py',
+    'operations/remote/blindou-pagarme-plans.py',
     'operations/remote/blindou-platform-metrics',
     'operations/remote/blindou-platform-metrics.service',
     'operations/remote/blindou-platform-metrics.timer',

@@ -293,6 +293,10 @@ def validate_documents(documents: list[dict[str, Any]], release_id: str) -> None
             }
             if declared_releases != {release_id}:
                 fail(f"release ausente ou divergente em {resource}")
+            if (name == "blindou-backend" or WORKER_RE.fullmatch(name)) and annotations.get(
+                "blindou.io/pagarme-first-compatible"
+            ) != "true":
+                fail(f"compatibilidade Pagar.me-first ausente em {resource}")
 
     required_deployments = {
         "blindou-backend",
