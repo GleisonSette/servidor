@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-estado-atual
   source_path: memory/canon/estado-atual.md
   generated_from: auditoria SSH, runtime K3s, Prometheus e repositórios locais
-  updated_at: 2026-08-23
+  updated_at: 2026-08-25
   status: canonical
 
 ## Host verificado
@@ -215,6 +215,13 @@ metadata:
   workloads Ready. UAZAPI, Resend e Pagar.me permanecem ausentes. A janela
   protegida criou `gleisonsette@gmail.com` como `super_admin`; o comando
   concluiu e validou o login real pela API pública sem exibir tokens.
+- Em 2026-08-25, esse estado foi sucedido pela release
+  `ab15a31b8b0538b772763cb0b5a52d6ef3c7c463`. A prova das quatro imagens, o
+  backup criptografado `blindou-20260825T092915Z` com cópia offsite, a migration
+  `0009` e o rollout passaram. O runtime possui nove migrations, aplicação e
+  EDGE em `passed`, todos os workloads Ready e
+  `pagarme_runtime_state=active`. UAZAPI e Resend permanecem ausentes; nenhum
+  efeito financeiro real foi criado na validação.
 
 ## Manutenção
 

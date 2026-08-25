@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-historico-execucao
   source_path: memory/canon/historico-execucao.md
   generated_from: auditorias e implementações autorizadas no laboratório
-  updated_at: 2026-08-24
+  updated_at: 2026-08-25
   status: canonical
 
 ## Regra de registro
@@ -1041,3 +1041,25 @@ recibo de sucesso e preservou o journal para recuperação na próxima execuçã
 - A correção passa a usar o `rollout status`, que já depende das probes HTTP
   `/ready` declaradas na release assinada, e o gate offline recusa dependência
   de ferramenta executada dentro do Pod.
+
+## 2026-08-25 - Ativação Pagar.me concluída após recuperação do journal
+
+Resultado: a repetição com o controlador corrigido recuperou o estado
+interrompido, ativou o par Pagar.me na release corrente e emitiu recibo de
+sucesso sem reexecutar migration ou deploy.
+
+- O bootstrap instalou a correção `ab4a936` do controlador fechado.
+- A operação recuperou primeiro o journal root-only preservado pela tentativa
+  anterior e só então iniciou uma nova ativação.
+- O backend e os 16 workers concluíram `rollout status`; suas probes HTTP
+  `/ready` passaram pelo kubelet sem exigir ferramenta dentro dos Pods.
+- O estado final confirmou
+  `current_release=ab15a31b8b0538b772763cb0b5a52d6ef3c7c463`,
+  `migration_history_count=9`, `pagarme_credential_state=secure_local_store`,
+  `pagarme_plans_state=seven_live_verified` e
+  `pagarme_runtime_state=active`.
+- Aplicação e API públicas permaneceram em HTTP 200; UAZAPI, Resend e o receptor
+  externo de alertas continuam adiados conforme D020.
+- A validação autenticada posterior confirmou sete planos disponíveis e abriu o
+  formulário do checkout transparente. Nenhum cartão, assinatura, pedido ou
+  cobrança real foi criado.

@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-plano-implementacao
   source_path: memory/canon/plano-implementacao.md
   generated_from: plano aprovado pelo usuário em 2026-08-15
-  updated_at: 2026-08-24
+  updated_at: 2026-08-25
   status: canonical
 
 ## Regra de continuidade
@@ -197,42 +197,44 @@ o mesmo conjunto completo de fontes em todos os seis orquestradores. Isso evita
 que a prova GHCR ou uma rotação de credencial falhe antes da instalação quando
 o controlador ganha um novo helper obrigatório.
 Na primeira ativação viva, o gate redundante que executava `curl` dentro da
-imagem mínima impediu também o rollback. O journal root-only foi preservado e o
-runtime continuou reportado como inativo; a correção mantém a prontidão pelas
-probes `/ready` observadas no rollout e proíbe dependência de ferramenta no Pod.
+imagem mínima impediu também o rollback. O journal root-only foi preservado. A
+correção manteve a prontidão pelas probes `/ready` observadas no rollout e
+proibiu dependência de ferramenta no Pod; a repetição recuperou o journal e
+concluiu a ativação.
 
 1. secret key live validada e preservada somente no cofre root-only;
 2. webhook HTTPS cadastrado com segredo forte rotacionado;
 3. sete planos live mensais `prepaid`, com descritor `BLINDOU`, criados ou
-   corrigidos e conferidos contra o catálogo versionado.
+   corrigidos e conferidos contra o catálogo versionado;
+4. release `ab15a31` aprovada, backup `blindou-20260825T092915Z` confirmado
+   offsite, migration `0009` aplicada e runtime Pagar.me ativo;
+5. catálogo e checkout transparente validados sem enviar cartão ou criar
+   cobrança real.
 
 Próxima ação exata, ainda dependente de autorizações próprias:
 
-1. provisionar a public key `pk_*` no frontend sem expor a secret key;
-2. publicar e validar uma nova candidata assinada marcada como compatível com
-   Pagar.me-first, mantendo UAZAPI e Resend desligados;
-3. mediante autorizações próprias de deploy e migration, aplicar a candidata,
-   vincular os sete IDs e executar a ativação fechada do runtime Pagar.me;
-4. validar tokenização direta, assinatura, webhook, reconciliação e rollback
+1. quando houver decisão explícita de compra live, validar tokenização direta,
+   assinatura, webhook, reconciliação e cancelamento
    sem PAN/CVV na API, logs ou banco;
-5. manter a cota global da aplicação em 90 custom hostnames e revalidar a
+2. seguir D020 com domínio personalizado, marketplaces e somente ao final
+   UAZAPI/Resend;
+3. manter a cota global da aplicação em 90 custom hostnames e revalidar a
    origem de fallback antes do primeiro fluxo autorizado de domínio por
    conta/tenant.
 
 ## Fase 2E - Primeira release e capacidade do Blindou
 
-Status: a release `8e17210e34767935158ba5c8b863b48724297a93` está aplicada
-com oito migrations, todos os workloads Ready, aplicação e EDGE em `passed`,
-Tunnel e R2 saudáveis e backup `blindou-20260823T152218Z` confirmado offsite.
+Status: a release `ab15a31b8b0538b772763cb0b5a52d6ef3c7c463` está aplicada
+com nove migrations, todos os workloads Ready, aplicação e EDGE em `passed`,
+Tunnel e R2 saudáveis e backup `blindou-20260825T092915Z` confirmado offsite.
 O gate de atualização foi corrigido para aceitar EDGE `passed` somente quando
 há um ponteiro seguro de release corrente; a primeira instalação continua
 exigindo `connector-only` e ausência desse ponteiro. A janela protegida criou
 `gleisonsette@gmail.com` como `super_admin` e validou o login real pela API
-pública. A UI foi aprovada em 2026-08-24. A próxima ação externa é Pagar.me;
-  UAZAPI e Resend continuam deliberadamente ausentes até a última etapa da D020.
-  A credencial live, o webhook e os sete planos já foram provisionados e
-  verificados; o controlador está instalado, mas o runtime continua inativo e
-  sem segredo Pagar.me no Kubernetes.
+pública. A UI foi aprovada em 2026-08-24. O Pagar.me foi ativado em 2026-08-25
+após migration e deploy separados; UAZAPI e Resend continuam deliberadamente
+ausentes até a última etapa da D020. Nenhuma cobrança real foi criada na
+validação.
 
 Objetivos:
 

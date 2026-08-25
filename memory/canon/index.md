@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-indice-canonico
   source_path: memory/canon/index.md
   generated_from: decisão do usuário e auditoria do servidor em 2026-08-15
-  updated_at: 2026-08-24
+  updated_at: 2026-08-25
   status: canonical
 
 ## Regra de entrada
@@ -67,10 +67,10 @@ corpus por padrão.
 - Em 2026-08-25, todos os seis orquestradores que reinstalam o controlador do
   Blindou passaram a transportar o conjunto completo de fontes exigido pelo
   bootstrap; o gate offline impede regressão desse contrato.
-- A primeira tentativa de ativação Pagar.me preservou o journal e permaneceu
-  sem recibo ativo porque uma checagem redundante exigia `curl` na imagem
-  mínima. A correção usa as probes `/ready` já observadas pelo rollout e impede
-  reintroduzir ferramenta de diagnóstico no Pod.
+- A primeira tentativa de ativação Pagar.me preservou o journal porque uma
+  checagem redundante exigia `curl` na imagem mínima. A correção usa as probes
+  `/ready` observadas pelo rollout; a repetição recuperou o journal e concluiu a
+  ativação na release `ab15a31`, com nove migrations e checkout disponível.
 - O workflow `32442604845` executou o SHA Blindou `83e7f387` duas vezes:
   fmt/check/Clippy passaram, mas `rust-lld` caiu com `Bus error` ao ligar testes
   grandes diferentes. O job de imagens foi pulado e não publicou candidatas.
@@ -88,9 +88,10 @@ corpus por padrão.
   como nova ordem. A secret key Pagar.me live já foi validada e guardada no
   cofre root-only do host, o webhook HTTPS foi cadastrado após rotação do
   segredo exposto e os sete planos mensais `prepaid` com descritor `BLINDOU`
-  passaram na verificação autenticada. O runtime permanece inativo: nenhum
-  segredo Pagar.me entrou no Kubernetes, nenhuma migration vinculou os IDs e a
-  ativação ainda exige release assinada marcada como compatível.
+  passaram na verificação autenticada. Em 2026-08-25, a release `ab15a31`, o
+  backup prévio, a migration `0009` e a ativação fechada passaram; o runtime
+  Pagar.me está ativo e UAZAPI/Resend permanecem ausentes. Nenhuma cobrança real
+  foi criada na validação.
 
 ## Precedência
 

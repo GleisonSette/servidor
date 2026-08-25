@@ -447,8 +447,10 @@ sem credencial, e não autoriza migration.
 
 Em 2026-08-24, a secret key foi validada e guardada em
 `/etc/blindou/pagarme`, o webhook foi cadastrado com segredo rotacionado e os
-sete planos live passaram na verificação autenticada. O runtime continua
-inativo e nenhum segredo Pagar.me foi publicado no Kubernetes.
+sete planos live passaram na verificação autenticada. Em 2026-08-25, a release
+compatível `ab15a31` foi implantada após backup, a migration `0009` vinculou o
+catálogo e a ativação fechada materializou somente o par Pagar.me no runtime.
+UAZAPI e Resend continuam ausentes.
 
 Essa etapa não altera `production.env`, ConfigMap, Secret Kubernetes ou
 workload. Depois de atualizar o controlador e antes de publicar a candidata,
