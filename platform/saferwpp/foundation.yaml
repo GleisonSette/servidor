@@ -1,0 +1,162 @@
+apiVersion: platform.servidor.local/v1
+kind: SaferWppLabFoundation
+metadata:
+  name: saferwpp-lab
+  labels:
+    platform.servidor.local/managed: "true"
+    platform.servidor.local/project: saferwpp
+spec:
+  lifecycle:
+    repositoryState: declared-not-applied
+    activationRequiresExplicitAuthorization: true
+    apiwppMustBeSuspendedAndVerified: true
+    blindouMustRemainUnchanged: true
+  ownership:
+    product: saferwpp
+    environment: lab
+    sharedWithProjects: []
+    forbiddenProjects:
+      - apiwpp
+      - blindou
+  host:
+    hostname: apiwpp
+    address: 192.168.100.59
+    kubernetesVersion: 1.36.2
+  postgres:
+    version: 18
+    logicalClusterId: saferwpp-lab
+    operationalClusterName: saferwpp_lab
+    systemdUnit: postgresql@18-saferwpp_lab.service
+    systemdSlice: saferwpp-postgresql.slice
+    endpoint:
+      host: 192.168.100.59
+      hostCidr: 192.168.100.59/32
+      port: 55432
+      tlsMode: verify-full
+      tlsServerIdentity: 192.168.100.59
+    database:
+      name: saferwpp_lab
+      rolesPrefix: saferwpp_
+      creationBlockedUntilBackupPreflight: true
+    connections:
+      physicalCeiling: 24
+      superuserReserved: 3
+      reserved: 2
+      ordinaryBudget: 19
+      allocations:
+        pgbouncerRuntime: 10
+        migrations: 2
+        monitoring: 1
+        backup: 1
+        safetyMargin: 5
+    resources:
+      cpuQuotaPercent: 100
+      memoryHighMi: 1536
+      memoryMaxMi: 2048
+      sharedBuffersMi: 512
+      workMemMi: 4
+      maintenanceWorkMemMi: 128
+      dataDirectory: /var/lib/postgresql/18/saferwpp_lab
+      minimumDataStorageGi: 20
+  tls:
+    directory: /etc/saferwpp/postgres/tls
+    serverCertificate: /etc/saferwpp/postgres/tls/server-cert.pem
+    serverPrivateKey: /etc/saferwpp/postgres/tls/server-key.pem
+    clientCertificateAuthority: /etc/saferwpp/postgres/tls/client-ca.pem
+    privateMaterialVersioned: false
+  backup:
+    contractVersion: saferwpp.backup-preflight/v2
+    config: /etc/pgbackrest/saferwpp-lab.conf
+    stanza: saferwpp-lab
+    repositories:
+      local:
+        number: 1
+        type: posix
+        path: /var/lib/pgbackrest/saferwpp-lab
+        minimumStorageGi: 20
+      r2:
+        number: 2
+        type: s3
+        bucket: saferwpp-postgres-backup-lab
+        path: /saferwpp-lab
+        credentialsFile: /etc/saferwpp/postgres/pgbackrest.env
+        requiredEnvironment:
+          - PGBACKREST_REPO2_S3_ENDPOINT
+          - PGBACKREST_REPO2_S3_KEY
+          - PGBACKREST_REPO2_S3_KEY_SECRET
+          - PGBACKREST_REPO2_CIPHER_PASS
+    localEncryptionEnvironment: PGBACKREST_REPO1_CIPHER_PASS
+    walArchivingRequired: true
+    archiveTimeoutSeconds: 900
+    rpoMinutes: 15
+    rtoHours: 4
+    baselineRestoreEvidenceRequired: true
+    postMigrationRestoreRequired: true
+  monitoring:
+    exporter:
+      identity: saferwpp-postgres-exporter
+      systemdUnit: saferwpp-postgres-exporter.service
+      listenAddress: 127.0.0.1
+      listenPort: 9188
+      connectionAllocation: 1
+      credentialsFile: /etc/saferwpp/postgres/exporter.env
+      requiredEnvironment: DATA_SOURCE_NAME
+    textfileCollector:
+      systemdUnit: saferwpp-postgres-metrics.service
+      output: /var/lib/prometheus/node-exporter/saferwpp-postgres.prom
+    prometheusJob: saferwpp-postgres
+  kubernetes:
+    application:
+      namespace: saferwpp-lab
+      quota:
+        pods: 12
+        cpuRequests: "2"
+        cpuLimits: "7"
+        memoryRequests: 4Gi
+        memoryLimits: 8Gi
+        persistentVolumeClaims: 3
+        storageRequests: 24Gi
+    identity:
+      namespace: saferdock-identity
+      owner: saferdock-platform
+      exclusiveComponent: keycloak
+      replicas: 1
+      workloadBudget:
+        cpuRequest: 250m
+        cpuLimit: "1"
+        memoryRequest: 512Mi
+        memoryLimit: 1Gi
+      namespaceQuota:
+        pods: 2
+        cpuRequests: 500m
+        cpuLimits: 1500m
+        memoryRequests: 1Gi
+        memoryLimits: 2Gi
+        persistentVolumeClaims: 0
+    controlPlane:
+      namespace: saferdock-platform
+      owner: saferdock-platform
+      exclusiveComponent: control-plane
+      replicas: 1
+      workloadBudget:
+        cpuRequest: 100m
+        cpuLimit: 500m
+        memoryRequest: 256Mi
+        memoryLimit: 512Mi
+      namespaceQuota:
+        pods: 2
+        cpuRequests: 250m
+        cpuLimits: "1"
+        memoryRequests: 512Mi
+        memoryLimits: 1Gi
+        persistentVolumeClaims: 0
+  forbidden:
+    sharedPostgresPort: 5432
+    sharedPostgresUnit: postgresql@18-main.service
+    crossProjectCredentials: true
+    publicServiceTypes:
+      - NodePort
+      - LoadBalancer
+    hostNetwork: true
+    hostPath: true
+    inlineSecrets: true

@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://saferdock.com/schemas/saferwpp-backup-preflight-v2.json",
+  "title": "SaferWPP backup preflight evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "phase",
+    "clusterId",
+    "postgresClusterName",
+    "port",
+    "generatedAt",
+    "validUntil",
+    "repositories",
+    "walContinuity",
+    "baselineRestore",
+    "postMigrationRestore",
+    "evidenceSha256"
+  ],
+  "properties": {
+    "contractVersion": { "const": "saferwpp.backup-preflight/v2" },
+    "phase": { "enum": ["foundation", "rollout"] },
+    "clusterId": { "const": "saferwpp-lab" },
+    "postgresClusterName": { "const": "saferwpp_lab" },
+    "port": { "const": 55432 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "validUntil": { "type": "string", "format": "date-time" },
+    "repositories": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["local", "r2"],
+      "properties": {
+        "local": { "$ref": "#/$defs/repositoryEvidence" },
+        "r2": { "$ref": "#/$defs/repositoryEvidence" }
+      }
+    },
+    "walContinuity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "checkedAt"],
+      "properties": {
+        "status": { "const": "passed" },
+        "checkedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "baselineRestore": { "$ref": "#/$defs/restoreEvidence" },
+    "postMigrationRestore": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/postMigrationRestoreEvidence" }
+      ]
+    },
+    "evidenceSha256": { "$ref": "#/$defs/sha256" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "phase": { "const": "rollout" } },
+        "required": ["phase"]
+      },
+      "then": {
+        "properties": {
+          "postMigrationRestore": { "$ref": "#/$defs/postMigrationRestoreEvidence" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "repositoryEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "latestBackupLabel", "latestBackupStoppedAt", "manifestSha256"],
+      "properties": {
+        "status": { "const": "passed" },
+        "latestBackupLabel": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "latestBackupStoppedAt": { "type": "string", "format": "date-time" },
+        "manifestSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "restoreEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "completedAt", "sourceBackupLabel", "postgresMajor", "checksums", "artifactSha256"],
+      "properties": {
+        "status": { "const": "passed" },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "sourceBackupLabel": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "postgresMajor": { "const": 18 },
+        "checksums": { "const": "passed" },
+        "artifactSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "postMigrationRestoreEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "completedAt",
+        "sourceBackupLabel",
+        "postgresMajor",
+        "checksums",
+        "artifactSha256",
+        "database",
+        "migrationCount",
+        "migrationSetSha256",
+        "rolesVerified"
+      ],
+      "properties": {
+        "status": { "const": "passed" },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "sourceBackupLabel": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "postgresMajor": { "const": 18 },
+        "checksums": { "const": "passed" },
+        "artifactSha256": { "$ref": "#/$defs/sha256" },
+        "database": { "const": "saferwpp_lab" },
+        "migrationCount": { "type": "integer", "minimum": 1 },
+        "migrationSetSha256": { "$ref": "#/$defs/sha256" },
+        "rolesVerified": { "const": true }
+      }
+    }
+  }
+}

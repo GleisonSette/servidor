@@ -1,0 +1,11 @@
+[Unit]
+Description=Limites exclusivos do PostgreSQL do SaferWPP
+
+[Slice]
+CPUAccounting=true
+CPUQuota=100%
+MemoryAccounting=true
+MemoryHigh=1536M
+MemoryMax=2048M
+TasksAccounting=true
+TasksMax=256

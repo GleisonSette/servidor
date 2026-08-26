@@ -1,0 +1,11 @@
+[Unit]
+Description=Backup completo semanal do PostgreSQL do SaferWPP
+
+[Timer]
+OnCalendar=Sun *-*-* 02:30:00
+RandomizedDelaySec=10m
+Persistent=true
+Unit=saferwpp-pgbackrest-backup@full.service
+
+[Install]
+WantedBy=timers.target

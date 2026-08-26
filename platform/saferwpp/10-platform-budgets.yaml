@@ -2,41 +2,41 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: default
-  namespace: cia-pixel-lab
+  namespace: saferdock-identity
 automountServiceAccountToken: false
 ---
 apiVersion: v1
 kind: ResourceQuota
 metadata:
-  name: project-budget
-  namespace: cia-pixel-lab
+  name: keycloak-exclusive-budget
+  namespace: saferdock-identity
 spec:
   hard:
-    requests.cpu: "500m"
-    requests.memory: 768Mi
-    limits.cpu: "1500m"
+    requests.cpu: 500m
+    requests.memory: 1Gi
+    limits.cpu: 1500m
     limits.memory: 2Gi
-    requests.storage: 30Gi
-    persistentvolumeclaims: "4"
-    pods: "12"
-    services: "8"
-    secrets: "24"
-    configmaps: "24"
+    persistentvolumeclaims: "0"
+    pods: "2"
+    services: "2"
+    secrets: "16"
+    configmaps: "16"
+    count/jobs.batch: "2"
 ---
 apiVersion: v1
 kind: LimitRange
 metadata:
-  name: workload-defaults
-  namespace: cia-pixel-lab
+  name: keycloak-container-limits
+  namespace: saferdock-identity
 spec:
   limits:
     - type: Container
       defaultRequest:
-        cpu: 50m
-        memory: 64Mi
-      default:
         cpu: 250m
-        memory: 256Mi
+        memory: 512Mi
+      default:
+        cpu: "1"
+        memory: 1Gi
       max:
         cpu: "1"
         memory: 1Gi
@@ -45,7 +45,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: default-deny
-  namespace: cia-pixel-lab
+  namespace: saferdock-identity
 spec:
   podSelector: {}
   policyTypes:
@@ -56,7 +56,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: allow-cluster-dns
-  namespace: cia-pixel-lab
+  namespace: saferdock-identity
 spec:
   podSelector: {}
   policyTypes:
@@ -79,50 +79,50 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: default
-  namespace: saferwpp-lab
+  namespace: saferdock-platform
 automountServiceAccountToken: false
 ---
 apiVersion: v1
 kind: ResourceQuota
 metadata:
-  name: project-budget
-  namespace: saferwpp-lab
+  name: control-plane-exclusive-budget
+  namespace: saferdock-platform
 spec:
   hard:
-    requests.cpu: "2"
-    requests.memory: 4Gi
-    limits.cpu: "7"
-    limits.memory: 8Gi
-    requests.storage: 24Gi
-    persistentvolumeclaims: "3"
-    pods: "12"
-    services: "12"
-    secrets: "32"
-    configmaps: "32"
+    requests.cpu: 250m
+    requests.memory: 512Mi
+    limits.cpu: "1"
+    limits.memory: 1Gi
+    persistentvolumeclaims: "0"
+    pods: "2"
+    services: "2"
+    secrets: "16"
+    configmaps: "16"
+    count/jobs.batch: "2"
 ---
 apiVersion: v1
 kind: LimitRange
 metadata:
-  name: workload-defaults
-  namespace: saferwpp-lab
+  name: control-plane-container-limits
+  namespace: saferdock-platform
 spec:
   limits:
     - type: Container
       defaultRequest:
-        cpu: 50m
-        memory: 64Mi
-      default:
-        cpu: 250m
+        cpu: 100m
         memory: 256Mi
+      default:
+        cpu: 500m
+        memory: 512Mi
       max:
-        cpu: "2"
-        memory: 2Gi
+        cpu: 500m
+        memory: 512Mi
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: default-deny
-  namespace: saferwpp-lab
+  namespace: saferdock-platform
 spec:
   podSelector: {}
   policyTypes:
@@ -133,7 +133,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: allow-cluster-dns
-  namespace: saferwpp-lab
+  namespace: saferdock-platform
 spec:
   podSelector: {}
   policyTypes:

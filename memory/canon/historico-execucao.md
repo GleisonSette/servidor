@@ -1132,3 +1132,27 @@ servidor foi alterado.
 - O próximo gate passou a ser implementar essa fundação declarativamente no
   repositório do servidor, junto da quota e dos orçamentos Keycloak/Control
   Plane, antes de suspensão do APIWPP, instalação de controlador ou deploy.
+
+## 2026-08-26 - Fundação exclusiva do SaferWPP declarada
+
+Resultado: artefatos e contratos implementados e validados offline; servidor
+inalterado.
+
+- `platform/saferwpp` passou a declarar o segundo cluster PostgreSQL 18 na
+  porta 55432, teto 24, slice de um core/2Gi, HBA TLS/SCRAM, pgBackRest local e
+  R2, timers, exporter exclusivo em loopback, métricas e alertas.
+- O schema `saferwpp.backup-preflight/v2` exige dois repositórios, WAL contínuo,
+  restore-base antes do database e restore pós-migration antes do rollout.
+- A quota-alvo de `saferwpp-lab` foi recalibrada para 2 CPU/4Gi de requests,
+  7 CPU/8Gi de limits, 12 pods, três PVCs e 24Gi. Keycloak e Control Plane
+  receberam namespaces, cotas e limites exclusivos, inicialmente vazios e sem
+  PVC.
+- Certificados, senhas, DSNs, endpoint e credenciais R2 permanecem fora do Git;
+  o verificador offline recusará divergência de porta, conexões, ownership,
+  quotas, backup, listener ou material sensível.
+- Nenhum acesso ao servidor, cluster PostgreSQL, stanza, bucket, namespace,
+  quota, Secret, workload, suspensão, migration ou recurso Blindou/APIWPP foi
+  executado.
+- O próximo gate é implementar, no repositório APIWPP, o contrato fechado de
+  `suspend`, `verify-suspended` e `resume`; a operação viva continua separada e
+  depende de autorização própria.

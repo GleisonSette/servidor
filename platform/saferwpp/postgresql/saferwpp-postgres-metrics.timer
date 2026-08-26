@@ -1,0 +1,12 @@
+[Unit]
+Description=Atualiza métricas do PostgreSQL do SaferWPP a cada minuto
+
+[Timer]
+OnBootSec=2m
+OnUnitActiveSec=1m
+AccuracySec=10s
+Persistent=true
+Unit=saferwpp-postgres-metrics.service
+
+[Install]
+WantedBy=timers.target

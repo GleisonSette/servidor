@@ -47,8 +47,10 @@ corpus por padrão.
   de hardware. O PostgreSQL real possui teto 50 e pico de 48 backends, por isso
   reprovou o orçamento SaferWPP de dez conexões runtime mais duas de migration.
   D023 escolheu um segundo cluster PostgreSQL exclusivo do SaferWPP na porta
-  55432, com teto 24, recursos, backup e exporter próprios. Ele ainda não existe;
-  APIWPP não foi suspenso e SaferWPP continua vazio.
+  55432, com teto 24, recursos, backup e exporter próprios. Em 2026-08-26, o
+  repositório passou a declarar cluster, stanza local/R2, restore v2, exporter,
+  alertas, quota 2 CPU/4Gi e orçamentos exclusivos de Keycloak/Control Plane. Nada
+  foi aplicado: APIWPP não foi suspenso e SaferWPP continua vazio.
 - O firewall externo foi adiado. A primeira aplicação da contenção temporária
   foi revertida porque o gate detectou DNS bloqueado por ordenação de regras
   UFW preexistentes. O controlador corrigido foi instalado e a reaplicação

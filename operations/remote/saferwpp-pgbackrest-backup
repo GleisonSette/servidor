@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+
+readonly CONFIG='/etc/pgbackrest/saferwpp-lab.conf'
+readonly STANZA='saferwpp-lab'
+readonly LOCK='/run/saferwpp-pgbackrest/backup.lock'
+
+fail() {
+  printf '[saferwpp-pgbackrest-backup] ERRO: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ "$(id -un)" == 'postgres' ]] || fail 'execute como postgres'
+[[ "$#" -eq 1 ]] || fail 'uso: saferwpp-pgbackrest-backup incr|diff|full'
+case "$1" in
+  incr|diff|full) readonly BACKUP_TYPE="$1" ;;
+  *) fail 'tipo de backup inválido' ;;
+esac
+
+[[ -r "$CONFIG" && ! -L "$CONFIG" ]] || fail 'configuração pgBackRest ausente ou simbólica'
+install -d -m 0750 "$(dirname "$LOCK")"
+exec 9>"$LOCK"
+flock --nonblock 9 || fail 'outra operação pgBackRest está em execução'
+
+for repository in 1 2; do
+  /usr/bin/pgbackrest \
+    --config="$CONFIG" \
+    --stanza="$STANZA" \
+    --repo="$repository" \
+    check >/dev/null
+  /usr/bin/pgbackrest \
+    --config="$CONFIG" \
+    --stanza="$STANZA" \
+    --repo="$repository" \
+    --type="$BACKUP_TYPE" \
+    backup >/dev/null
+done
+
+printf 'saferwpp_pgbackrest_backup=passed type=%s repositories=2\n' "$BACKUP_TYPE"

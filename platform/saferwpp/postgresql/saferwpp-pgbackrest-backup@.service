@@ -1,0 +1,19 @@
+[Unit]
+Description=Backup pgBackRest %i do PostgreSQL do SaferWPP
+Requires=postgresql@18-saferwpp_lab.service
+After=postgresql@18-saferwpp_lab.service network-online.target
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+EnvironmentFile=/etc/saferwpp/postgres/pgbackrest.env
+ExecStart=/usr/local/sbin/saferwpp-pgbackrest-backup %i
+RuntimeDirectory=saferwpp-pgbackrest
+RuntimeDirectoryMode=0750
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/pgbackrest/saferwpp-lab /var/log/pgbackrest/saferwpp-lab /var/spool/pgbackrest/saferwpp-lab /run/saferwpp-pgbackrest
+UMask=0027

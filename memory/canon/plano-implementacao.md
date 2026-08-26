@@ -250,9 +250,9 @@ Objetivos:
 
 ## Fase 3 - Slot alternável APIWPP/SaferWPP
 
-Status: auditoria viva e decisão D023 concluídas em 2026-08-26; implementação
-declarativa da plataforma ainda não iniciada. O estado vivo permanece APIWPP
-ativo e SaferWPP vazio.
+Status: auditoria viva, decisão D023 e fundação declarativa concluídas no
+repositório em 2026-08-26. Nada dessa fundação foi aplicado ao host ou ao K3s;
+o estado vivo permanece APIWPP ativo e SaferWPP vazio.
 Nenhuma etapa desta fase autoriza, por si só, alterar o servidor.
 
 Objetivo:
@@ -273,9 +273,10 @@ Ordem obrigatória:
    de Blindou, APIWPP, K3s, backup e monitoramento;
 2. concluído em 2026-08-26: resolver D023 e atualizar o contrato SaferWPP para
    cluster PostgreSQL exclusivo na porta 55432, teto 24 e recursos próprios;
-3. implementar declarativamente o cluster/stanza/exporter exclusivos, fechar o
-   orçamento de Keycloak/Control Plane e recalibrar a quota `saferwpp-lab`, sem
-   aplicar a mudança no servidor antes de autorização operacional;
+3. concluído no repositório em 2026-08-26: declarar cluster, stanza, backup,
+   exporter e alertas exclusivos, fechar orçamentos separados de Keycloak e
+   Control Plane e recalibrar a quota `saferwpp-lab`; nenhum artefato foi
+   aplicado ao servidor;
 4. fechar os contratos de estado e implementar no repositório APIWPP operações
    `suspend`, `verify-suspended` e `resume`, incluindo lock, auditoria,
    reconciliação, rollback e recusa de retomada com SaferWPP ativo;
@@ -294,15 +295,20 @@ Resultado da auditoria:
 - hardware observado: continuidade do lab permitida para planejamento, sem
   alegação de capacidade de produção;
 - PostgreSQL compartilhado: reprovado para o orçamento SaferWPP atual;
-- quota `saferwpp-lab`: reprovada porque 1536Mi de requests não comportam os
-  1824Mi estáveis;
-- backup SaferWPP e capacidade real de Keycloak/Control Plane: ainda ausentes;
+- quota viva `saferwpp-lab`: continua reprovada com 1536Mi; o manifesto-alvo
+  agora fecha 2 CPU/4Gi de requests, 7 CPU/8Gi de limits, 12 pods, três PVCs e
+  24Gi;
+- backup vivo SaferWPP: ainda ausente; o repositório agora define stanza
+  local/R2, WAL, RPO/RTO, timers e evidência de restore v2;
+- Keycloak e Control Plane: workloads ainda ausentes; namespaces exclusivos,
+  cotas, limites, default deny e orçamentos de uma réplica estão declarados;
 - Blindou final: release `dc2aa63`, 11 migrations, gates `passed`, backup e
   conector saudáveis; nenhum recurso foi alterado pela auditoria;
 - D023 resolvida: cluster SaferWPP exclusivo com teto 24 e PgBouncer de dez
   backends; nenhum recurso foi criado no host;
-- próximo gate: implementação declarativa da fundação SaferWPP no repositório do
-  servidor, antes de código de suspensão ou instalação de controlador.
+- próximo gate: fechar o contrato e implementar no repositório APIWPP as
+  operações `suspend`, `verify-suspended` e `resume`; nenhuma suspensão viva é
+  autorizada por esse trabalho.
 
 Aceite automatizado:
 

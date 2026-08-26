@@ -1,0 +1,11 @@
+[Unit]
+Description=Backup diferencial diário do PostgreSQL do SaferWPP
+
+[Timer]
+OnCalendar=*-*-* 01:30:00
+RandomizedDelaySec=5m
+Persistent=true
+Unit=saferwpp-pgbackrest-backup@diff.service
+
+[Install]
+WantedBy=timers.target

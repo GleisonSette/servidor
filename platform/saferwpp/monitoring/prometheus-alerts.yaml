@@ -1,0 +1,57 @@
+groups:
+  - name: saferwpp-postgres
+    rules:
+      - alert: SaferWppPostgresExporterDown
+        expr: up{job="saferwpp-postgres"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: saferwpp-postgres
+        annotations:
+          summary: Exporter do PostgreSQL do SaferWPP indisponível
+          runbook: runbooks/saferwpp-foundation.md
+      - alert: SaferWppPostgresClusterUnavailable
+        expr: saferwpp_postgres_foundation_state{component="cluster"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: saferwpp-postgres
+        annotations:
+          summary: Cluster PostgreSQL exclusivo do SaferWPP indisponível
+          runbook: runbooks/saferwpp-foundation.md
+      - alert: SaferWppPostgresConnectionBudgetHigh
+        expr: sum(pg_stat_database_numbackends{job="saferwpp-postgres"}) > 19
+        for: 5m
+        labels:
+          severity: warning
+          service: saferwpp-postgres
+        annotations:
+          summary: Orçamento ordinário de conexões do SaferWPP esgotado
+          runbook: runbooks/saferwpp-foundation.md
+      - alert: SaferWppPostgresBackupRepositoryUnhealthy
+        expr: saferwpp_postgres_backup_repository_healthy == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: saferwpp-backup
+        annotations:
+          summary: Repositório pgBackRest do SaferWPP não está saudável
+          runbook: runbooks/saferwpp-foundation.md
+      - alert: SaferWppPostgresBackupStale
+        expr: time() - saferwpp_postgres_backup_last_success_timestamp_seconds > 1800
+        for: 5m
+        labels:
+          severity: critical
+          service: saferwpp-backup
+        annotations:
+          summary: Backup do PostgreSQL do SaferWPP excedeu a janela operacional
+          runbook: runbooks/saferwpp-foundation.md
+      - alert: SaferWppBackupPreflightInvalid
+        expr: saferwpp_postgres_backup_preflight_valid == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: saferwpp-backup
+        annotations:
+          summary: Evidência de restore do SaferWPP está ausente ou expirada
+          runbook: runbooks/saferwpp-foundation.md

@@ -9,6 +9,8 @@ repositórios.
 - `base/`: espaços de projeto, cotas, limites, políticas de rede e admissão.
 - `blindou/`: namespaces exclusivos que nascem vazios, em quarentena e com o
   gate de deploy bloqueado.
+- `saferwpp/`: contrato ainda não aplicado do PostgreSQL, backup,
+  observabilidade, quota e dependências exclusivas do laboratório SaferWPP.
 - `k3s/`: política de auditoria e fragmento de configuração do K3s.
 - `security/`: contrato da contenção temporária UFW/Kubernetes e de sua
   expiração no cutover Vultr. Ele não contém segredos.
@@ -29,5 +31,10 @@ Os namespaces `blindou-production` e `blindou-edge` não pertencem mais ao
 sempre vazios, com quota zero e gate `blocked`. O procedimento e o rollback
 estão em `runbooks/blindou-plataforma.md`. Nenhum workload pode ser implantado
 enquanto os gates externos não forem comprovados e promovidos separadamente.
+
+A fundação SaferWPP possui procedimento próprio em
+`runbooks/saferwpp-foundation.md`. Ela não integra o `platform/base` e não pode
+ser aplicada por implicação: exige uma janela operacional autorizada e provas
+de que APIWPP e Blindou não foram alterados.
 
 Não há credenciais, kubeconfig ou material privado neste diretório.

@@ -125,6 +125,22 @@ Baseline aplicado em 2026-08-15:
 As cotas são orçamento inicial, não promessa de capacidade. Serão revistas com
 métricas durante a implantação real.
 
+Alvo declarativo fechado em 2026-08-26, ainda não aplicado:
+
+- `saferwpp-lab`: 12 pods, três PVCs, 24 GiB de requests de storage, 2 CPU/4Gi
+  de requests e 7 CPU/8Gi de limits agregados;
+- `saferdock-identity`: namespace vazio exclusivo do Keycloak, até dois pods,
+  500m/1Gi de requests e 1500m/2Gi de limits, sem PVC até existir contrato de
+  dados próprio;
+- `saferdock-platform`: namespace vazio exclusivo do Control Plane, até dois
+  pods, 250m/512Mi de requests e 1 CPU/1Gi de limits, sem PVC até existir
+  contrato de dados próprio;
+- cada fronteira possui ServiceAccount padrão sem token, Pod Security
+  `restricted` v1.36, default deny e somente DNS liberado inicialmente.
+
+Os valores aplicados em 2026-08-15 continuam descrevendo o estado vivo até uma
+janela operacional específica reconciliar os novos manifests.
+
 `blindou-production` e `blindou-edge` nascem vazios, com gate `blocked`, quota
 zero para objetos operacionais, Pod Security `restricted`, default deny e
 admissão adicional. Após autorização explícita, somente `blindou-edge` pode
@@ -146,6 +162,15 @@ cluster/processo PostgreSQL 18 exclusivo `saferwpp-lab` na porta 55432, com
 banco, papéis, TLS, diretórios, limites, stanza pgBackRest e exporter próprios.
 O PgBouncer exclusivo no namespace `saferwpp-lab` poderá abrir no máximo dez
 backends nesse cluster. Nenhum produto acessa o banco ou a credencial de outro.
+
+O repositório agora declara `postgresql@18-saferwpp_lab.service` na slice
+`saferwpp-postgresql.slice`, configuração/HBA próprios, repo1 local, bucket R2
+exclusivo `saferwpp-postgres-backup-lab`, timers, exporter em
+`127.0.0.1:9188`, coleta textfile e alertas. O contrato
+`saferwpp.backup-preflight/v2` exige restore-base antes do database e restore
+pós-migration antes do rollout. Certificados, senhas, endpoint/credenciais R2 e
+DSN do exporter permanecem fora do Git. Esse estado é somente declarativo: o
+cluster, a stanza, o bucket, o exporter e os timers ainda não existem no host.
 
 A fundação Blindou prepara quatro logins sem privilégio administrativo. As
 conexões vindas do CIDR dos Pods exigem senha SCRAM e certificado assinado pela
@@ -241,7 +266,9 @@ GiB para dados e 20 GiB para backup local. Essa conta cabe na folga observada
 para continuar o laboratório, mas precisa ser revalidada junto com os workloads
 antes da ativação.
 
-Permanecem bloqueantes a ausência do cluster/stanza/exporter dedicados, a quota
-viva inferior à memória solicitada pelo perfil, o orçamento ainda não medido de
-Keycloak/Control Plane e os controladores do slot. Aumentar `max_connections`
-do primário compartilhado isoladamente continua proibido.
+Permanecem bloqueantes a ausência viva do cluster/stanza/exporter, a quota viva
+antiga, os workloads Keycloak/Control Plane, seus contratos de dados, os
+Secrets externos e os controladores do slot. Os artefatos declarativos e seus
+orçamentos passam em verificação offline, mas não constituem capacidade nem
+backup comprovados. Aumentar `max_connections` do primário compartilhado
+isoladamente continua proibido.

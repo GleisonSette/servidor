@@ -1,0 +1,30 @@
+[Unit]
+Description=Exporter exclusivo do PostgreSQL do SaferWPP
+Requires=postgresql@18-saferwpp_lab.service
+After=postgresql@18-saferwpp_lab.service
+PartOf=postgresql@18-saferwpp_lab.service
+
+[Service]
+Type=simple
+User=saferwpp-postgres-exporter
+Group=saferwpp-postgres-exporter
+EnvironmentFile=/etc/saferwpp/postgres/exporter.env
+ExecStart=/usr/bin/prometheus-postgres-exporter --web.listen-address=127.0.0.1:9188 --no-collector.stat_bgwriter
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

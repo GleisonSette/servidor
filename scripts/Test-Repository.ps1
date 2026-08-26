@@ -32,6 +32,9 @@ $required = @(
     'platform/base/project-spaces.yaml',
     'platform/base/service-exposure-policy.yaml',
     'platform/blindou/20-production-workload-policy.yaml',
+    'platform/saferwpp/foundation.yaml',
+    'platform/saferwpp/backup-preflight.schema.json',
+    'platform/saferwpp/kustomization.yaml',
     'platform/security/blindou-edge-policy.yaml',
     'platform/k3s/audit-policy.yaml',
     'platform/k3s/20-shared-lab.yaml',
@@ -39,6 +42,7 @@ $required = @(
     'operations/remote/recover-dependent-services.sh',
     'operations/remote/verify-platform.sh',
     'operations/remote/verify-blindou-isolation.sh',
+    'operations/remote/verify-saferwpp-foundation-artifacts.py',
     'runbooks/blindou-contencao.md'
 )
 
@@ -47,6 +51,12 @@ foreach ($relative in $required) {
         throw "Arquivo obrigatório ausente: $relative"
     }
 }
+
+$pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+if ($null -eq $pythonCommand) {
+    $pythonCommand = Get-Command python3 -ErrorAction Stop
+}
+& $pythonCommand.Source -B (Join-Path $root 'operations/remote/verify-saferwpp-foundation-artifacts.py')
 
 $namespaceManifest = Get-Content -Raw -LiteralPath (Join-Path $root 'platform/base/namespaces.yaml')
 if ($namespaceManifest.Contains('platform.servidor.local/deployment-gate: passed')) {

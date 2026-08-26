@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+umask 027
+
+readonly CONFIG='/etc/pgbackrest/saferwpp-lab.conf'
+readonly STANZA='saferwpp-lab'
+readonly OUTPUT='/var/lib/prometheus/node-exporter/saferwpp-postgres.prom'
+readonly PREFLIGHT='/var/lib/saferwpp/foundation/backup-preflight.json'
+
+fail() {
+  printf '[saferwpp-postgres-metrics] ERRO: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ "${EUID}" -eq 0 ]] || {
+  printf '%s\n' 'saferwpp-postgres-metrics deve executar como root.' >&2
+  exit 1
+}
+
+[[ -d "$(dirname "$OUTPUT")" && ! -L "$(dirname "$OUTPUT")" ]] \
+  || fail 'diretório textfile do Node Exporter ausente ou simbólico'
+temporary="$(mktemp "${OUTPUT}.tmp.XXXXXX")"
+trap 'rm -f -- "$temporary"' EXIT
+
+cluster_active=0
+exporter_active=0
+preflight_valid=0
+systemctl is-active --quiet postgresql@18-saferwpp_lab.service && cluster_active=1
+systemctl is-active --quiet saferwpp-postgres-exporter.service && exporter_active=1
+
+if [[ -f "$PREFLIGHT" && ! -L "$PREFLIGHT" ]] \
+    && jq -e '
+      .contractVersion == "saferwpp.backup-preflight/v2"
+      and .clusterId == "saferwpp-lab"
+      and .postgresClusterName == "saferwpp_lab"
+      and .port == 55432
+      and .repositories.local.status == "passed"
+      and .repositories.r2.status == "passed"
+      and .walContinuity.status == "passed"
+      and .baselineRestore.status == "passed"
+      and (.evidenceSha256 | test("^[a-f0-9]{64}$"))
+      and (
+        .phase == "foundation"
+        or (
+          .phase == "rollout"
+          and .postMigrationRestore.status == "passed"
+          and .postMigrationRestore.database == "saferwpp_lab"
+          and .postMigrationRestore.rolesVerified == true
+        )
+      )
+    ' "$PREFLIGHT" >/dev/null 2>&1; then
+  valid_until="$(jq -r '.validUntil // empty' "$PREFLIGHT")"
+  if [[ -n "$valid_until" ]] \
+      && valid_until_epoch="$(date --date="$valid_until" +%s 2>/dev/null)" \
+      && (( valid_until_epoch > $(date +%s) )); then
+    preflight_valid=1
+  fi
+fi
+
+{
+  printf '# HELP saferwpp_postgres_foundation_state Estado binário de cada componente da fundação.\n'
+  printf '# TYPE saferwpp_postgres_foundation_state gauge\n'
+  printf 'saferwpp_postgres_foundation_state{component="cluster"} %d\n' "$cluster_active"
+  printf 'saferwpp_postgres_foundation_state{component="exporter"} %d\n' "$exporter_active"
+  printf '# HELP saferwpp_postgres_backup_preflight_valid Evidência de restore presente e vigente.\n'
+  printf '# TYPE saferwpp_postgres_backup_preflight_valid gauge\n'
+  printf 'saferwpp_postgres_backup_preflight_valid %d\n' "$preflight_valid"
+  printf '# HELP saferwpp_postgres_backup_repository_healthy Saúde do repositório pgBackRest.\n'
+  printf '# TYPE saferwpp_postgres_backup_repository_healthy gauge\n'
+  printf '# HELP saferwpp_postgres_backup_last_success_timestamp_seconds Último backup concluído.\n'
+  printf '# TYPE saferwpp_postgres_backup_last_success_timestamp_seconds gauge\n'
+
+  for repository in 1 2; do
+    repository_name='local'
+    [[ "$repository" == 2 ]] && repository_name='r2'
+    healthy=0
+    latest_backup=0
+    if info="$(runuser -u postgres --preserve-environment -- \
+        /usr/bin/pgbackrest --config="$CONFIG" --stanza="$STANZA" \
+        --repo="$repository" --output=json info 2>/dev/null)"; then
+      status="$(jq -r '.[0].status.code // -1' <<<"$info")"
+      [[ "$status" == 0 ]] && healthy=1
+      latest_backup="$(jq -r '[.[0].backup[]?.timestamp.stop // empty] | max // 0' <<<"$info")"
+      [[ "$latest_backup" =~ ^[0-9]+$ ]] || latest_backup=0
+    fi
+    printf 'saferwpp_postgres_backup_repository_healthy{repository="%s"} %d\n' \
+      "$repository_name" "$healthy"
+    printf 'saferwpp_postgres_backup_last_success_timestamp_seconds{repository="%s"} %d\n' \
+      "$repository_name" "$latest_backup"
+  done
+} >"$temporary"
+
+chown root:prometheus "$temporary"
+chmod 0640 "$temporary"
+mv -f -- "$temporary" "$OUTPUT"
+trap - EXIT
+printf '%s\n' 'saferwpp_postgres_metrics=written'

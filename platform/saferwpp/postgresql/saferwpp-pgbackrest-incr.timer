@@ -1,0 +1,11 @@
+[Unit]
+Description=Backup incremental do PostgreSQL do SaferWPP a cada 15 minutos
+
+[Timer]
+OnCalendar=*:0/15
+RandomizedDelaySec=45s
+Persistent=true
+Unit=saferwpp-pgbackrest-backup@incr.service
+
+[Install]
+WantedBy=timers.target
