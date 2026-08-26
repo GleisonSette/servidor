@@ -250,8 +250,9 @@ Objetivos:
 
 ## Fase 3 - Slot alternável APIWPP/SaferWPP
 
-Status: auditoria viva de capacidade concluída em 2026-08-26; implementação
-bloqueada por D023. O estado vivo permanece APIWPP ativo e SaferWPP vazio.
+Status: auditoria viva e decisão D023 concluídas em 2026-08-26; implementação
+declarativa da plataforma ainda não iniciada. O estado vivo permanece APIWPP
+ativo e SaferWPP vazio.
 Nenhuma etapa desta fase autoriza, por si só, alterar o servidor.
 
 Objetivo:
@@ -270,10 +271,11 @@ Ordem obrigatória:
 1. concluído em 2026-08-26: auditar em modo somente leitura consumo vivo,
    requests, limits, picos, disco, I/O, conexões PostgreSQL e margem operacional
    de Blindou, APIWPP, K3s, backup e monitoramento;
-2. resolver D023 e atualizar o contrato de capacidade SaferWPP com a topologia
-   PostgreSQL escolhida; o teto fictício 60 não pode passar contra os 50 reais;
-3. fechar o orçamento de Keycloak/Control Plane, ampliar declarativamente a
-   política de backup e recalibrar a quota `saferwpp-lab`;
+2. concluído em 2026-08-26: resolver D023 e atualizar o contrato SaferWPP para
+   cluster PostgreSQL exclusivo na porta 55432, teto 24 e recursos próprios;
+3. implementar declarativamente o cluster/stanza/exporter exclusivos, fechar o
+   orçamento de Keycloak/Control Plane e recalibrar a quota `saferwpp-lab`, sem
+   aplicar a mudança no servidor antes de autorização operacional;
 4. fechar os contratos de estado e implementar no repositório APIWPP operações
    `suspend`, `verify-suspended` e `resume`, incluindo lock, auditoria,
    reconciliação, rollback e recusa de retomada com SaferWPP ativo;
@@ -297,7 +299,10 @@ Resultado da auditoria:
 - backup SaferWPP e capacidade real de Keycloak/Control Plane: ainda ausentes;
 - Blindou final: release `dc2aa63`, 11 migrations, gates `passed`, backup e
   conector saudáveis; nenhum recurso foi alterado pela auditoria;
-- próximo gate: decisão D023, antes de código de suspensão ou controlador.
+- D023 resolvida: cluster SaferWPP exclusivo com teto 24 e PgBouncer de dez
+  backends; nenhum recurso foi criado no host;
+- próximo gate: implementação declarativa da fundação SaferWPP no repositório do
+  servidor, antes de código de suspensão ou instalação de controlador.
 
 Aceite automatizado:
 
@@ -310,6 +315,9 @@ Aceite automatizado:
   não mudaram;
 - backup e restore do APIWPP e do futuro banco SaferWPP possuem evidência
   válida, e rollback restaura o estado anterior sem perda de dados;
+- porta 5432 e cluster compartilhado são recusados pelo SaferWPP; porta 55432,
+  teto 24, recursos, stanza e exporter exclusivos coincidem com o contrato
+  assinado;
 - nenhum novo Service público, porta na ONT, segredo no Git ou acesso cruzado a
   banco/namespace é introduzido.
 

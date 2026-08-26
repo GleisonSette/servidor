@@ -46,8 +46,9 @@ corpus por padrão.
 - A auditoria viva de 2026-08-26 aprovou somente a continuidade do planejamento
   de hardware. O PostgreSQL real possui teto 50 e pico de 48 backends, por isso
   reprovou o orçamento SaferWPP de dez conexões runtime mais duas de migration.
-  D023 deve escolher a topologia de dados antes dos controladores. APIWPP não
-  foi suspenso e SaferWPP continua vazio.
+  D023 escolheu um segundo cluster PostgreSQL exclusivo do SaferWPP na porta
+  55432, com teto 24, recursos, backup e exporter próprios. Ele ainda não existe;
+  APIWPP não foi suspenso e SaferWPP continua vazio.
 - O firewall externo foi adiado. A primeira aplicação da contenção temporária
   foi revertida porque o gate detectou DNS bloqueado por ordenação de regras
   UFW preexistentes. O controlador corrigido foi instalado e a reaplicação

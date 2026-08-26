@@ -1114,3 +1114,21 @@ antes de qualquer mutação.
 - Nenhum workload, banco, namespace, quota, serviço, controlador, backup,
   segredo ou recurso Blindou/APIWPP foi alterado. D023 registra a decisão de
   topologia PostgreSQL necessária antes da continuação.
+
+## 2026-08-26 - PostgreSQL exclusivo decidido para o SaferWPP
+
+Resultado: D023 resolvida e contratos documentais alinhados; nenhum recurso do
+servidor foi alterado.
+
+- O usuário escolheu um segundo cluster/processo PostgreSQL 18 exclusivo do
+  SaferWPP no mesmo servidor físico, sem alterar o cluster compartilhado atual,
+  o Blindou ou o APIWPP.
+- O alvo `saferwpp-lab` usa porta 55432, banco e papéis próprios, teto de 24
+  conexões, PgBouncer de dez backends, unidade/slice, dados, TLS, backup e
+  exporter exclusivos.
+- O envelope limita CPU a um core, `MemoryHigh=1536Mi`, `MemoryMax=2048Mi` e
+  pisos de 20 GiB para dados e 20 GiB para backup local. A stanza pgBackRest
+  exclusiva usa repositórios local/R2 e restore isolado.
+- O próximo gate passou a ser implementar essa fundação declarativamente no
+  repositório do servidor, junto da quota e dos orçamentos Keycloak/Control
+  Plane, antes de suspensão do APIWPP, instalação de controlador ou deploy.

@@ -329,13 +329,13 @@ decisão não autoriza suspender o APIWPP, instalar controlador, alterar o
 servidor, aplicar migration ou implantar o SaferWPP; essas operações continuam
 dependendo de implementação verificada e autorização específica.
 
-## Pendente D023 - Topologia PostgreSQL para o slot SaferWPP
+## Resolvida D023 - PostgreSQL exclusivo para o slot SaferWPP
 
 A auditoria viva de 2026-08-26 verificou `max_connections=50`, três conexões
 reservadas, 41 backends no retrato, pico de 47 em 24 horas e 48 em sete dias.
 O Blindou usava 35 e chegou a 43; APIWPP usava quatro e chegou a cinco. O
-PgBouncer do host estava inativo. O contrato SaferWPP presume teto físico 60,
-reserva 18 e até dez backends runtime mais dois de migration.
+PgBouncer do host estava inativo. O contrato SaferWPP então presumia teto físico
+60, reserva 18 e até dez backends runtime mais dois de migration.
 
 Mesmo suspendendo o APIWPP, o primário compartilhado não comporta esse orçamento
 com reserva operacional e margem durante pico Blindou. Aumentar somente
@@ -343,18 +343,30 @@ com reserva operacional e margem durante pico Blindou. Aumentar somente
 autorizado.
 
 A regra vigente de preservar integralmente o Blindou impede reduzir seus pools,
-alterar seus papéis, inserir PgBouncer no caminho ou aplicar um connection limit
-sem nova decisão explícita. Antes de implementar os controladores do slot, o
-usuário deve escolher uma topologia:
+alterar seus papéis, inserir PgBouncer no caminho ou aplicar um connection limit.
+Em 2026-08-26, o usuário escolheu PostgreSQL/PgBouncer exclusivos do SaferWPP no
+mesmo servidor físico para o laboratório.
 
-1. PostgreSQL/PgBouncer exclusivo do SaferWPP no mesmo host para o laboratório,
-   com porta, cluster de dados, papéis, backups e limites próprios;
-2. PostgreSQL exclusivo fora do host, em VM ou serviço gerenciado;
-3. substituir parcialmente D022 e autorizar mudanças no caminho PostgreSQL do
-   Blindou para compartilhar o primário com novo orçamento.
+A plataforma deverá criar um segundo cluster/processo PostgreSQL 18
+`saferwpp-lab`, separado do cluster compartilhado atual, na porta 55432, com
+banco `saferwpp_lab`, papéis, certificado, diretórios, limites, backup e exporter
+próprios. O PgBouncer dedicado fica no namespace `saferwpp-lab` e aponta somente
+para esse endpoint. Blindou e APIWPP não são alterados e não acessam esse
+cluster.
 
-A opção 1 preserva a decisão de usar o servidor físico e não altera o runtime
-Blindou, mas continua compartilhando HDD, CPU, memória e domínio de falha. A
-opção 2 oferece isolamento físico maior com infraestrutura adicional. A opção 3
-conflita com a ordem atual de manter o Blindou intacto. Até a escolha, APIWPP
-permanece ativo e SaferWPP sem workloads.
+O ID lógico e a stanza permanecem `saferwpp-lab`; o nome operacional do cluster
+em `postgresql-common`/systemd é `saferwpp_lab`, sem hífen.
+
+O teto será 24 conexões físicas: três reservadas a superuser, duas a papéis
+reservados e 19 ordinárias. As ordinárias são divididas entre PgBouncer runtime
+10, migrations 2, monitoramento 1, backup 1 e margem 5. O processo usa unidade e
+slice exclusivas, CPU máxima de um core, `MemoryHigh=1536Mi`,
+`MemoryMax=2048Mi`, no mínimo 20 GiB para dados e 20 GiB para o repositório
+pgBackRest local. Backup usa stanza `saferwpp-lab`, repositórios local/R2, WAL
+contínuo e restore isolado.
+
+Essa separação é lógica e operacional; HDD, CPU, memória e domínio de falha
+físico continuam compartilhados. A decisão resolve a topologia, mas não cria o
+cluster, não suspende APIWPP e não autoriza deploy. Até a implementação
+declarativa, os preflights e os controladores passarem, APIWPP permanece ativo e
+SaferWPP sem workloads.

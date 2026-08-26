@@ -137,11 +137,15 @@ gate completo.
 
 ## Dados no host
 
-O mesmo processo PostgreSQL 18 do host atende `apiwpp` e Blindou e poderá
-atender SaferWPP depois dos gates de capacidade e backup. Cada produto usa
-banco, owner, papéis de runtime/migration, certificados e regras de acesso
-independentes. Nenhum produto acessa o banco de outro. A suspensão do APIWPP
-preserva integralmente o banco `clone_wpp` e seu backup.
+O mesmo processo PostgreSQL 18 do host continua atendendo somente `apiwpp` e
+Blindou. A suspensão do APIWPP preserva integralmente o banco `clone_wpp` e seu
+backup. A D023 proíbe ligar o SaferWPP a esse processo ou à porta 5432.
+
+O laboratório SaferWPP usará, no mesmo servidor físico, um segundo
+cluster/processo PostgreSQL 18 exclusivo `saferwpp-lab` na porta 55432, com
+banco, papéis, TLS, diretórios, limites, stanza pgBackRest e exporter próprios.
+O PgBouncer exclusivo no namespace `saferwpp-lab` poderá abrir no máximo dez
+backends nesse cluster. Nenhum produto acessa o banco ou a credencial de outro.
 
 A fundação Blindou prepara quatro logins sem privilégio administrativo. As
 conexões vindas do CIDR dos Pods exigem senha SCRAM e certificado assinado pela
@@ -230,9 +234,14 @@ APIWPP libera no máximo cinco observados. Os dez backends runtime e dois slots
 de migration planejados para SaferWPP não preservam reserva operacional nem
 margem nesse primário.
 
-Enquanto D023 não resolver a topologia de dados, o slot alternável não pode ser
-ativado. O contrato SaferWPP de teto físico 60 deve falhar contra os 50 reais.
-Também permanecem bloqueantes a quota viva inferior à memória solicitada pelo
-perfil, o orçamento ainda não medido de Keycloak/Control Plane e a política de
-backup anterior ao novo banco. Aumentar `max_connections` isoladamente não é
-uma solução aprovada.
+D023 resolveu a topologia ao separar o SaferWPP em um cluster de teto 24 na
+porta 55432, sem mudar o primário compartilhado. Seu envelope adicional limita
+CPU a um core, usa `MemoryHigh=1536Mi`, `MemoryMax=2048Mi` e exige pisos de 20
+GiB para dados e 20 GiB para backup local. Essa conta cabe na folga observada
+para continuar o laboratório, mas precisa ser revalidada junto com os workloads
+antes da ativação.
+
+Permanecem bloqueantes a ausência do cluster/stanza/exporter dedicados, a quota
+viva inferior à memória solicitada pelo perfil, o orçamento ainda não medido de
+Keycloak/Control Plane e os controladores do slot. Aumentar `max_connections`
+do primário compartilhado isoladamente continua proibido.

@@ -78,13 +78,20 @@ O gate PostgreSQL falhou:
 - suspender APIWPP remove no máximo cinco conexões observadas. Somar os dez
   backends runtime e dois slots de migration planejados para SaferWPP excede a
   capacidade segura e pode alcançar o limite físico durante um pico Blindou;
-- o contrato SaferWPP ainda presume teto físico 60, diferente dos 50 reais.
-  Aumentar `max_connections` isoladamente não é aceite de capacidade.
+- no momento da auditoria, o contrato SaferWPP presumia teto físico 60,
+  diferente dos 50 reais. Aumentar `max_connections` isoladamente não é aceite
+  de capacidade.
+
+Depois dessa evidência, D023 resolveu o alvo: um segundo cluster PostgreSQL 18
+exclusivo do SaferWPP na porta 55432, com teto 24 e recursos próprios. Isso é
+estado desejado, não estado vivo; o cluster, sua stanza de backup e seu exporter
+ainda não existem no servidor.
 
 Conclusão: CPU, memória, disco e rede permitem continuar o desenho do lab com
-os riscos registrados, mas a capacidade conjunta não foi aprovada. PostgreSQL,
-quota viva, backup SaferWPP, Keycloak/Control Plane e controlador próprio
-continuam gates bloqueantes. Nenhum estado runtime foi alterado.
+os riscos registrados. A rota PostgreSQL conjunta foi reprovada e não será
+usada; a rota exclusiva foi decidida, mas ainda precisa ser implementada e
+validada. Quota viva, backup SaferWPP, Keycloak/Control Plane e controlador
+próprio continuam gates bloqueantes. Nenhum estado runtime foi alterado.
 
 ## Host verificado
 
