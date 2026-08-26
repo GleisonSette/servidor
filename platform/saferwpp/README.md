@@ -10,7 +10,10 @@ servidor. O estado vivo continua com APIWPP ativo e `saferwpp-lab` vazio.
 - `postgresql/` contém fragmentos reproduzíveis para o segundo cluster
   PostgreSQL 18, seus limites, pgBackRest, exporter, métricas e alertas.
 - `backup-preflight.schema.json` define a evidência obrigatória de backup e
-  restore que deve existir antes do banco e antes de qualquer rollout.
+  restore que deve existir antes do banco e antes de qualquer rollout. Na fase
+  `foundation`, `postMigrationRestore` é nulo. Na fase `rollout`, a restauração
+  isolada precisa comprovar papéis, grants e RLS por `rolesVerified`,
+  `grantsVerified` e `rlsVerified` verdadeiros.
 
 Os arquivos não incluem certificados, senhas, chaves R2 ou DSNs. O procedimento
 e o rollback estão em `runbooks/saferwpp-foundation.md`. Nenhum arquivo deste

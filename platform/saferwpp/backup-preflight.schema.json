@@ -63,6 +63,11 @@
         "properties": {
           "postMigrationRestore": { "$ref": "#/$defs/postMigrationRestoreEvidence" }
         }
+      },
+      "else": {
+        "properties": {
+          "postMigrationRestore": { "type": "null" }
+        }
       }
     }
   ],
@@ -108,7 +113,9 @@
         "database",
         "migrationCount",
         "migrationSetSha256",
-        "rolesVerified"
+        "rolesVerified",
+        "grantsVerified",
+        "rlsVerified"
       ],
       "properties": {
         "status": { "const": "passed" },
@@ -120,7 +127,9 @@
         "database": { "const": "saferwpp_lab" },
         "migrationCount": { "type": "integer", "minimum": 1 },
         "migrationSetSha256": { "$ref": "#/$defs/sha256" },
-        "rolesVerified": { "const": true }
+        "rolesVerified": { "const": true },
+        "grantsVerified": { "const": true },
+        "rlsVerified": { "const": true }
       }
     }
   }

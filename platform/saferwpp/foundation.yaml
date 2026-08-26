@@ -95,6 +95,10 @@ spec:
     rtoHours: 4
     baselineRestoreEvidenceRequired: true
     postMigrationRestoreRequired: true
+    postMigrationRestoreVerifications:
+      rolesVerified: true
+      grantsVerified: true
+      rlsVerified: true
   monitoring:
     exporter:
       identity: saferwpp-postgres-exporter

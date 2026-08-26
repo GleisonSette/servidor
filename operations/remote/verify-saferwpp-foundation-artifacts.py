@@ -93,6 +93,15 @@ require_equal(backup["localEncryptionEnvironment"], "PGBACKREST_REPO1_CIPHER_PAS
 require_equal(backup["walArchivingRequired"], True, "WAL obrigatório")
 require_equal(backup["baselineRestoreEvidenceRequired"], True, "restore-base obrigatório")
 require_equal(backup["postMigrationRestoreRequired"], True, "restore pós-migration obrigatório")
+require_equal(
+    backup["postMigrationRestoreVerifications"],
+    {
+        "rolesVerified": True,
+        "grantsVerified": True,
+        "rlsVerified": True,
+    },
+    "verificações do restore pós-migration",
+)
 
 monitoring = spec["monitoring"]["exporter"]
 require_equal(monitoring["identity"], "saferwpp-postgres-exporter", "identidade do exporter")
@@ -285,6 +294,42 @@ for metric in (
 schema = json.loads(read("platform/saferwpp/backup-preflight.schema.json"))
 require_equal(schema["properties"]["contractVersion"]["const"], "saferwpp.backup-preflight/v2", "schema de backup")
 require_equal(schema["properties"]["port"]["const"], 55432, "porta no schema de backup")
+post_migration_schema = schema["$defs"]["postMigrationRestoreEvidence"]
+required_post_migration_verifications = {
+    "rolesVerified",
+    "grantsVerified",
+    "rlsVerified",
+}
+if not required_post_migration_verifications.issubset(set(post_migration_schema["required"])):
+    fail("schema não exige todas as verificações do restore pós-migration")
+require_equal(post_migration_schema["additionalProperties"], False, "campos extras no restore pós-migration")
+for verification in required_post_migration_verifications:
+    require_equal(
+        post_migration_schema["properties"][verification],
+        {"const": True},
+        f"schema de {verification}",
+    )
+phase_contract = schema["allOf"][0]
+require_equal(
+    phase_contract["then"]["properties"]["postMigrationRestore"],
+    {"$ref": "#/$defs/postMigrationRestoreEvidence"},
+    "restore obrigatório na fase rollout",
+)
+require_equal(
+    phase_contract["else"]["properties"]["postMigrationRestore"],
+    {"type": "null"},
+    "restore pós-migration nulo na fase foundation",
+)
+
+metrics_contract = read("operations/remote/saferwpp-postgres-metrics")
+for invariant in (
+    '.postMigrationRestore == null',
+    '.postMigrationRestore.rolesVerified == true',
+    '.postMigrationRestore.grantsVerified == true',
+    '.postMigrationRestore.rlsVerified == true',
+):
+    if invariant not in metrics_contract:
+        fail(f"validação de evidência ausente nas métricas: {invariant}")
 
 artifact_files = [path for path in FOUNDATION_ROOT.rglob("*") if path.is_file()]
 artifact_files.extend(

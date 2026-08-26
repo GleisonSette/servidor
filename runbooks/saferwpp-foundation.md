@@ -52,6 +52,12 @@ Criar `saferwpp_lab`, papéis de aplicação, Keycloak, Control Plane ou qualque
 workload não pertence a esta etapa. A porta 5432, o unit
 `postgresql@18-main.service`, os dados e o backup existentes não são tocados.
 
+Na futura fase `rollout`, a evidência pós-migration somente é válida quando o
+restore isolado comprovar o conjunto de migrations e declarar
+`rolesVerified`, `grantsVerified` e `rlsVerified` como verdadeiros. A fase
+`foundation` deve manter `postMigrationRestore` nulo; ela não pode antecipar
+uma prova de banco ainda inexistente.
+
 ## Verificação
 
 - `postgresql@18-saferwpp_lab.service` ativo dentro de
@@ -60,6 +66,9 @@ workload não pertence a esta etapa. A porta 5432, o unit
 - `max_connections=24`, reservas 3+2 e memória/CPU iguais ao contrato;
 - HBA aceita apenas identidades SaferWPP por TLS, SCRAM e certificado;
 - `pgbackrest check`, backup e restore passam nos repositórios 1 e 2;
+- a evidência `foundation` recusa restore pós-migration e a evidência `rollout`
+  recusa ausência ou valor falso em `rolesVerified`, `grantsVerified` e
+  `rlsVerified`;
 - exporter responde apenas em `127.0.0.1:9188` e usa uma conexão;
 - Prometheus coleta exporter e métricas textfile, avalia as regras sintéticas e
   as deixa disponíveis ao pipeline interno sem depender do WhatsApp; entrega a

@@ -42,7 +42,9 @@ Estado dos controladores em 2026-08-26:
   repositório APIWPP, mas a versão instalada ainda não foi reconciliada;
 - `secondary-slotctl` existe declarativamente no repositório `servidor`, com
   bootstrap e sudoers fechados, mas ainda não foi instalado ou inicializado;
-- `pixel-deployctl` e `saferwpp-deployctl` ainda não existem;
+- `pixel-deployctl` ainda não existe; `saferwpp-deployctl`,
+  `saferwpp-backupctl` e `saferwpp-secretsctl` existem no repositório SaferWPP,
+  mas ainda não foram transportados, instalados ou materializados no host;
 - `blindou-deployctl` está instalado e governa a fundação, dados, backup,
   conector Cloudflare e releases assinadas do Blindou;
 - até a instalação de cada controlador, o respectivo Codex de aplicação pode
@@ -67,10 +69,11 @@ Service, PVC, banco `clone_wpp`, papéis, migrations, ConfigMaps, Secrets,
 imagens, releases e backups. O gateway privado permanece ativo para não quebrar
 o contrato de verificação do Blindou.
 
-O `apiwpp-deployctl` deverá controlar suspensão, verificação suspensa e retomada
-e negar retomada quando houver workload SaferWPP. O futuro
-`saferwpp-deployctl` deverá negar ativação enquanto o APIWPP não estiver
-suspenso e verificado. Cada transição usa lock, release/ação assinada, auditoria,
+No repositório APIWPP, o `apiwpp-deployctl` já implementa suspensão,
+verificação suspensa, retomada e recusa de retomada quando houver workload
+SaferWPP. No repositório SaferWPP, o `saferwpp-deployctl` já implementa a recusa
+de ativação enquanto o APIWPP não estiver suspenso e verificado. Cada transição
+usa lock, release/ação assinada, auditoria,
 verificação negativa do outro lado e rollback. Enquanto esses controles não
 estiverem instalados e verificados no host, a alternância falha fechada e
 nenhuma operação SaferWPP é autorizada.
@@ -201,7 +204,10 @@ O repositório agora declara `postgresql@18-saferwpp_lab.service` na slice
 exclusivo `saferwpp-postgres-backup-lab`, timers, exporter em
 `127.0.0.1:9188`, coleta textfile e alertas. O contrato
 `saferwpp.backup-preflight/v2` exige restore-base antes do database e restore
-pós-migration antes do rollout. Certificados, senhas, endpoint/credenciais R2 e
+pós-migration antes do rollout. A prova `foundation` mantém
+`postMigrationRestore` nulo; a prova `rollout` exige `rolesVerified`,
+`grantsVerified` e `rlsVerified` verdadeiros. Certificados, senhas,
+endpoint/credenciais R2 e
 DSN do exporter permanecem fora do Git. Esse estado é somente declarativo: o
 cluster, a stanza, o bucket, o exporter e os timers ainda não existem no host.
 

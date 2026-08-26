@@ -1182,3 +1182,27 @@ e runtime permaneceram inalterados.
 - Nenhum artefato foi transportado ou instalado no host; não houve suspensão,
   criação de atestado, aplicação Kubernetes, migration, deploy ou mudança no
   Blindou/APIWPP. O próximo gate é `saferwpp-deployctl`.
+
+## 2026-08-26 - Contrato de restore SaferWPP alinhado entre repositórios
+
+Resultado: schema e validações da plataforma corrigidos offline; servidor e
+runtime permaneceram inalterados.
+
+- O repositório SaferWPP já implementa `saferwpp-deployctl`,
+  `saferwpp-backupctl` e `saferwpp-secretsctl`, ainda sem transporte ou
+  instalação no host.
+- O schema `saferwpp.backup-preflight/v2` da plataforma passou a exigir
+  `rolesVerified`, `grantsVerified` e `rlsVerified` verdadeiros na prova de
+  restore pós-migration; na fase `foundation`, `postMigrationRestore` deve ser
+  nulo.
+- O contrato autoritativo, o coletor de métricas, o verificador offline, o
+  runbook e a memória canônica foram alinhados à mesma regra fail-closed.
+- O runbook do slot deixou de usar o comando inexistente `activate`; a sequência
+  agora produz `plan`, usa seu hash exato em `deploy` e conclui com `verify`,
+  enquanto o controlador lê a reserva root-only sem argumento arbitrário.
+- Nenhum acesso ao servidor, backup, Secret, database, namespace, suspensão,
+  migration, imagem, controlador ou workload foi executado.
+- O próximo gate é a segunda validação formal da Fase 3.1. Somente após o aceite
+  os três binários SaferWPP podem ser construídos, examinados, assinados e
+  transportados para um bootstrap fechado; instalação e qualquer mudança viva
+  continuam dependentes de autorização própria.

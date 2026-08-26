@@ -251,7 +251,7 @@ Objetivos:
 ## Fase 3 - Slot alternável APIWPP/SaferWPP
 
 Status: auditoria viva, decisão D023, fundação SaferWPP e contratos dos itens 4
-e 5 concluídos nos repositórios em 2026-08-26. Nada desses novos contratos foi
+a 6 concluídos nos repositórios em 2026-08-26. Nada desses novos contratos foi
 instalado ou aplicado ao host/K3s; o estado vivo permanece APIWPP ativo e
 SaferWPP vazio.
 Nenhuma etapa desta fase autoriza, por si só, alterar o servidor.
@@ -286,8 +286,10 @@ Ordem obrigatória:
    implementar atestado root-only, lock global, admissão fail-closed,
    reconciliação, auditoria, alertas e gates dos namespaces, sem mudar nenhum
    recurso Blindou e sem instalar os artefatos no host;
-6. criar e validar o `saferwpp-deployctl`, que recusa ativação enquanto APIWPP
-   não estiver suspenso e verificado e que nunca opera recursos Blindou;
+6. concluído nos repositórios em 2026-08-26: criar e validar
+   `saferwpp-deployctl`, `saferwpp-backupctl` e `saferwpp-secretsctl`, fechar a
+   prova pós-migration com papéis, grants e RLS e alinhar o schema consumidor
+   da plataforma; nenhum controlador foi instalado no host;
 7. somente em janela e autorização próprias, criar backup prévio, suspender o
    APIWPP, validar sua recuperabilidade e provar que Blindou permaneceu igual;
 8. somente após todos os gates, criar dados/dependências e implantar a release
@@ -313,8 +315,14 @@ Resultado da auditoria:
 - controlador compartilhado: contrato, bootstrap, sudoers, admissão, métricas,
   alertas, reconciliação e runbook passam na validação offline; o escritor ainda
   não existe no host e o primeiro atestado ainda não foi publicado;
-- próximo gate: criar e validar `saferwpp-deployctl` no repositório SaferWPP;
-  nenhuma instalação ou suspensão viva é autorizada por esse trabalho.
+- controladores SaferWPP: deploy, backup/restore e inventário de Secrets estão
+  implementados localmente; o schema da plataforma exige as mesmas provas de
+  papéis, grants e RLS do consumidor;
+- próximo gate: concluir a segunda validação formal da Fase 3.1 com os contratos
+  alinhados; somente depois do aceite, construir, examinar, assinar e
+  transportar os três binários e materializar seus contratos por bootstrap
+  fechado. Nenhuma instalação, suspensão ou mudança viva é autorizada por esse
+  registro.
 
 Aceite automatizado:
 

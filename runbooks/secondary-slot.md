@@ -59,16 +59,35 @@ workloads SaferWPP.
 
 ## Ordem APIWPP para SaferWPP
 
-Cada operação usa o mesmo `operation_id` assinado consumido pelo controlador do
-projeto:
+Os comandos do slot e do APIWPP usam o mesmo `operation_id`. O controlador
+SaferWPP não aceita esse ID como argumento: ele lê a reserva pendente no
+atestado root-only e vincula a ativação à release e ao hash de um plano ainda
+válido.
 
 1. `secondary-slotctl begin-suspend apiwpp OPERATION_ID secondary-slot-begin-suspend`;
 2. `apiwpp-deployctl suspend OPERATION_ID` e `verify-suspended`;
 3. `secondary-slotctl complete-suspend apiwpp OPERATION_ID secondary-slot-complete-suspend`;
 4. `secondary-slotctl reserve saferwpp OPERATION_ID secondary-slot-reserve`;
-5. `saferwpp-deployctl activate OPERATION_ID` e sua verificação completa;
-6. `secondary-slotctl complete-activation saferwpp OPERATION_ID secondary-slot-complete-activation`;
-7. `secondary-slotctl verify`.
+5. executar o plano somente leitura e guardar o `planSha256` retornado:
+
+   ```text
+   sudo -n /usr/local/sbin/saferwpp-deployctl \
+     plan --release RELEASE_ID --output json
+   ```
+
+6. executar o deploy com a mesma release e o hash exato do plano e, depois,
+   verificar a release:
+
+   ```text
+   sudo -n /usr/local/sbin/saferwpp-deployctl \
+     deploy --release RELEASE_ID --plan-sha256 PLAN_SHA256 \
+     --reason "secondary slot activation OPERATION_ID" --output json
+   sudo -n /usr/local/sbin/saferwpp-deployctl \
+     verify --release RELEASE_ID --output json
+   ```
+
+7. `secondary-slotctl complete-activation saferwpp OPERATION_ID secondary-slot-complete-activation`;
+8. `secondary-slotctl verify`.
 
 A volta usa a mesma sequência, trocando os membros. O APIWPP somente retoma
 depois de `reserve apiwpp`, quando o atestado informa APIWPP reservado e zero

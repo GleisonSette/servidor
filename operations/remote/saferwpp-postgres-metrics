@@ -43,12 +43,17 @@ if [[ -f "$PREFLIGHT" && ! -L "$PREFLIGHT" ]] \
       and .baselineRestore.status == "passed"
       and (.evidenceSha256 | test("^[a-f0-9]{64}$"))
       and (
-        .phase == "foundation"
+        (
+          .phase == "foundation"
+          and .postMigrationRestore == null
+        )
         or (
           .phase == "rollout"
           and .postMigrationRestore.status == "passed"
           and .postMigrationRestore.database == "saferwpp_lab"
           and .postMigrationRestore.rolesVerified == true
+          and .postMigrationRestore.grantsVerified == true
+          and .postMigrationRestore.rlsVerified == true
         )
       )
     ' "$PREFLIGHT" >/dev/null 2>&1; then
