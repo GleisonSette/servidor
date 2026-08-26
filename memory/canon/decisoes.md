@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-decisoes
   source_path: memory/canon/decisoes.md
   generated_from: decisões do usuário e limites observados do laboratório
-  updated_at: 2026-08-24
+  updated_at: 2026-08-26
   status: canonical
 
 ## Resolvida D001 - Projetos admitidos pela plataforma
@@ -13,6 +13,9 @@ O servidor preserva o `apiwpp` existente e reserva toda a capacidade restante
 ao Blindou. Os namespaces vazios Pixel/CIA e SaferWPP podem permanecer como
 histórico declarativo, mas não recebem workload. Namespace no mesmo nó não
 protege um projeto se o host inteiro for comprometido.
+
+A exclusividade de capacidade descrita nesta decisão foi substituída por D022
+em 2026-08-26. A preservação do APIWPP e os limites de isolamento permanecem.
 
 ## Resolvida D002 - Identidade administrativa
 
@@ -27,12 +30,19 @@ SaferWPP foi interrompida por decisão posterior do usuário para priorizar o
 Blindou. Nenhum projeto pode usar essa prioridade para contornar seu próprio
 controlador, isolamento ou gate de segurança.
 
+A interrupção do SaferWPP foi encerrada por D022 em 2026-08-26. A retomada é
+progressiva e continua bloqueada até existirem capacidade medida e controles
+de suspensão, retomada e exclusão mútua.
+
 ## Resolvida D004 - Classificação por projeto
 
 `apiwpp` conserva a classificação atual. Pixel/CIA e SaferWPP ficam sem novos
 workloads. O Blindou poderá ser o primeiro uso operacional limitado do host,
 sem alegação de alta disponibilidade, somente depois que os gates temporários
 de D013 passarem.
+
+A classificação do SaferWPP como permanentemente sem workloads neste host foi
+substituída por D022. Pixel/CIA continua sem novos workloads.
 
 ## Resolvida D005 - Alertas e continuidade da primeira operação
 
@@ -134,6 +144,11 @@ encerra a exceção.
 O serviço `apiwpp` existente é preservado; toda a capacidade restante fica
 reservada ao Blindou. Pixel/CIA e SaferWPP não recebem workloads. O Blindou
 continua usando UAZAPI e não reativa seu código `api-wpp`.
+
+Em 2026-08-26, D022 substituiu somente a reserva exclusiva de toda capacidade
+residual e a proibição permanente de workloads SaferWPP. A contenção local, a
+preservação do Blindou e a proibição de reativar o `api-wpp` no Blindou
+continuam vigentes.
 
 ## Resolvida D014 - Fundação isolada do Blindou no host compartilhado
 
@@ -271,3 +286,45 @@ sem retry cego. Um plano canônico divergente pode ser corrigido por `PUT` e
 fetch-back antes de qualquer nova criação. O recibo local contém somente IDs
 `plan_*`; criar planos não publica segredo no Kubernetes, não aplica migration
 e não ativa o runtime.
+
+## Resolvida D022 - Slot alternável APIWPP/SaferWPP com Blindou preservado
+
+Em 2026-08-26, o usuário decidiu manter o Blindou sempre ativo e usar a
+capacidade residual do servidor em exclusão mútua entre APIWPP e SaferWPP. O
+estado permitido será exatamente um destes:
+
+```text
+Blindou ativo + APIWPP ativo + SaferWPP suspenso
+Blindou ativo + APIWPP suspenso + SaferWPP ativo
+```
+
+O Blindou não participa da alternância. Seus repositórios, controladores,
+namespaces, workloads, release, banco, mensageria, dados, Secrets, quotas,
+Cloudflare, Pagar.me, R2 e demais integrações não podem ser modificados pela
+ativação ou suspensão do slot secundário. As verificações anteriores e
+posteriores à transição devem provar que o estado Blindou permaneceu igual e
+saudável.
+
+Suspender o APIWPP significa reduzir somente os workloads da aplicação a zero
+réplicas por uma operação própria, assinada, auditada e reversível. Devem ser
+preservados namespace, Deployment e demais objetos declarativos, Service, PVC,
+banco `clone_wpp`, papéis, migrations, ConfigMaps, Secrets, imagens, releases e
+backups. O gateway privado do APIWPP permanece ativo porque integra os gates
+operacionais do Blindou. PostgreSQL, K3s, pgBackRest e monitoramento
+compartilhados também permanecem ativos. Suspender não libera o PVC nem o espaço
+do banco; libera apenas consumo de execução da aplicação.
+
+A exclusão mútua deve ser aplicada pelos dois controladores. O futuro
+`saferwpp-deployctl` recusa qualquer ativação enquanto o APIWPP não estiver no
+estado suspenso verificado. O `apiwpp-deployctl` deve ganhar operações fechadas
+de suspensão, verificação suspensa e retomada, recusar release durante a
+suspensão e recusar retomada enquanto houver workload SaferWPP ativo. Transição
+ambígua falha fechada, mantém recibo auditável e exige reconciliação antes de
+nova tentativa.
+
+Antes de criar banco, dependência ou workload SaferWPP, é obrigatório medir o
+consumo vivo do Blindou, APIWPP e serviços compartilhados, definir margem para
+host, K3s, PostgreSQL, backup e picos, e recalibrar a quota `saferwpp-lab`. A
+decisão não autoriza suspender o APIWPP, instalar controlador, alterar o
+servidor, aplicar migration ou implantar o SaferWPP; essas operações continuam
+dependendo de implementação verificada e autorização específica.

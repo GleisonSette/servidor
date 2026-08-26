@@ -173,7 +173,7 @@ $manifest = [ordered]@{
     generated_at = $GeneratedAt
     project = 'servidor-local-compartilhado'
     memory_root = 'memory'
-    source_scope = 'Host, K3s, apiwpp existente, Blindou, operacao, seguranca e continuidade.'
+    source_scope = 'Host, K3s, APIWPP, Blindou, slot SaferWPP, operacao, seguranca e continuidade.'
     layers = [ordered]@{ canon=@($catalog.sources).Count; index_chunks=$chunks.Count }
     topics = @($catalog.sources | ForEach-Object { $_.source_id })
     codex_entrypoints = @('AGENTS.md','memory/canon/index.md',

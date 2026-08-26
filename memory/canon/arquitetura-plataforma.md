@@ -3,16 +3,19 @@
 metadata:
   canon_id: canon-arquitetura-plataforma
   source_path: memory/canon/arquitetura-plataforma.md
-  generated_from: decisão do usuário, auditoria e requisitos de apiwpp/Blindou
-  updated_at: 2026-08-23
+  generated_from: decisão do usuário, auditoria e requisitos de apiwpp/Blindou/SaferWPP
+  updated_at: 2026-08-26
   status: canonical
 
 ## Objetivo e limite
 
-O servidor preserva somente o serviço `apiwpp` existente e reserva a capacidade
-restante ao Blindou. Pixel/CIA e SaferWPP não recebem workloads. Não há acesso
-de clientes ao host ou ao Kubernetes. O cluster fornece isolamento lógico, não
-isolamento forte contra comprometimento do kernel/root.
+O Blindou permanece sempre ativo e intacto. A capacidade residual do servidor
+será usada por um slot alternável entre APIWPP e SaferWPP, com exclusão mútua:
+somente um deles poderá manter workloads ativos por vez. No estado vivo atual,
+o APIWPP permanece ativo e o SaferWPP permanece vazio; a alternância ainda não
+está implementada. Pixel/CIA não recebe workloads. Não há acesso de clientes ao
+host ou ao Kubernetes. O cluster fornece isolamento lógico, não isolamento
+forte contra comprometimento do kernel/root.
 
 ## Identidades
 
@@ -30,7 +33,7 @@ isolamento forte contra comprometimento do kernel/root.
 SSH identifica o operador. O isolamento entre projetos é feito por assinatura
 de artefato, namespaces, RBAC, ServiceAccounts, NetworkPolicy, dados e limites.
 
-Estado dos controladores em 2026-08-20:
+Estado dos controladores em 2026-08-26:
 
 - `apiwpp-deployctl` e `apiwpp-backupctl` estão instalados, root-owned e são os
   únicos caminhos sem senha do apiwpp;
@@ -41,6 +44,30 @@ Estado dos controladores em 2026-08-20:
   preparar artefatos e confirmar o acesso, mas não alterar o servidor;
 - a capacidade administrativa com senha do usuário humano não é uma interface
   de automação e não pode ser usada para contornar um controlador ausente.
+
+## Slot alternável APIWPP/SaferWPP
+
+O estado-alvo definido por D022 é:
+
+```text
+Blindou sempre ativo
+  +-- APIWPP ativo / SaferWPP suspenso
+  `-- APIWPP suspenso / SaferWPP ativo
+```
+
+Não existe estado autorizado com APIWPP e SaferWPP ativos simultaneamente. A
+transição também não pode alterar recursos Blindou. Suspender APIWPP reduz seus
+workloads a zero réplicas, mas preserva namespace, objetos declarativos,
+Service, PVC, banco `clone_wpp`, papéis, migrations, ConfigMaps, Secrets,
+imagens, releases e backups. O gateway privado permanece ativo para não quebrar
+o contrato de verificação do Blindou.
+
+O `apiwpp-deployctl` deverá controlar suspensão, verificação suspensa e retomada
+e negar retomada quando houver workload SaferWPP. O futuro
+`saferwpp-deployctl` deverá negar ativação enquanto o APIWPP não estiver
+suspenso e verificado. Cada transição usa lock, release/ação assinada, auditoria,
+verificação negativa do outro lado e rollback. Enquanto esses controles não
+existirem, a alternância falha fechada e nenhuma operação SaferWPP é autorizada.
 
 Cada repositório de aplicação possui `README-SERVIDOR-LOCAL.md` e uma referência
 obrigatória em `AGENTS.md`. O guia define ownership, comandos permitidos,
@@ -110,10 +137,11 @@ gate completo.
 
 ## Dados no host
 
-O mesmo processo PostgreSQL 18 do host pode atender `apiwpp` e Blindou, mas
-cada produto usa banco, owner, papéis de runtime/migration, certificados e
-regras de acesso independentes. O Blindou nunca acessa o banco `clone_wpp` do
-`apiwpp` e começa vazio pelas migrations próprias.
+O mesmo processo PostgreSQL 18 do host atende `apiwpp` e Blindou e poderá
+atender SaferWPP depois dos gates de capacidade e backup. Cada produto usa
+banco, owner, papéis de runtime/migration, certificados e regras de acesso
+independentes. Nenhum produto acessa o banco de outro. A suspensão do APIWPP
+preserva integralmente o banco `clone_wpp` e seu backup.
 
 A fundação Blindou prepara quatro logins sem privilégio administrativo. As
 conexões vindas do CIDR dos Pods exigem senha SCRAM e certificado assinado pela
@@ -123,8 +151,10 @@ isolado, validado e criptografado para uma chave de recuperação mantida fora d
 servidor.
 
 NATS e Redis do Blindou pertencem somente ao produto e rodam no seu namespace.
-Os namespaces históricos Pixel/CIA e SaferWPP permanecem vazios e não recebem
-banco, mensageria, identidade ou armazenamento neste servidor.
+O namespace Pixel/CIA permanece vazio. O SaferWPP também permanece vazio no
+estado atual e só poderá receber banco, mensageria, identidade ou armazenamento
+depois que backup, capacidade, controlador próprio e exclusão mútua estiverem
+implementados e verificados.
 
 As miniaturas de relatórios e as mídias de ofertas do Blindou usam o bucket R2
 exclusivo `blindou-media-prod`, publicado somente em `media.blindou.com`. Esse
@@ -183,6 +213,11 @@ para criar backup consistente e root-only do datastore SQLite e da configuraçã
 
 ## Capacidade
 
-O nó único permite uma réplica por workload e baixo tráfego. Quotas iniciais
-protegem o host, mas não substituem medição conjunta. HDD, quatro núcleos,
-Fast Ethernet e um único domínio de falha impedem afirmar alta disponibilidade.
+O nó único permite uma réplica por workload e baixo tráfego. O orçamento do
+Blindou é preservado; somente a capacidade residual medida pode ser oferecida
+ao slot alternável. Suspender o APIWPP libera CPU e memória de execução, mas não
+libera seu PVC nem o espaço do banco. Antes do SaferWPP, uma auditoria viva deve
+medir Blindou, APIWPP e serviços compartilhados, reservar margem para host,
+K3s, PostgreSQL, backups e picos e recalibrar a quota `saferwpp-lab`. Quotas
+iniciais não substituem essa medição. HDD, quatro núcleos, Fast Ethernet e um
+único domínio de falha impedem afirmar alta disponibilidade.

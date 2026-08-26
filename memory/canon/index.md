@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-indice-canonico
   source_path: memory/canon/index.md
   generated_from: decisão do usuário e auditoria do servidor em 2026-08-15
-  updated_at: 2026-08-25
+  updated_at: 2026-08-26
   status: canonical
 
 ## Regra de entrada
@@ -38,8 +38,11 @@ corpus por padrão.
 - Os quatro repositórios de aplicação possuem guia obrigatório de acesso ao
   servidor. `apiwpp` e Blindou têm controladores próprios instalados; Pixel e
   SaferWPP falham fechados para alterações.
-- O servidor preserva o serviço `apiwpp`; toda a capacidade restante foi
-  reservada ao Blindou. Pixel/CIA e SaferWPP não recebem novos workloads.
+- D022 mantém o Blindou sempre ativo e reserva a capacidade residual a um slot
+  alternável entre APIWPP e SaferWPP, com exclusão mútua. A alternância ainda
+  não está implementada: APIWPP continua ativo e SaferWPP continua vazio até a
+  auditoria de capacidade e os controladores passarem. Pixel/CIA não recebe
+  novos workloads.
 - O firewall externo foi adiado. A primeira aplicação da contenção temporária
   foi revertida porque o gate detectou DNS bloqueado por ordenação de regras
   UFW preexistentes. O controlador corrigido foi instalado e a reaplicação

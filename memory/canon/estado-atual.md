@@ -4,8 +4,16 @@ metadata:
   canon_id: canon-estado-atual
   source_path: memory/canon/estado-atual.md
   generated_from: auditoria SSH, runtime K3s, Prometheus e repositórios locais
-  updated_at: 2026-08-25
+  updated_at: 2026-08-26
   status: canonical
+
+## Escopo e data da evidência
+
+Este canon reúne o estado atual do host observado na última auditoria
+operacional, em 2026-08-25: versões, portas e exposição, capacidade, backups e
+workloads. A decisão D022 é estado-alvo ainda não implementado e não altera esta
+evidência: APIWPP continua ativo, SaferWPP continua vazio e o Blindou permanece
+ativo e intacto.
 
 ## Host verificado
 
@@ -105,8 +113,10 @@ metadata:
   workload de aplicação nesses namespaces.
 - O audit log do Kubernetes está ativo em nível `Metadata`, sem corpos de
   Secrets e com limites de 14 dias, cinco arquivos e 50 MiB por arquivo.
-- Pixel/CIA e SaferWPP não estão implantados e não receberão workloads nesse
-  host. A capacidade livre foi reservada ao Blindou; `apiwpp` permanece.
+- Pixel/CIA e SaferWPP não estão implantados no estado observado. Pixel/CIA
+  continua sem workloads. Por D022, o SaferWPP só poderá ocupar o slot residual
+  depois da auditoria de capacidade, com APIWPP suspenso e verificado; no estado
+  atual, o APIWPP permanece ativo.
 
 ## Dados, backup e observabilidade
 

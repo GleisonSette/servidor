@@ -64,11 +64,16 @@ Depois de qualquer mudança operacional ou decisão:
   quotas, banco/papéis e ciclo de deploy próprios.
 - SSH identifica o administrador; não é o mecanismo de isolamento entre
   projetos.
-- O host preserva somente o serviço `apiwpp` existente e reserva toda a
-  capacidade restante ao Blindou. Pixel/CIA e SaferWPP não recebem novos
-  workloads. O Blindou só pode se tornar operacional depois de passar o gate
-  temporário de UFW/IPv6/Kubernetes/Cloudflare. Esse gate não contém `root` e
-  termina obrigatoriamente na migração para Vultr.
+- O Blindou permanece sempre ativo e seus recursos, releases, dados, segredos,
+  quotas, borda e controladores não podem ser alterados para admitir outro
+  projeto. APIWPP e SaferWPP compartilharão um slot alternável: somente um
+  deles poderá manter workloads ativos por vez. A suspensão do APIWPP deve ser
+  reversível e preservar namespace, objetos declarativos, Service, PVC, banco,
+  migrations, backups, releases e gateway privado. Até que os controladores,
+  gates de exclusão mútua e a capacidade medida estejam implementados e
+  verificados, o estado atual permanece: APIWPP ativo e SaferWPP sem workloads.
+  Pixel/CIA continua sem novos workloads. A contenção temporária do Blindou não
+  contém `root` e termina obrigatoriamente na migração para Vultr.
 - Um único nó, HDD, Fast Ethernet e energia residencial permanecem pontos
   únicos de falha. Isolamento externo reduz movimento lateral, mas não cria
   alta disponibilidade nem torna impossível explorar uma vulnerabilidade.

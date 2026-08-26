@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-plano-implementacao
   source_path: memory/canon/plano-implementacao.md
   generated_from: plano aprovado pelo usuário em 2026-08-15
-  updated_at: 2026-08-25
+  updated_at: 2026-08-26
   status: canonical
 
 ## Regra de continuidade
@@ -248,12 +248,63 @@ Objetivos:
   Fast Ethernet;
 - registrar o limite que dispara expansão e posterior cutover para Vultr.
 
-## Fase 3 - SaferWPP lab (cancelada para este host)
+## Fase 3 - Slot alternável APIWPP/SaferWPP
 
-Status: cancelada para este host por decisão D013; a auditoria histórica é
-preservada no histórico, mas nenhum workload, banco, controlador ou dependência
-será implantado. Reativação exigiria substituir explicitamente D013 e criar um
-novo plano de capacidade fora do caminho reservado ao Blindou.
+Status: reativada para planejamento por D022 em 2026-08-26; implementação ainda
+bloqueada. O estado vivo permanece APIWPP ativo e SaferWPP vazio. Nenhuma etapa
+desta fase autoriza, por si só, alterar o servidor.
+
+Objetivo:
+
+- manter o Blindou sempre ativo e provar que nenhuma transição altera seus
+  recursos ou sua saúde;
+- permitir que APIWPP e SaferWPP usem, de forma mutuamente exclusiva, o slot de
+  capacidade residual do host;
+- suspender APIWPP de modo reversível, preservando todo estado durável e o
+  gateway privado;
+- ativar SaferWPP somente por controlador próprio, release assinada, capacidade
+  comprovada, backup validado e gates negativos.
+
+Ordem obrigatória:
+
+1. auditar em modo somente leitura o consumo vivo, requests, limits, picos,
+   disco, I/O, conexões PostgreSQL e margem operacional de Blindou, APIWPP, K3s,
+   backup e monitoramento;
+2. fechar os contratos de estado e implementar no repositório APIWPP operações
+   `suspend`, `verify-suspended` e `resume`, incluindo lock, auditoria,
+   reconciliação, rollback e recusa de retomada com SaferWPP ativo;
+3. atualizar declarativamente a plataforma compartilhada para admitir SaferWPP
+   sem mudar nenhum recurso Blindou, ampliar o contrato de backup para o novo
+   banco e recalibrar a quota `saferwpp-lab` pela medição;
+4. criar e validar o `saferwpp-deployctl`, que recusa ativação enquanto APIWPP
+   não estiver suspenso e verificado e que nunca opera recursos Blindou;
+5. somente em janela e autorização próprias, criar backup prévio, suspender o
+   APIWPP, validar sua recuperabilidade e provar que Blindou permaneceu igual;
+6. somente após todos os gates, criar dados/dependências e implantar a release
+   SaferWPP assinada; validar rollback completo até APIWPP ativo e SaferWPP
+   suspenso.
+
+Aceite automatizado:
+
+- os dois controladores recusam o estado APIWPP ativo + SaferWPP ativo;
+- estado ausente, divergente ou ambíguo falha fechado e pode ser reconciliado;
+- suspensão preserva objetos, PVC, banco, backups e gateway do APIWPP;
+- retomada do APIWPP é recusada enquanto qualquer workload SaferWPP estiver
+  ativo;
+- verificações antes e depois demonstram que release, recursos e saúde Blindou
+  não mudaram;
+- backup e restore do APIWPP e do futuro banco SaferWPP possuem evidência
+  válida, e rollback restaura o estado anterior sem perda de dados;
+- nenhum novo Service público, porta na ONT, segredo no Git ou acesso cruzado a
+  banco/namespace é introduzido.
+
+Aceite manual:
+
+- capacidade residual e margem de segurança são aprovadas com base na auditoria
+  viva, sem reduzir o orçamento Blindou;
+- o operador confirma APIWPP recuperável após a suspensão;
+- o operador confirma o fluxo SaferWPP e o retorno ao estado APIWPP ativo;
+- alertas e runbooks permitem identificar transição bloqueada ou reconciliada.
 
 ## Fase 4 - Pixel/CIA lab (cancelada para este host)
 
@@ -270,5 +321,6 @@ Status: substituída pela borda Cloudflare exclusiva do Blindou nas Fases
 
 ## Fase 6 - Ensaio combinado e operação
 
-Status: substituída pelo ensaio exclusivo do Blindou na Fase 2E. Não haverá
-ensaio combinado de três projetos neste host.
+Status: o ensaio simultâneo de três projetos continua cancelado. Por D022, o
+ensaio futuro permitido combina apenas Blindou com um ocupante do slot
+secundário: APIWPP ou SaferWPP, nunca ambos. Os critérios estão na Fase 3.

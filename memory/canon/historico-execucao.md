@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-historico-execucao
   source_path: memory/canon/historico-execucao.md
   generated_from: auditorias e implementações autorizadas no laboratório
-  updated_at: 2026-08-25
+  updated_at: 2026-08-26
   status: canonical
 
 ## Regra de registro
@@ -1063,3 +1063,22 @@ sucesso sem reexecutar migration ou deploy.
 - A validação autenticada posterior confirmou sete planos disponíveis e abriu o
   formulário do checkout transparente. Nenhum cartão, assinatura, pedido ou
   cobrança real foi criado.
+
+## 2026-08-26 - Decisão do slot alternável APIWPP/SaferWPP
+
+Resultado: documentação canônica concluída; runtime inalterado.
+
+- O usuário decidiu manter o Blindou sempre ativo e intacto.
+- A capacidade residual será compartilhada em exclusão mútua: APIWPP ativo com
+  SaferWPP suspenso, ou APIWPP suspenso com SaferWPP ativo.
+- A suspensão futura do APIWPP preservará namespace, objetos, Service, PVC,
+  banco, papéis, migrations, ConfigMaps, Secrets, imagens, releases e backups;
+  o gateway privado continuará ativo.
+- A retomada foi dividida em auditoria viva de capacidade, contratos de
+  suspensão/retomada, plataforma declarativa, `saferwpp-deployctl`, janela de
+  suspensão e somente então deploy SaferWPP.
+- O canon, o `AGENTS.md`, o runbook de contenção e a recuperação RAG foram
+  atualizados; nenhum recurso ou arquivo do repositório da aplicação Blindou
+  foi alterado.
+- Nenhum acesso ao servidor físico, suspensão, instalação, migration, backup ou
+  deploy foi executado.

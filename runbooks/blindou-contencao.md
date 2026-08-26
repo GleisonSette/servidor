@@ -10,9 +10,19 @@ O controle reduz o impacto de comprometimento de aplicação ou container. Ele
 **não contém um invasor com `root` no host**, porque `root` pode alterar UFW,
 sysctl, K3s e o conector. A migração Vultr é a solução definitiva.
 
-O serviço `apiwpp` já existente permanece intacto. Nenhum workload Pixel/CIA
-ou SaferWPP será implantado; toda a capacidade restante é reservada ao Blindou.
-O Blindou usa UAZAPI e não reativa o provider APIWPP.
+O Blindou permanece sempre ativo e intacto. Pixel/CIA não recebe workloads. Por
+D022, APIWPP e SaferWPP poderão compartilhar a capacidade residual em exclusão
+mútua: somente um deles manterá workloads ativos por vez. O estado atual ainda
+é APIWPP ativo e SaferWPP vazio; nenhuma alternância é autorizada antes dos
+controladores, da auditoria de capacidade e dos testes negativos. O Blindou usa
+UAZAPI e não reativa o provider APIWPP.
+
+Suspender APIWPP futuramente significa somente reduzir os workloads da
+aplicação a zero réplicas. Namespace, objetos declarativos, Service, PVC, banco,
+migrations, Secrets, releases, backups e o gateway privado permanecem. Enquanto
+`blindou-hostctl` e `apiwpp-deployctl` ainda exigirem a verificação do APIWPP
+ativo, a suspensão é proibida. A implementação deve ensinar os controladores a
+reconhecer o estado suspenso válido sem afrouxar qualquer gate do Blindou.
 
 ## Estado observado após a ativação em 2026-08-19
 
@@ -37,10 +47,12 @@ Internet -> Huawei, sem DMZ host/UPnP/port forward
                     |
           Ubuntu + UFW + K3s
             |             |
-        apiwpp atual    Blindou
-                          +-- blindou-edge: cloudflared
-                          +-- blindou-production: aplicação
+      slot alternável   Blindou sempre ativo
+        +-- APIWPP        +-- blindou-edge: cloudflared
+        `-- SaferWPP      +-- blindou-production: aplicação
 ```
+
+APIWPP e SaferWPP nunca ocupam o slot simultaneamente.
 
 O conector usa um Tunnel remotamente gerenciado e inicia somente TCP/7844 para
 o Cloudflare em HTTP/2. Não há listener público no host. `blindou-edge` acessa
