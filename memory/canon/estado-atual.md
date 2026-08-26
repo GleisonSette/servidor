@@ -10,10 +10,81 @@ metadata:
 ## Escopo e data da evidência
 
 Este canon reúne o estado atual do host observado na última auditoria
-operacional, em 2026-08-25: versões, portas e exposição, capacidade, backups e
+operacional, em 2026-08-26: versões, portas e exposição, capacidade, backups e
 workloads. A decisão D022 é estado-alvo ainda não implementado e não altera esta
 evidência: APIWPP continua ativo, SaferWPP continua vazio e o Blindou permanece
 ativo e intacto.
+
+## Auditoria viva de capacidade em 2026-08-26
+
+A auditoria foi executada entre 14:38 e 14:46 UTC por SSH com host key estrita,
+somente leitura e operações `status` dos controladores existentes. Não foi
+usado `kubectl`, `psql`, kubeconfig, segredo, backup novo, migration, suspensão
+ou deploy. Esta seção é a evidência mais recente e substitui, ao descrever o
+presente, bullets históricos posteriores que mencionem uma release Blindou
+anterior.
+
+Estado final observado:
+
+- host com quatro CPUs lógicas, 15,52 GiB de memória e 9,73 GiB disponíveis;
+  o mínimo disponível nas últimas 24 horas foi 9,62 GiB, com swap praticamente
+  sem uso;
+- filesystem raiz com 455,91 GiB, 252,21 GiB disponíveis e 3% dos inodes usados;
+- nas últimas 24 horas, CPU ocupada média de 23,79% e pico de 50,72% em janela
+  de cinco minutos; `iowait` médio de 2,64% e pico de 19,69%; carga de cinco
+  minutos chegou a 4,39;
+- o HDD teve ocupação média de 10,29% e pico de 61,35%, leitura máxima de
+  67,50 MiB/s e gravação máxima de 5,06 MiB/s em janela de cinco minutos;
+- a interface Fast Ethernet atingiu aproximadamente 4,59 Mb/s de entrada e
+  24,65 Mb/s de saída; memória, espaço e rede comportam o perfil SaferWPP de
+  laboratório observado, mas HDD, CPU e nó único continuam sem garantia de
+  pico de produção ou alta disponibilidade;
+- K3s, PostgreSQL, Prometheus, Node Exporter, PostgreSQL Exporter e gateway
+  privado do APIWPP estavam ativos, sem unit systemd falha. Prometheus possuía
+  somente os targets `node`, `postgresql` e `prometheus`; não havia métricas
+  kube-state/cAdvisor para comprovar requests, limits e consumo por namespace.
+
+O APIWPP permaneceu na release `86bb7f886778`, com uma réplica Ready, 18
+migrations, smoke aprovado, Service ClusterIP, PVC de 20 GiB e gateway privado
+ativo. Seu container usava 1,93 GiB de memória e 0,805 CPU durante uma amostra
+de cinco segundos; request/limit da release são `250m/3 CPU` e `512Mi/8Gi`.
+Suspender esse workload liberaria execução, mas não o PVC, banco ou backup.
+
+O primeiro `status` Blindou encontrou o lock de outra operação e foi recusado;
+o lock não foi tocado. Depois que a operação terminou, o controlador confirmou
+release `dc2aa63a24fbe0fa356a03a98d951dde833eca8c`, 11 migrations, aplicação e
+EDGE em `passed`, conector Ready, backup criptografado/offsite presente e
+runtime Pagar.me ativo. O commit corrente mantém 16 workers. Seus workloads
+estáveis declaram juntos `975m/7,35 CPU` e `2336Mi/9Gi` de requests/limits; o
+Job de migration adiciona temporariamente `50m/500m` e `128Mi/512Mi`.
+
+O perfil SaferWPP exige oito Pods estáveis, `650m` e `1824Mi` de requests, com
+margem mínima de 30%, além de três PVCs e até 24 GiB. O piso de quota versionado
+é 12 Pods, `2/7 CPU`, `4Gi/8Gi`, três PVCs e 24 GiB. A quota viva anterior de
+`saferwpp-lab`, `750m/1536Mi` de requests, não comporta sequer os `1824Mi`
+estáveis e precisa ser substituída declarativamente antes de qualquer deploy.
+Keycloak e Control Plane ainda estão ausentes e, portanto, não tiveram consumo
+real mensurado.
+
+O gate PostgreSQL falhou:
+
+- primário PostgreSQL 18.6 com `max_connections=50`, três conexões reservadas
+  a superuser e PgBouncer do host inativo;
+- 41 backends no retrato final: 35 do Blindou, quatro do `clone_wpp` e dois de
+  operação/exporter; 34 das conexões Blindou e as quatro APIWPP estavam idle;
+- pico de 47 backends em 24 horas e 48 em sete dias, com pico Blindou de 43 e
+  pico APIWPP de cinco; zero deadlock e zero temporary bytes nas últimas 24
+  horas;
+- suspender APIWPP remove no máximo cinco conexões observadas. Somar os dez
+  backends runtime e dois slots de migration planejados para SaferWPP excede a
+  capacidade segura e pode alcançar o limite físico durante um pico Blindou;
+- o contrato SaferWPP ainda presume teto físico 60, diferente dos 50 reais.
+  Aumentar `max_connections` isoladamente não é aceite de capacidade.
+
+Conclusão: CPU, memória, disco e rede permitem continuar o desenho do lab com
+os riscos registrados, mas a capacidade conjunta não foi aprovada. PostgreSQL,
+quota viva, backup SaferWPP, Keycloak/Control Plane e controlador próprio
+continuam gates bloqueantes. Nenhum estado runtime foi alterado.
 
 ## Host verificado
 

@@ -1082,3 +1082,35 @@ Resultado: documentação canônica concluída; runtime inalterado.
   foi alterado.
 - Nenhum acesso ao servidor físico, suspensão, instalação, migration, backup ou
   deploy foi executado.
+
+## 2026-08-26 - Auditoria viva de capacidade do slot SaferWPP
+
+Resultado: auditoria somente leitura concluída; capacidade conjunta reprovada
+antes de qualquer mutação.
+
+- A identidade SSH e o host foram validados. A coleta usou `/proc`, Node
+  Exporter, PostgreSQL Exporter e operações `status` fechadas; não usou
+  `kubectl`, `psql`, kubeconfig, segredo ou comando de alteração.
+- O host possuía quatro CPUs, 15,52 GiB de memória, mínimo de 9,62 GiB
+  disponíveis em 24 horas, 252,21 GiB livres e 3% de inodes usados.
+- CPU média/pico de cinco minutos foram 23,79%/50,72%; `iowait`
+  2,64%/19,69%; HDD 10,29%/61,35%. Esses valores permitem continuar o desenho
+  de laboratório, mas não comprovam pico de produção nem HA.
+- APIWPP permaneceu Ready na release `86bb7f886778`, com 18 migrations, PVC de
+  20 GiB, backup local/R2 saudável, cerca de 1,93 GiB de memória e 0,805 CPU na
+  amostra de cinco segundos.
+- O primeiro status Blindou foi recusado por lock operacional, que não foi
+  tocado. Após a operação terminar, release `dc2aa63`, 11 migrations, gates
+  `passed`, conector, Pagar.me e backup/offsite estavam saudáveis.
+- PostgreSQL possuía teto 50, três conexões reservadas, 41 backends correntes e
+  pico de 48 em sete dias. Blindou usava 35 e chegou a 43; APIWPP usava quatro
+  e chegou a cinco. PgBouncer do host estava inativo.
+- Suspender APIWPP não abre espaço seguro para os dez backends runtime e dois
+  slots de migration planejados pelo SaferWPP. O teto 60 do contrato SaferWPP
+  diverge dos 50 reais.
+- A quota viva de memória do namespace também é inferior aos requests estáveis;
+  Keycloak, Control Plane, backup SaferWPP e `saferwpp-deployctl` continuam
+  ausentes.
+- Nenhum workload, banco, namespace, quota, serviço, controlador, backup,
+  segredo ou recurso Blindou/APIWPP foi alterado. D023 registra a decisão de
+  topologia PostgreSQL necessária antes da continuação.

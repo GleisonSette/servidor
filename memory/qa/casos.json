@@ -42,6 +42,12 @@
       "query": "token Cloudflare for SaaS root-only zona blindou.com runtime bloqueado custom hostnames",
       "top": 5,
       "expected_source_ids": ["estado-atual", "historico-execucao", "plano-implementacao"]
+    },
+    {
+      "id": "qa-008-capacidade-saferwpp-postgresql",
+      "query": "auditoria capacidade SaferWPP PostgreSQL 50 conexões pico 48 Blindou intacto próximo gate",
+      "top": 5,
+      "expected_source_ids": ["estado-atual", "decisoes", "plano-implementacao"]
     }
   ]
 }

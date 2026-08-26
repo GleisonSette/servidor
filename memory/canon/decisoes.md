@@ -328,3 +328,33 @@ host, K3s, PostgreSQL, backup e picos, e recalibrar a quota `saferwpp-lab`. A
 decisão não autoriza suspender o APIWPP, instalar controlador, alterar o
 servidor, aplicar migration ou implantar o SaferWPP; essas operações continuam
 dependendo de implementação verificada e autorização específica.
+
+## Pendente D023 - Topologia PostgreSQL para o slot SaferWPP
+
+A auditoria viva de 2026-08-26 verificou `max_connections=50`, três conexões
+reservadas, 41 backends no retrato, pico de 47 em 24 horas e 48 em sete dias.
+O Blindou usava 35 e chegou a 43; APIWPP usava quatro e chegou a cinco. O
+PgBouncer do host estava inativo. O contrato SaferWPP presume teto físico 60,
+reserva 18 e até dez backends runtime mais dois de migration.
+
+Mesmo suspendendo o APIWPP, o primário compartilhado não comporta esse orçamento
+com reserva operacional e margem durante pico Blindou. Aumentar somente
+`max_connections` é incompatível com a política de capacidade e não está
+autorizado.
+
+A regra vigente de preservar integralmente o Blindou impede reduzir seus pools,
+alterar seus papéis, inserir PgBouncer no caminho ou aplicar um connection limit
+sem nova decisão explícita. Antes de implementar os controladores do slot, o
+usuário deve escolher uma topologia:
+
+1. PostgreSQL/PgBouncer exclusivo do SaferWPP no mesmo host para o laboratório,
+   com porta, cluster de dados, papéis, backups e limites próprios;
+2. PostgreSQL exclusivo fora do host, em VM ou serviço gerenciado;
+3. substituir parcialmente D022 e autorizar mudanças no caminho PostgreSQL do
+   Blindou para compartilhar o primário com novo orçamento.
+
+A opção 1 preserva a decisão de usar o servidor físico e não altera o runtime
+Blindou, mas continua compartilhando HDD, CPU, memória e domínio de falha. A
+opção 2 oferece isolamento físico maior com infraestrutura adicional. A opção 3
+conflita com a ordem atual de manter o Blindou intacto. Até a escolha, APIWPP
+permanece ativo e SaferWPP sem workloads.

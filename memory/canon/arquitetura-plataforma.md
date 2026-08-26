@@ -221,3 +221,18 @@ medir Blindou, APIWPP e serviços compartilhados, reservar margem para host,
 K3s, PostgreSQL, backups e picos e recalibrar a quota `saferwpp-lab`. Quotas
 iniciais não substituem essa medição. HDD, quatro núcleos, Fast Ethernet e um
 único domínio de falha impedem afirmar alta disponibilidade.
+
+A auditoria viva de 2026-08-26 encontrou folga observada de CPU, memória, disco
+e rede para continuar o planejamento do laboratório, mas reprovou o plano de
+conexões. O PostgreSQL possui teto real 50, chegou a 48 backends em sete dias e
+não usa PgBouncer compartilhado. O Blindou chegou a 43 backends; suspender o
+APIWPP libera no máximo cinco observados. Os dez backends runtime e dois slots
+de migration planejados para SaferWPP não preservam reserva operacional nem
+margem nesse primário.
+
+Enquanto D023 não resolver a topologia de dados, o slot alternável não pode ser
+ativado. O contrato SaferWPP de teto físico 60 deve falhar contra os 50 reais.
+Também permanecem bloqueantes a quota viva inferior à memória solicitada pelo
+perfil, o orçamento ainda não medido de Keycloak/Control Plane e a política de
+backup anterior ao novo banco. Aumentar `max_connections` isoladamente não é
+uma solução aprovada.

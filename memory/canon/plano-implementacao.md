@@ -250,9 +250,9 @@ Objetivos:
 
 ## Fase 3 - Slot alternável APIWPP/SaferWPP
 
-Status: reativada para planejamento por D022 em 2026-08-26; implementação ainda
-bloqueada. O estado vivo permanece APIWPP ativo e SaferWPP vazio. Nenhuma etapa
-desta fase autoriza, por si só, alterar o servidor.
+Status: auditoria viva de capacidade concluída em 2026-08-26; implementação
+bloqueada por D023. O estado vivo permanece APIWPP ativo e SaferWPP vazio.
+Nenhuma etapa desta fase autoriza, por si só, alterar o servidor.
 
 Objetivo:
 
@@ -267,22 +267,37 @@ Objetivo:
 
 Ordem obrigatória:
 
-1. auditar em modo somente leitura o consumo vivo, requests, limits, picos,
-   disco, I/O, conexões PostgreSQL e margem operacional de Blindou, APIWPP, K3s,
-   backup e monitoramento;
-2. fechar os contratos de estado e implementar no repositório APIWPP operações
+1. concluído em 2026-08-26: auditar em modo somente leitura consumo vivo,
+   requests, limits, picos, disco, I/O, conexões PostgreSQL e margem operacional
+   de Blindou, APIWPP, K3s, backup e monitoramento;
+2. resolver D023 e atualizar o contrato de capacidade SaferWPP com a topologia
+   PostgreSQL escolhida; o teto fictício 60 não pode passar contra os 50 reais;
+3. fechar o orçamento de Keycloak/Control Plane, ampliar declarativamente a
+   política de backup e recalibrar a quota `saferwpp-lab`;
+4. fechar os contratos de estado e implementar no repositório APIWPP operações
    `suspend`, `verify-suspended` e `resume`, incluindo lock, auditoria,
    reconciliação, rollback e recusa de retomada com SaferWPP ativo;
-3. atualizar declarativamente a plataforma compartilhada para admitir SaferWPP
-   sem mudar nenhum recurso Blindou, ampliar o contrato de backup para o novo
-   banco e recalibrar a quota `saferwpp-lab` pela medição;
-4. criar e validar o `saferwpp-deployctl`, que recusa ativação enquanto APIWPP
+5. atualizar declarativamente a plataforma compartilhada para admitir SaferWPP
+   sem mudar nenhum recurso Blindou;
+6. criar e validar o `saferwpp-deployctl`, que recusa ativação enquanto APIWPP
    não estiver suspenso e verificado e que nunca opera recursos Blindou;
-5. somente em janela e autorização próprias, criar backup prévio, suspender o
+7. somente em janela e autorização próprias, criar backup prévio, suspender o
    APIWPP, validar sua recuperabilidade e provar que Blindou permaneceu igual;
-6. somente após todos os gates, criar dados/dependências e implantar a release
+8. somente após todos os gates, criar dados/dependências e implantar a release
    SaferWPP assinada; validar rollback completo até APIWPP ativo e SaferWPP
    suspenso.
+
+Resultado da auditoria:
+
+- hardware observado: continuidade do lab permitida para planejamento, sem
+  alegação de capacidade de produção;
+- PostgreSQL compartilhado: reprovado para o orçamento SaferWPP atual;
+- quota `saferwpp-lab`: reprovada porque 1536Mi de requests não comportam os
+  1824Mi estáveis;
+- backup SaferWPP e capacidade real de Keycloak/Control Plane: ainda ausentes;
+- Blindou final: release `dc2aa63`, 11 migrations, gates `passed`, backup e
+  conector saudáveis; nenhum recurso foi alterado pela auditoria;
+- próximo gate: decisão D023, antes de código de suspensão ou controlador.
 
 Aceite automatizado:
 

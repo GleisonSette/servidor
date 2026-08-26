@@ -43,6 +43,11 @@ corpus por padrão.
   não está implementada: APIWPP continua ativo e SaferWPP continua vazio até a
   auditoria de capacidade e os controladores passarem. Pixel/CIA não recebe
   novos workloads.
+- A auditoria viva de 2026-08-26 aprovou somente a continuidade do planejamento
+  de hardware. O PostgreSQL real possui teto 50 e pico de 48 backends, por isso
+  reprovou o orçamento SaferWPP de dez conexões runtime mais duas de migration.
+  D023 deve escolher a topologia de dados antes dos controladores. APIWPP não
+  foi suspenso e SaferWPP continua vazio.
 - O firewall externo foi adiado. A primeira aplicação da contenção temporária
   foi revertida porque o gate detectou DNS bloqueado por ordenação de regras
   UFW preexistentes. O controlador corrigido foi instalado e a reaplicação
