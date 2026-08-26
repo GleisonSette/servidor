@@ -50,6 +50,14 @@ require_equal(len(foundation_docs), 1, "quantidade de contratos de fundação")
 foundation = foundation_docs[0]
 require_equal(foundation.get("kind"), "SaferWppLabFoundation", "kind da fundação")
 spec = foundation["spec"]
+lifecycle = spec["lifecycle"]
+require_equal(lifecycle["secondarySlotContract"], "platform.servidor.local/v1", "contrato do slot")
+require_equal(
+    lifecycle["secondarySlotStateFile"],
+    "/var/lib/servidor-local/secondary-slot/state",
+    "atestado do slot",
+)
+require_equal(lifecycle["secondarySlotReservationRequired"], True, "reserva do slot")
 
 postgres = spec["postgres"]
 require_equal(postgres["version"], 18, "versão PostgreSQL")
@@ -93,6 +101,15 @@ require_equal(monitoring["listenPort"], 9188, "porta do exporter")
 require_equal(monitoring["connectionAllocation"], 1, "conexão do exporter")
 
 base_documents = yaml_documents("platform/base/project-spaces.yaml")
+base_namespaces = yaml_documents("platform/base/namespaces.yaml")
+saferwpp_namespace = by_kind_name(base_namespaces, "Namespace", "saferwpp-lab")
+require_equal(
+    saferwpp_namespace["metadata"]["labels"]["platform.servidor.local/secondary-slot-member"],
+    "saferwpp",
+    "membership do slot em saferwpp-lab",
+)
+if "platform.servidor.local/secondary-slot-state" in saferwpp_namespace["metadata"]["labels"]:
+    fail("manifesto estático não pode controlar o gate dinâmico de saferwpp-lab")
 application_quotas = [
     doc
     for doc in base_documents
@@ -125,6 +142,13 @@ for namespace, quota_name, expected in (
 ):
     namespace_doc = by_kind_name(namespace_documents, "Namespace", namespace)
     labels = namespace_doc["metadata"]["labels"]
+    require_equal(
+        labels["platform.servidor.local/secondary-slot-member"],
+        "saferwpp",
+        f"membership do slot em {namespace}",
+    )
+    if "platform.servidor.local/secondary-slot-state" in labels:
+        fail(f"manifesto estático não pode controlar o gate dinâmico de {namespace}")
     require_equal(labels["pod-security.kubernetes.io/enforce"], "restricted", f"Pod Security de {namespace}")
     require_equal(labels["pod-security.kubernetes.io/enforce-version"], "v1.36", f"versão Pod Security de {namespace}")
     quota = by_kind_name(budget_documents, "ResourceQuota", quota_name)

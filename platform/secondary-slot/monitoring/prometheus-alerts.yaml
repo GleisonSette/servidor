@@ -1,0 +1,52 @@
+groups:
+  - name: secondary-slot
+    rules:
+      - alert: SecondarySlotSplitBrain
+        expr: secondary_slot_observed_apiwpp_workloads > 0 and secondary_slot_observed_saferwpp_workloads > 0
+        for: 0m
+        labels:
+          severity: critical
+          owner: plataforma
+        annotations:
+          summary: APIWPP e SaferWPP possuem workloads ativos simultaneamente
+          runbook: runbooks/secondary-slot.md
+      - alert: SecondarySlotNeedsReconciliation
+        expr: >-
+          secondary_slot_state_valid == 0
+          or secondary_slot_state_matches_runtime == 0
+          or secondary_slot_namespace_gates_match == 0
+          or secondary_slot_admission_matches == 0
+        for: 2m
+        labels:
+          severity: critical
+          owner: plataforma
+        annotations:
+          summary: O atestado do slot está ausente, inválido ou divergente do runtime
+          runbook: runbooks/secondary-slot.md
+      - alert: SecondarySlotTransitionStuck
+        expr: secondary_slot_pending_transition_age_seconds > 900
+        for: 0m
+        labels:
+          severity: warning
+          owner: plataforma
+        annotations:
+          summary: Uma transição do slot permanece pendente há mais de quinze minutos
+          runbook: runbooks/secondary-slot.md
+      - alert: SecondarySlotUnresolvedOperationalAlert
+        expr: secondary_slot_unresolved_alerts > 0
+        for: 0m
+        labels:
+          severity: warning
+          owner: plataforma
+        annotations:
+          summary: O slot possui alerta operacional ainda não resolvido
+          runbook: runbooks/secondary-slot.md
+      - alert: SecondarySlotMetricsStale
+        expr: absent(secondary_slot_state_valid) or absent(node_textfile_mtime_seconds{file=~".*secondary-slot\\.prom"}) or (time() - node_textfile_mtime_seconds{file=~".*secondary-slot\\.prom"} > 180)
+        for: 2m
+        labels:
+          severity: critical
+          owner: plataforma
+        annotations:
+          summary: A coleta root-only do slot está ausente ou desatualizada
+          runbook: runbooks/secondary-slot.md

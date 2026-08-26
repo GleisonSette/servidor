@@ -15,3 +15,5 @@ servidor. O estado vivo continua com APIWPP ativo e `saferwpp-lab` vazio.
 Os arquivos não incluem certificados, senhas, chaves R2 ou DSNs. O procedimento
 e o rollback estão em `runbooks/saferwpp-foundation.md`. Nenhum arquivo deste
 diretório autoriza acesso ao host, suspensão do APIWPP ou mudança no Blindou.
+Os três namespaces são membros inativos do slot alternável e somente podem
+receber workloads após reserva root-only conforme `runbooks/secondary-slot.md`.

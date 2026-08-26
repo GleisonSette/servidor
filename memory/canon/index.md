@@ -39,10 +39,12 @@ corpus por padrão.
   servidor. `apiwpp` e Blindou têm controladores próprios instalados; Pixel e
   SaferWPP falham fechados para alterações.
 - D022 mantém o Blindou sempre ativo e reserva a capacidade residual a um slot
-  alternável entre APIWPP e SaferWPP, com exclusão mútua. A alternância ainda
-  não está implementada: APIWPP continua ativo e SaferWPP continua vazio até a
-  auditoria de capacidade e os controladores passarem. Pixel/CIA não recebe
-  novos workloads.
+  alternável entre APIWPP e SaferWPP, com exclusão mútua. Os contratos APIWPP e
+  da plataforma compartilhada já existem nos repositórios: atestado root-only,
+  lock global, admissão fail-closed, reconciliação e alertas. Nada foi instalado
+  no host: APIWPP continua ativo e SaferWPP vazio até `saferwpp-deployctl`, os
+  gates operacionais e uma autorização de janela própria passarem. Pixel/CIA
+  não recebe novos workloads.
 - A auditoria viva de 2026-08-26 aprovou somente a continuidade do planejamento
   de hardware. O PostgreSQL real possui teto 50 e pico de 48 backends, por isso
   reprovou o orçamento SaferWPP de dez conexões runtime mais duas de migration.

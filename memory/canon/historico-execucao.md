@@ -1156,3 +1156,29 @@ inalterado.
 - O próximo gate é implementar, no repositório APIWPP, o contrato fechado de
   `suspend`, `verify-suspended` e `resume`; a operação viva continua separada e
   depende de autorização própria.
+
+## 2026-08-26 - Plataforma declarativa do slot alternável implementada
+
+Resultado: o contrato compartilhado passou a existir no repositório; servidor
+e runtime permaneceram inalterados.
+
+- `platform/secondary-slot` passou a declarar fonte de verdade root-only,
+  estados permitidos, membros, lock global, admissão fail-closed e alertas.
+- `secondary-slotctl` é o escritor exclusivo do atestado e implementa
+  inicialização, início/conclusão de suspensão, reserva, conclusão de ativação,
+  aborto seguro e reconciliação baseada no runtime observado.
+- O gate de admissão bloqueia workloads em namespace inativo, ausente ou com
+  estado desconhecido, incluindo criações diretas de ReplicaSet,
+  ReplicationController e Pod.
+- Runtime inequívoco pode ser reconciliado sem ficar indefinidamente em estado
+  desconhecido. Split-brain, rollout parcial ou membro não Ready permanece
+  bloqueado e emite auditoria, métrica e evento operacional persistente.
+- A mudança do Blindou durante uma transição é detectada por saúde e fingerprint
+  anterior/posterior. O controlador compartilhado não chama controladores de
+  aplicação sob o lock, nem aplica, remove, escala, rotula ou anota recurso
+  Blindou.
+- Bootstrap, sudoers, timer de métricas, alertas Prometheus, testes unitários,
+  verificador offline e runbook foram adicionados. A validação offline passou.
+- Nenhum artefato foi transportado ou instalado no host; não houve suspensão,
+  criação de atestado, aplicação Kubernetes, migration, deploy ou mudança no
+  Blindou/APIWPP. O próximo gate é `saferwpp-deployctl`.

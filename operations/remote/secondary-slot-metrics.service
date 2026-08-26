@@ -1,0 +1,29 @@
+[Unit]
+Description=Coleta o estado do slot alternável APIWPP/SaferWPP
+After=k3s.service
+Requires=k3s.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/local/sbin/secondary-slotctl metrics
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/prometheus/node-exporter
+ReadWritePaths=/run/lock/servidor-local-secondary-slot.lock
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+UMask=0077

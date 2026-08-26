@@ -1,0 +1,83 @@
+apiVersion: platform.servidor.local/v1
+kind: SecondarySlotContract
+metadata:
+  name: apiwpp-saferwpp
+  labels:
+    platform.servidor.local/managed: "true"
+spec:
+  schema: 1
+  slot: secondary
+  stateFile: /var/lib/servidor-local/secondary-slot/state
+  pendingTransitionFile: /var/lib/servidor-local/secondary-slot/pending-transition
+  globalLock: /run/lock/servidor-local-secondary-slot.lock
+  auditFile: /var/log/servidor-local/secondary-slot/audit.jsonl
+  alertOutbox: /var/lib/servidor-local/secondary-slot/alerts.jsonl
+  unresolvedAlertState: /var/lib/servidor-local/secondary-slot/unresolved-alerts.json
+  localEventRetention:
+    fileSizeMi: 16
+    rotations: 5
+  stateHistoryRetention:
+    maxSnapshots: 256
+  metricsFile: /var/lib/prometheus/node-exporter/secondary-slot.prom
+  allowedStates:
+    - activeOccupant: apiwpp
+      apiwppWorkloads: 1
+      saferwppWorkloads: 0
+    - activeOccupant: saferwpp
+      apiwppWorkloads: 0
+      saferwppWorkloadsMinimum: 1
+    - activeOccupant: none
+      apiwppWorkloads: 0
+      saferwppWorkloads: 0
+  members:
+    apiwpp:
+      namespaces:
+        - apiwpp
+      activeRuntime:
+        kind: Deployment
+        name: apiwpp
+        replicas: 1
+        podSelector: app.kubernetes.io/name=apiwpp,app.kubernetes.io/component=runtime
+    saferwpp:
+      namespaces:
+        - saferwpp-lab
+        - saferdock-identity
+        - saferdock-platform
+      activationReadiness:
+        longRunningWorkloadRequiredInEveryNamespace: true
+        allActiveWorkloadsMustBeHealthy: true
+      foundationServicesExcludedFromWorkloadCount:
+        - postgresql@18-saferwpp_lab.service
+        - saferwpp-postgres-exporter.service
+        - saferwpp-postgres-metrics.service
+        - saferwpp-pgbackrest-backup@.service
+  namespaceGate:
+    memberLabel: platform.servidor.local/secondary-slot-member
+    stateLabel: platform.servidor.local/secondary-slot-state
+    generationAnnotation: platform.servidor.local/secondary-slot-generation
+    activeValue: active
+    inactiveValue: inactive
+    failClosedWhenStateMissingOrUnknown: true
+    installedPolicyMustMatchRootOwnedManifest: true
+  transitions:
+    operationIdPattern: '^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$'
+    signedActionRequiredByProjectController: true
+    stuckAfterSeconds: 900
+    blindouMustRemainHealthyAndUnchanged: true
+    ambiguousRuntimeFailsClosed: true
+    unambiguousRuntimeCanBeReconciled: true
+    explicitReconciliationRepairsAdmissionDrift: true
+    auditEveryOutcomeAfterLockAcquisition: true
+    preserveResolvedAlerts: true
+  ownership:
+    writer: /usr/local/sbin/secondary-slotctl
+    writerUser: root
+    fileMode: "0600"
+    applicationControllersReadOnly: true
+    blindouResourcesMutable: false
+  forbidden:
+    simultaneousActiveMembers: true
+    directApplicationWorkloadMutation: true
+    shellCommandInput: true
+    arbitraryPathInput: true
+    inlineSecrets: true

@@ -1,0 +1,921 @@
+#!/usr/bin/env python3
+"""Controlador root-only da exclusão mútua APIWPP/SaferWPP."""
+
+from __future__ import annotations
+
+import contextlib
+import fcntl
+import json
+import os
+import pathlib
+import re
+import socket
+import stat
+import subprocess
+import sys
+import tempfile
+from collections.abc import Iterator
+from dataclasses import asdict
+from typing import Any
+
+sys.dont_write_bytecode = True
+
+
+INSTALLED_LIBRARY = pathlib.Path(
+    "/usr/local/lib/servidor-local/secondary-slot/secondary_slot.py"
+)
+if INSTALLED_LIBRARY.is_file():
+    sys.path.insert(0, str(INSTALLED_LIBRARY.parent))
+else:
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
+from secondary_slot import (  # noqa: E402
+    API_NAMESPACE,
+    GENERATION_ANNOTATION,
+    MEMBER_LABEL,
+    SAFER_NAMESPACES,
+    STATE_LABEL,
+    CommandRunner,
+    ContractError,
+    Kubernetes,
+    RuntimeObservation,
+    SlotState,
+    activated_workload_counts,
+    admission_is_installed,
+    append_secure_jsonl,
+    apply_admission,
+    atomic_secure_write,
+    ensure_secure_directory,
+    namespace_gates_match,
+    observe_runtime,
+    parse_state,
+    parse_timestamp,
+    prune_secure_history,
+    read_secure_state,
+    require_blindou_healthy_and_fingerprint,
+    require_safer_namespaces,
+    require_secure_regular_file,
+    runtime_is_fully_suspended,
+    set_namespace_gates,
+    state_matches_runtime,
+    state_from_unambiguous_runtime,
+    utc_now,
+    validate_fingerprint,
+    validate_operation_id,
+)
+
+
+EXPECTED_HOSTNAME = "apiwpp"
+SYSTEMD_CHECK_TIMEOUT_SECONDS = 15
+TRANSITION_STUCK_SECONDS = 900
+MAX_ALERT_IDENTIFIER_LENGTH = 160
+LOCK_FILE = pathlib.Path("/run/lock/servidor-local-secondary-slot.lock")
+STATE_ROOT = pathlib.Path("/var/lib/servidor-local/secondary-slot")
+STATE_FILE = STATE_ROOT / "state"
+PENDING_FILE = STATE_ROOT / "pending-transition"
+STATE_HISTORY = STATE_ROOT / "state-history"
+AUDIT_FILE = pathlib.Path("/var/log/servidor-local/secondary-slot/audit.jsonl")
+ALERT_OUTBOX = STATE_ROOT / "alerts.jsonl"
+ALERT_STATE = STATE_ROOT / "unresolved-alerts.json"
+METRICS_FILE = pathlib.Path("/var/lib/prometheus/node-exporter/secondary-slot.prom")
+ADMISSION_MANIFEST = pathlib.Path(
+    "/usr/local/lib/servidor-local/secondary-slot/admission.yaml"
+)
+BLINDOU_CURRENT_RELEASE = pathlib.Path(
+    "/var/lib/blindou-platform/current-release"
+)
+
+CONFIRMATIONS = {
+    "initialize-apiwpp-active": "secondary-slot-initialize-apiwpp-active",
+    "begin-suspend": "secondary-slot-begin-suspend",
+    "complete-suspend": "secondary-slot-complete-suspend",
+    "reserve": "secondary-slot-reserve",
+    "complete-activation": "secondary-slot-complete-activation",
+    "abort-transition": "secondary-slot-abort-transition",
+    "reconcile": "secondary-slot-reconcile",
+}
+ACTOR_PATTERN = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+
+
+runner = CommandRunner()
+kubernetes = Kubernetes(runner)
+
+
+def fail(message: str) -> None:
+    raise ContractError(message)
+
+
+def require_root_host_and_runtime() -> None:
+    if os.geteuid() != 0:
+        fail("execute pelo sudo restrito do controlador")
+    if socket.gethostname() != EXPECTED_HOSTNAME:
+        fail("hostname inesperado")
+    result = subprocess.run(
+        ("systemctl", "is-active", "--quiet", "k3s.service"),
+        check=False,
+        timeout=SYSTEMD_CHECK_TIMEOUT_SECONDS,
+        env={"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
+    )
+    if result.returncode != 0:
+        fail("K3s não está ativo")
+
+
+@contextlib.contextmanager
+def exclusive_slot_lock() -> Iterator[None]:
+    if not LOCK_FILE.parent.is_dir() or LOCK_FILE.parent.is_symlink():
+        fail("diretório do lock global é inválido")
+    flags = os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(LOCK_FILE, flags, 0o600)
+    except OSError as error:
+        raise ContractError("não foi possível abrir o lock global com segurança") from error
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != 0
+            or metadata.st_gid != 0
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+            or metadata.st_nlink != 1
+        ):
+            fail("lock global possui ownership, modo ou tipo inseguro")
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise ContractError("outra operação do slot está em andamento") from error
+        yield
+    finally:
+        os.close(descriptor)
+
+
+def actor() -> str:
+    candidate = os.environ.get("SUDO_USER", "root")
+    return candidate if ACTOR_PATTERN.fullmatch(candidate) else "unknown"
+
+
+def audit(action: str, operation_id: str, result: str, detail: str) -> None:
+    append_secure_jsonl(
+        AUDIT_FILE,
+        {
+            "timestamp": utc_now(),
+            "actor": actor(),
+            "action": action,
+            "operation_id": operation_id,
+            "result": result,
+            "detail": detail,
+        },
+    )
+
+
+def alert_id(operation_id: str, code: str) -> str:
+    return f"{operation_id}:{code}"
+
+
+def alert(
+    operation_id: str,
+    code: str,
+    detail: str,
+    *,
+    severity: str = "warning",
+    status_value: str = "open",
+) -> None:
+    unresolved = read_unresolved_alert_ids()
+    current_alert_id = alert_id(operation_id, code)
+    append_secure_jsonl(
+        ALERT_OUTBOX,
+        {
+            "schema": "servidor-local.operational-alert/v1",
+            "alert_id": current_alert_id,
+            "occurred_at": utc_now(),
+            "source": "secondary-slotctl",
+            "severity": severity,
+            "code": code,
+            "operation_id": operation_id,
+            "status": status_value,
+            "detail": detail,
+        },
+    )
+    if status_value == "open":
+        unresolved.add(current_alert_id)
+    elif status_value == "resolved":
+        unresolved.discard(current_alert_id)
+    else:
+        fail("status de alerta inválido")
+    atomic_secure_write(
+        ALERT_STATE,
+        json.dumps(
+            {"schema": 1, "unresolved_alert_ids": sorted(unresolved)},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        + "\n",
+    )
+
+
+def read_unresolved_alert_ids() -> set[str]:
+    if not ALERT_STATE.exists() and not ALERT_STATE.is_symlink():
+        if ALERT_OUTBOX.exists() or ALERT_OUTBOX.is_symlink():
+            fail("estado compacto de alertas está ausente")
+        return set()
+    require_secure_regular_file(ALERT_STATE)
+    try:
+        payload = json.loads(ALERT_STATE.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ContractError("estado compacto de alertas é inválido") from error
+    if not isinstance(payload, dict) or set(payload) != {
+        "schema",
+        "unresolved_alert_ids",
+    }:
+        fail("contrato do estado compacto de alertas diverge")
+    identifiers = payload["unresolved_alert_ids"]
+    if payload["schema"] != 1 or not isinstance(identifiers, list):
+        fail("estado compacto de alertas diverge")
+    if not all(
+        isinstance(identifier, str)
+        and len(identifier) <= MAX_ALERT_IDENTIFIER_LENGTH
+        for identifier in identifiers
+    ):
+        fail("identificador inválido no estado compacto de alertas")
+    return set(identifiers)
+
+
+def resolve_alert(operation_id: str, code: str, detail: str) -> None:
+    expected_id = alert_id(operation_id, code)
+    if expected_id in read_unresolved_alert_ids():
+        alert(operation_id, code, detail, severity="info", status_value="resolved")
+
+
+def resolve_transition_alerts(operation_id: str, detail: str) -> None:
+    for code in (
+        "transition-needs-reconciliation",
+        "blindou-changed-during-transition",
+        "runtime-ambiguous",
+    ):
+        resolve_alert(operation_id, code, detail)
+
+
+def require_confirmation(action: str, supplied: str) -> None:
+    expected = CONFIRMATIONS[action]
+    if supplied != expected:
+        fail(f"confirmação exigida: {expected}")
+
+
+def pending_payload(
+    operation_id: str,
+    phase: str,
+    member: str,
+    source_generation: int,
+    blindou_fingerprint: str,
+) -> dict[str, Any]:
+    validate_operation_id(operation_id)
+    validate_fingerprint(blindou_fingerprint)
+    if phase not in {"suspending", "activating"} or member not in {
+        "apiwpp",
+        "saferwpp",
+    }:
+        fail("transição pendente inválida")
+    return {
+        "schema": 1,
+        "operation_id": operation_id,
+        "phase": phase,
+        "member": member,
+        "source_generation": source_generation,
+        "blindou_fingerprint": blindou_fingerprint,
+        "started_at": utc_now(),
+    }
+
+
+def write_pending(payload: dict[str, Any]) -> None:
+    atomic_secure_write(
+        PENDING_FILE,
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        + "\n",
+    )
+
+
+def read_pending() -> dict[str, Any]:
+    require_secure_regular_file(PENDING_FILE)
+    try:
+        payload = json.loads(PENDING_FILE.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ContractError("transição pendente possui JSON inválido") from error
+    if not isinstance(payload, dict) or set(payload) != {
+        "schema",
+        "operation_id",
+        "phase",
+        "member",
+        "source_generation",
+        "blindou_fingerprint",
+        "started_at",
+    }:
+        fail("contrato da transição pendente diverge")
+    if payload["schema"] != 1:
+        fail("schema da transição pendente diverge")
+    validate_operation_id(str(payload["operation_id"]))
+    validate_fingerprint(str(payload["blindou_fingerprint"]))
+    if payload["phase"] not in {"suspending", "activating"}:
+        fail("fase pendente inválida")
+    if payload["member"] not in {"apiwpp", "saferwpp"}:
+        fail("membro pendente inválido")
+    if not isinstance(payload["source_generation"], int) or payload[
+        "source_generation"
+    ] < 1:
+        fail("generation pendente inválida")
+    parse_timestamp(str(payload["started_at"]))
+    return payload
+
+
+def require_no_pending() -> None:
+    if PENDING_FILE.exists() or PENDING_FILE.is_symlink():
+        fail("já existe uma transição pendente; reconcilie ou aborte primeiro")
+
+
+def require_pending(operation_id: str, phase: str, member: str) -> dict[str, Any]:
+    payload = read_pending()
+    if (
+        payload["operation_id"] != operation_id
+        or payload["phase"] != phase
+        or payload["member"] != member
+    ):
+        fail("a transição pendente não corresponde à operação solicitada")
+    return payload
+
+
+def archive_state(operation_id: str, *, allow_invalid_content: bool = False) -> None:
+    if not STATE_FILE.exists() and not STATE_FILE.is_symlink():
+        return
+    require_secure_regular_file(STATE_FILE)
+    content = STATE_FILE.read_text(encoding="utf-8")
+    generation = "invalid"
+    try:
+        generation = str(parse_state(content).generation)
+    except ContractError:
+        if not allow_invalid_content:
+            raise
+    ensure_secure_directory(STATE_HISTORY)
+    target = STATE_HISTORY / f"{generation}-{operation_id}.state"
+    if target.exists() or target.is_symlink():
+        fail("histórico da operação já existe")
+    atomic_secure_write(target, content)
+    prune_secure_history(STATE_HISTORY)
+
+
+def write_state(state: SlotState, operation_id: str, *, archive_invalid: bool = False) -> None:
+    archive_state(operation_id, allow_invalid_content=archive_invalid)
+    atomic_secure_write(STATE_FILE, state.serialize())
+
+
+def next_state(
+    generation: int, occupant: str, apiwpp_workloads: int, saferwpp_workloads: int
+) -> SlotState:
+    return SlotState(
+        generation=generation,
+        active_occupant=occupant,
+        apiwpp_workloads=apiwpp_workloads,
+        saferwpp_workloads=saferwpp_workloads,
+        updated_at=utc_now(),
+    )
+
+
+def require_state_runtime_and_gates() -> tuple[SlotState, RuntimeObservation]:
+    state = read_secure_state(STATE_FILE)
+    runtime = observe_runtime(kubernetes)
+    if not state_matches_runtime(state, runtime):
+        fail("atestado diverge do runtime")
+    if not admission_is_installed(kubernetes, ADMISSION_MANIFEST):
+        fail("admissão do slot está ausente ou divergente")
+    if not namespace_gates_match(kubernetes, state):
+        fail("labels dos namespaces divergem do atestado")
+    return state, runtime
+
+
+def update_generation_annotations(generation: int) -> None:
+    for namespace in (API_NAMESPACE, *SAFER_NAMESPACES):
+        if kubernetes.namespace_exists(namespace):
+            kubernetes.annotate_namespace(
+                namespace, GENERATION_ANNOTATION, str(generation)
+            )
+
+
+def initialize_apiwpp_active(operation_id: str, confirmation: str) -> None:
+    validate_operation_id(operation_id)
+    require_confirmation("initialize-apiwpp-active", confirmation)
+    require_no_pending()
+    if STATE_FILE.exists() or STATE_FILE.is_symlink():
+        state, runtime = require_state_runtime_and_gates()
+        if (
+            state.active_occupant == "apiwpp"
+            and state.apiwpp_workloads == 1
+            and runtime.apiwpp_state == "active"
+        ):
+            audit("initialize-apiwpp-active", operation_id, "idempotent", "already-initialized")
+            print("secondary_slot_initialize=idempotent")
+            return
+        fail("o atestado já existe em outro estado")
+    runtime = observe_runtime(kubernetes)
+    if not (
+        runtime.apiwpp_state == "active"
+        and runtime.apiwpp_workloads == 1
+        and runtime.saferwpp_workloads == 0
+    ):
+        fail("inicialização exige APIWPP ativo exato e SaferWPP sem workload")
+    require_blindou_healthy_and_fingerprint(kubernetes, BLINDOU_CURRENT_RELEASE)
+    apply_admission(kubernetes, ADMISSION_MANIFEST)
+    state = next_state(1, "apiwpp", 1, 0)
+    write_state(state, operation_id)
+    set_namespace_gates(kubernetes, "apiwpp", 1, require_safer=False)
+    if not namespace_gates_match(kubernetes, state):
+        fail("gates não convergiram após a inicialização")
+    audit("initialize-apiwpp-active", operation_id, "succeeded", "apiwpp-active")
+    resolve_transition_alerts(operation_id, "inicialização concluída")
+    print("secondary_slot_initialize=passed occupant=apiwpp generation=1")
+
+
+def begin_suspend(member: str, operation_id: str, confirmation: str) -> None:
+    validate_operation_id(operation_id)
+    require_confirmation("begin-suspend", confirmation)
+    if member not in {"apiwpp", "saferwpp"}:
+        fail("membro inválido")
+    require_no_pending()
+    state, runtime = require_state_runtime_and_gates()
+    if state.active_occupant != member:
+        fail("somente o ocupante ativo pode iniciar suspensão")
+    expected_count = runtime.apiwpp_workloads if member == "apiwpp" else runtime.saferwpp_workloads
+    if expected_count < 1:
+        fail("o membro solicitado não possui workload ativo")
+    fingerprint = require_blindou_healthy_and_fingerprint(
+        kubernetes, BLINDOU_CURRENT_RELEASE
+    )
+    write_pending(
+        pending_payload(
+            operation_id, "suspending", member, state.generation, fingerprint
+        )
+    )
+    audit("begin-suspend", operation_id, "succeeded", f"member={member}")
+    print(f"secondary_slot_transition=pending phase=suspending member={member}")
+
+
+def complete_suspend(member: str, operation_id: str, confirmation: str) -> None:
+    validate_operation_id(operation_id)
+    require_confirmation("complete-suspend", confirmation)
+    pending = require_pending(operation_id, "suspending", member)
+    state = read_secure_state(STATE_FILE)
+    if state.active_occupant != member or state.generation != pending["source_generation"]:
+        fail("estado mudou desde o início da suspensão")
+    if not admission_is_installed(kubernetes, ADMISSION_MANIFEST):
+        fail("admissão do slot mudou durante a suspensão")
+    if not namespace_gates_match(kubernetes, state):
+        fail("gates mudaram durante a suspensão")
+    runtime = observe_runtime(kubernetes)
+    if not runtime_is_fully_suspended(runtime):
+        fail("suspensão ainda não produziu zero workload nos dois lados")
+    fingerprint = require_blindou_healthy_and_fingerprint(
+        kubernetes, BLINDOU_CURRENT_RELEASE
+    )
+    if fingerprint != pending["blindou_fingerprint"]:
+        alert(
+            operation_id,
+            "blindou-changed-during-transition",
+            "fingerprint Blindou divergiu entre início e conclusão",
+            severity="critical",
+        )
+        fail("Blindou mudou durante a transição; reconciliação explícita exigida")
+    generation = state.generation + 1
+    set_namespace_gates(kubernetes, "none", generation, require_safer=False)
+    write_state(next_state(generation, "none", 0, 0), operation_id)
+    PENDING_FILE.unlink()
+    audit("complete-suspend", operation_id, "succeeded", f"member={member}")
+    resolve_transition_alerts(operation_id, f"{member} suspenso e atestado")
+    print(f"secondary_slot_transition=completed phase=suspending member={member}")
+
+
+def reserve(member: str, operation_id: str, confirmation: str) -> None:
+    validate_operation_id(operation_id)
+    require_confirmation("reserve", confirmation)
+    if member not in {"apiwpp", "saferwpp"}:
+        fail("membro inválido")
+    require_no_pending()
+    state, runtime = require_state_runtime_and_gates()
+    if state.active_occupant != "none" or runtime.unambiguous_occupant != "none":
+        fail("reserva exige os dois lados suspensos e atestados")
+    if member == "saferwpp":
+        require_safer_namespaces(kubernetes)
+    fingerprint = require_blindou_healthy_and_fingerprint(
+        kubernetes, BLINDOU_CURRENT_RELEASE
+    )
+    write_pending(
+        pending_payload(
+            operation_id, "activating", member, state.generation, fingerprint
+        )
+    )
+    generation = state.generation + 1
+    reserved = next_state(generation, member, 0, 0)
+    write_state(reserved, operation_id)
+    set_namespace_gates(
+        kubernetes, member, generation, require_safer=member == "saferwpp"
+    )
+    if not namespace_gates_match(kubernetes, reserved):
+        fail("gates não convergiram para a reserva")
+    audit("reserve", operation_id, "succeeded", f"member={member}")
+    print(f"secondary_slot_transition=pending phase=activating member={member}")
+
+
+def complete_activation(member: str, operation_id: str, confirmation: str) -> None:
+    validate_operation_id(operation_id)
+    require_confirmation("complete-activation", confirmation)
+    pending = require_pending(operation_id, "activating", member)
+    state = read_secure_state(STATE_FILE)
+    if state.active_occupant != member or state.apiwpp_workloads != 0 or state.saferwpp_workloads != 0:
+        fail("reserva do membro não está íntegra")
+    if state.generation != pending["source_generation"] + 1:
+        fail("generation da reserva diverge")
+    if not admission_is_installed(kubernetes, ADMISSION_MANIFEST):
+        fail("admissão do slot mudou durante a ativação")
+    if not namespace_gates_match(kubernetes, state):
+        fail("gates mudaram durante a ativação")
+    runtime = observe_runtime(kubernetes)
+    api_count, safer_count = activated_workload_counts(member, runtime)
+    fingerprint = require_blindou_healthy_and_fingerprint(
+        kubernetes, BLINDOU_CURRENT_RELEASE
+    )
+    if fingerprint != pending["blindou_fingerprint"]:
+        alert(
+            operation_id,
+            "blindou-changed-during-transition",
+            "fingerprint Blindou divergiu entre reserva e conclusão",
+            severity="critical",
+        )
+        fail("Blindou mudou durante a transição; reconciliação explícita exigida")
+    generation = state.generation + 1
+    completed = next_state(generation, member, api_count, safer_count)
+    write_state(completed, operation_id)
+    update_generation_annotations(generation)
+    if not namespace_gates_match(kubernetes, completed):
+        fail("gates não convergiram após a ativação")
+    PENDING_FILE.unlink()
+    audit("complete-activation", operation_id, "succeeded", f"member={member}")
+    resolve_transition_alerts(operation_id, f"{member} ativo e atestado")
+    print(
+        f"secondary_slot_transition=completed phase=activating member={member} "
+        f"workloads={api_count + safer_count}"
+    )
+
+
+def abort_transition(member: str, operation_id: str, confirmation: str) -> None:
+    validate_operation_id(operation_id)
+    require_confirmation("abort-transition", confirmation)
+    pending = read_pending()
+    if pending["operation_id"] != operation_id or pending["member"] != member:
+        fail("a operação não corresponde à transição pendente")
+    state = read_secure_state(STATE_FILE)
+    if not admission_is_installed(kubernetes, ADMISSION_MANIFEST):
+        fail("admissão do slot mudou; use reconcile")
+    if not namespace_gates_match(kubernetes, state):
+        fail("gates do slot mudaram; use reconcile")
+    runtime = observe_runtime(kubernetes)
+    fingerprint = require_blindou_healthy_and_fingerprint(
+        kubernetes, BLINDOU_CURRENT_RELEASE
+    )
+    if fingerprint != pending["blindou_fingerprint"]:
+        fail("Blindou mudou; use reconcile para preservar o alerta")
+    if pending["phase"] == "suspending":
+        if not state_matches_runtime(state, runtime):
+            fail("suspensão alterou o runtime; aborto simples não é seguro")
+    else:
+        if not runtime_is_fully_suspended(runtime):
+            fail("ativação produziu workload; aborto simples não é seguro")
+        generation = state.generation + 1
+        set_namespace_gates(kubernetes, "none", generation, require_safer=False)
+        write_state(next_state(generation, "none", 0, 0), operation_id)
+    PENDING_FILE.unlink()
+    audit("abort-transition", operation_id, "succeeded", f"member={member}")
+    alert(
+        operation_id,
+        "transition-aborted",
+        f"transição {pending['phase']} abortada antes de concluir",
+        status_value="resolved",
+    )
+    resolve_transition_alerts(operation_id, "transição abortada em estado seguro")
+    print(f"secondary_slot_transition=aborted member={member}")
+
+
+def reconcile(operation_id: str, confirmation: str) -> None:
+    validate_operation_id(operation_id)
+    require_confirmation("reconcile", confirmation)
+    if not admission_is_installed(kubernetes, ADMISSION_MANIFEST):
+        apply_admission(kubernetes, ADMISSION_MANIFEST)
+    pending: dict[str, Any] | None = None
+    if PENDING_FILE.exists() or PENDING_FILE.is_symlink():
+        pending = read_pending()
+    runtime = observe_runtime(kubernetes)
+    occupant = runtime.unambiguous_occupant
+    if occupant is None:
+        alert(
+            operation_id,
+            "runtime-ambiguous",
+            "runtime não permite escolher um ocupante com segurança",
+            severity="critical",
+        )
+        fail("runtime ambíguo; nenhum lado foi autorizado")
+    if occupant == "saferwpp":
+        require_safer_namespaces(kubernetes)
+    fingerprint = require_blindou_healthy_and_fingerprint(
+        kubernetes, BLINDOU_CURRENT_RELEASE
+    )
+    if pending and fingerprint != pending["blindou_fingerprint"]:
+        alert(
+            str(pending["operation_id"]),
+            "blindou-changed-during-transition",
+            "mudança externa do Blindou detectada; estado do slot será reconciliado sem alterá-lo",
+            severity="critical",
+        )
+    current: SlotState | None = None
+    archive_invalid = False
+    if STATE_FILE.exists() or STATE_FILE.is_symlink():
+        require_secure_regular_file(STATE_FILE)
+        try:
+            current = parse_state(STATE_FILE.read_text(encoding="utf-8"))
+        except ContractError:
+            archive_invalid = True
+    if current is not None:
+        generation = current.generation + 1
+    elif pending is not None:
+        generation = int(pending["source_generation"]) + 2
+    else:
+        generation = 1
+    reconciled = state_from_unambiguous_runtime(generation, runtime, utc_now())
+    set_namespace_gates(kubernetes, "none", generation, require_safer=False)
+    write_state(reconciled, operation_id, archive_invalid=archive_invalid)
+    set_namespace_gates(
+        kubernetes,
+        occupant,
+        generation,
+        require_safer=occupant == "saferwpp",
+    )
+    if not namespace_gates_match(kubernetes, reconciled):
+        fail("gates não convergiram durante a reconciliação")
+    if pending:
+        PENDING_FILE.unlink()
+        resolve_transition_alerts(
+            str(pending["operation_id"]), f"runtime reconciliado para {occupant}"
+        )
+    resolve_transition_alerts(operation_id, f"runtime reconciliado para {occupant}")
+    audit("reconcile", operation_id, "succeeded", f"occupant={occupant}")
+    print(f"secondary_slot_reconcile=passed occupant={occupant} generation={generation}")
+
+
+def verify() -> None:
+    require_no_pending()
+    state, runtime = require_state_runtime_and_gates()
+    require_blindou_healthy_and_fingerprint(kubernetes, BLINDOU_CURRENT_RELEASE)
+    print(
+        "secondary_slot_verify=passed "
+        f"occupant={state.active_occupant} generation={state.generation} "
+        f"apiwpp_workloads={runtime.apiwpp_workloads} "
+        f"saferwpp_workloads={runtime.saferwpp_workloads}"
+    )
+
+
+def show_status() -> None:
+    runtime = observe_runtime(kubernetes)
+    state_status = "absent"
+    state_payload: dict[str, Any] = {}
+    if STATE_FILE.exists() or STATE_FILE.is_symlink():
+        try:
+            state = read_secure_state(STATE_FILE)
+            state_status = "valid"
+            state_payload = asdict(state)
+        except ContractError:
+            state_status = "invalid"
+    pending_status = "absent"
+    if PENDING_FILE.exists() or PENDING_FILE.is_symlink():
+        try:
+            pending = read_pending()
+            pending_status = f"{pending['phase']}:{pending['member']}"
+        except ContractError:
+            pending_status = "invalid"
+    print(f"state={state_status}")
+    for key in (
+        "generation",
+        "active_occupant",
+        "apiwpp_workloads",
+        "saferwpp_workloads",
+        "updated_at",
+    ):
+        if key in state_payload:
+            print(f"{key}={state_payload[key]}")
+    print(f"pending_transition={pending_status}")
+    print(f"observed_apiwpp_state={runtime.apiwpp_state}")
+    print(f"observed_apiwpp_workloads={runtime.apiwpp_workloads}")
+    print(f"observed_saferwpp_workloads={runtime.saferwpp_workloads}")
+    print(f"observed_saferwpp_healthy={str(runtime.saferwpp_healthy).lower()}")
+    print(
+        "observed_saferwpp_required_namespaces_active="
+        f"{str(runtime.saferwpp_required_namespaces_active).lower()}"
+    )
+    print(
+        "admission_installed="
+        f"{str(admission_is_installed(kubernetes, ADMISSION_MANIFEST)).lower()}"
+    )
+
+
+def unresolved_alert_count() -> int:
+    return len(read_unresolved_alert_ids())
+
+
+def pending_age_seconds() -> int:
+    if not PENDING_FILE.exists() and not PENDING_FILE.is_symlink():
+        return 0
+    try:
+        pending = read_pending()
+        started = parse_timestamp(str(pending["started_at"]))
+        now = parse_timestamp(utc_now())
+        return max(0, int((now - started).total_seconds()))
+    except ContractError:
+        return TRANSITION_STUCK_SECONDS + 1
+
+
+def write_metrics_file(content: str) -> None:
+    parent = METRICS_FILE.parent
+    metadata = parent.lstat()
+    if not stat.S_ISDIR(metadata.st_mode) or parent.is_symlink() or metadata.st_uid != 0:
+        fail("diretório do textfile collector é inseguro")
+    descriptor, temporary_name = tempfile.mkstemp(prefix=".secondary-slot.", dir=parent)
+    temporary = pathlib.Path(temporary_name)
+    try:
+        os.fchmod(descriptor, 0o644)
+        os.fchown(descriptor, 0, 0)
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+            descriptor = -1
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, METRICS_FILE)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        temporary.unlink(missing_ok=True)
+
+
+def collect_metrics() -> None:
+    runtime = observe_runtime(kubernetes)
+    state_valid = 0
+    matches_runtime = 0
+    gates_match = 0
+    admission_matches = int(
+        admission_is_installed(kubernetes, ADMISSION_MANIFEST)
+    )
+    occupant = "unknown"
+    try:
+        state = read_secure_state(STATE_FILE)
+        state_valid = 1
+        occupant = state.active_occupant
+        matches_runtime = int(state_matches_runtime(state, runtime))
+        gates_match = int(namespace_gates_match(kubernetes, state))
+    except ContractError:
+        pass
+    lines = [
+        "# HELP secondary_slot_state_valid O atestado root-only possui contrato e permissões válidos.",
+        "# TYPE secondary_slot_state_valid gauge",
+        f"secondary_slot_state_valid {state_valid}",
+        "# HELP secondary_slot_state_matches_runtime O atestado coincide com o runtime observado.",
+        "# TYPE secondary_slot_state_matches_runtime gauge",
+        f"secondary_slot_state_matches_runtime {matches_runtime}",
+        "# HELP secondary_slot_namespace_gates_match Os gates dos namespaces coincidem com o atestado.",
+        "# TYPE secondary_slot_namespace_gates_match gauge",
+        f"secondary_slot_namespace_gates_match {gates_match}",
+        "# HELP secondary_slot_admission_matches A admissão instalada coincide com o manifesto fixo pertencente a root.",
+        "# TYPE secondary_slot_admission_matches gauge",
+        f"secondary_slot_admission_matches {admission_matches}",
+        "# HELP secondary_slot_active_occupant Ocupante atestado do slot.",
+        "# TYPE secondary_slot_active_occupant gauge",
+    ]
+    for candidate in ("apiwpp", "saferwpp", "none", "unknown"):
+        lines.append(
+            f'secondary_slot_active_occupant{{occupant="{candidate}"}} '
+            f"{int(occupant == candidate)}"
+        )
+    lines.extend(
+        [
+            "# HELP secondary_slot_observed_apiwpp_workloads Workloads APIWPP ativos observados.",
+            "# TYPE secondary_slot_observed_apiwpp_workloads gauge",
+            f"secondary_slot_observed_apiwpp_workloads {runtime.apiwpp_workloads}",
+            "# HELP secondary_slot_observed_saferwpp_workloads Workloads SaferWPP ativos observados.",
+            "# TYPE secondary_slot_observed_saferwpp_workloads gauge",
+            f"secondary_slot_observed_saferwpp_workloads {runtime.saferwpp_workloads}",
+            "# HELP secondary_slot_observed_saferwpp_ready Todos os namespaces obrigatórios possuem runtime Ready.",
+            "# TYPE secondary_slot_observed_saferwpp_ready gauge",
+            "secondary_slot_observed_saferwpp_ready "
+            f"{int(runtime.saferwpp_healthy and runtime.saferwpp_required_namespaces_active)}",
+            "# HELP secondary_slot_pending_transition_age_seconds Idade da transição pendente.",
+            "# TYPE secondary_slot_pending_transition_age_seconds gauge",
+            f"secondary_slot_pending_transition_age_seconds {pending_age_seconds()}",
+            "# HELP secondary_slot_unresolved_alerts Alertas operacionais ainda não resolvidos.",
+            "# TYPE secondary_slot_unresolved_alerts gauge",
+            f"secondary_slot_unresolved_alerts {unresolved_alert_count()}",
+        ]
+    )
+    write_metrics_file("\n".join(lines) + "\n")
+    print("secondary_slot_metrics=written")
+
+
+def dispatch(arguments: list[str]) -> None:
+    if not arguments:
+        fail("uso: secondary-slotctl {status|verify|metrics|transição fechada}")
+    action = arguments[0]
+    if action in {"status", "verify", "metrics"}:
+        if len(arguments) != 1:
+            fail(f"uso: secondary-slotctl {action}")
+        {"status": show_status, "verify": verify, "metrics": collect_metrics}[action]()
+        return
+    if action == "initialize-apiwpp-active":
+        if len(arguments) != 3:
+            fail("uso: secondary-slotctl initialize-apiwpp-active OPERATION_ID CONFIRMAÇÃO")
+        initialize_apiwpp_active(arguments[1], arguments[2])
+        return
+    if action in {
+        "begin-suspend",
+        "complete-suspend",
+        "reserve",
+        "complete-activation",
+        "abort-transition",
+    }:
+        if len(arguments) != 4:
+            fail(f"uso: secondary-slotctl {action} MEMBRO OPERATION_ID CONFIRMAÇÃO")
+        callback = {
+            "begin-suspend": begin_suspend,
+            "complete-suspend": complete_suspend,
+            "reserve": reserve,
+            "complete-activation": complete_activation,
+            "abort-transition": abort_transition,
+        }[action]
+        callback(arguments[1], arguments[2], arguments[3])
+        return
+    if action == "reconcile":
+        if len(arguments) != 3:
+            fail("uso: secondary-slotctl reconcile OPERATION_ID CONFIRMAÇÃO")
+        reconcile(arguments[1], arguments[2])
+        return
+    fail("operação não permitida")
+
+
+def execute_locked(action: str, operation_id: str) -> int:
+    try:
+        dispatch(sys.argv[1:])
+        return 0
+    except ContractError as error:
+        if action not in {"unknown", "status", "verify", "metrics"}:
+            try:
+                audit(action, operation_id, "failed", str(error))
+                alert(
+                    operation_id,
+                    "transition-needs-reconciliation",
+                    f"{action}: {error}",
+                    severity="critical",
+                )
+            except Exception:  # noqa: BLE001 - não mascara a falha operacional original
+                pass
+        print(f"[secondary-slotctl] ERRO: {error}", file=sys.stderr)
+        return 1
+    except Exception as error:  # noqa: BLE001 - fronteira operacional não vaza traceback
+        detail = f"internal-error:{type(error).__name__}"
+        if action not in {"unknown", "status", "verify", "metrics"}:
+            try:
+                audit(action, operation_id, "failed", detail)
+                alert(
+                    operation_id,
+                    "transition-needs-reconciliation",
+                    f"{action}: {detail}",
+                    severity="critical",
+                )
+            except Exception:
+                pass
+        print("[secondary-slotctl] ERRO: falha operacional interna", file=sys.stderr)
+        return 1
+
+
+def main() -> int:
+    os.umask(0o077)
+    action = sys.argv[1] if len(sys.argv) > 1 else "unknown"
+    operation_id = "read-only"
+    for candidate in sys.argv[2:]:
+        try:
+            validate_operation_id(candidate)
+            operation_id = candidate
+            break
+        except ContractError:
+            continue
+    try:
+        require_root_host_and_runtime()
+        with exclusive_slot_lock():
+            return execute_locked(action, operation_id)
+    except ContractError as error:
+        print(f"[secondary-slotctl] ERRO: {error}", file=sys.stderr)
+        return 1
+    except Exception:  # noqa: BLE001 - falha anterior à fronteira auditável
+        print("[secondary-slotctl] ERRO: falha operacional interna", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

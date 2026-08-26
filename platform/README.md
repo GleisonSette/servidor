@@ -11,6 +11,8 @@ repositórios.
   gate de deploy bloqueado.
 - `saferwpp/`: contrato ainda não aplicado do PostgreSQL, backup,
   observabilidade, quota e dependências exclusivas do laboratório SaferWPP.
+- `secondary-slot/`: fonte de verdade, admissão e alertas da exclusão mútua
+  entre APIWPP e SaferWPP; sua aplicação exige janela própria.
 - `k3s/`: política de auditoria e fragmento de configuração do K3s.
 - `security/`: contrato da contenção temporária UFW/Kubernetes e de sua
   expiração no cutover Vultr. Ele não contém segredos.
@@ -36,5 +38,9 @@ A fundação SaferWPP possui procedimento próprio em
 `runbooks/saferwpp-foundation.md`. Ela não integra o `platform/base` e não pode
 ser aplicada por implicação: exige uma janela operacional autorizada e provas
 de que APIWPP e Blindou não foram alterados.
+
+O slot alternável possui procedimento próprio em `runbooks/secondary-slot.md`.
+O bootstrap instala seu controlador, mas somente a operação fechada de
+inicialização aplica a admissão e publica o primeiro atestado.
 
 Não há credenciais, kubeconfig ou material privado neste diretório.

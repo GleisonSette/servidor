@@ -1,0 +1,120 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: secondary-slot-inactive-workloads
+  labels:
+    platform.servidor.local/managed: "true"
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups:
+          - apps
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - deployments
+          - statefulsets
+          - daemonsets
+          - replicasets
+        scope: Namespaced
+      - apiGroups:
+          - batch
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - jobs
+          - cronjobs
+        scope: Namespaced
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - pods
+          - replicationcontrollers
+        scope: Namespaced
+  validations:
+    - expression: >-
+        request.resource.resource != 'deployments' ||
+        (has(object.spec.replicas) && object.spec.replicas == 0)
+      message: O namespace está inativo no slot; Deployments devem permanecer com zero réplica.
+    - expression: >-
+        request.resource.resource != 'statefulsets' ||
+        (has(object.spec.replicas) && object.spec.replicas == 0)
+      message: O namespace está inativo no slot; StatefulSets devem permanecer com zero réplica.
+    - expression: >-
+        request.resource.resource != 'daemonsets' ||
+        (request.operation == 'UPDATE' && oldObject != null && object.spec == oldObject.spec)
+      message: O namespace está inativo no slot; DaemonSets não podem ser criados ou ativados.
+    - expression: >-
+        request.resource.resource != 'replicasets' ||
+        (has(object.spec.replicas) && object.spec.replicas == 0) ||
+        (request.operation == 'UPDATE' && oldObject != null && object.spec == oldObject.spec)
+      message: O namespace está inativo no slot; ReplicaSets diretos devem permanecer com zero réplica.
+    - expression: >-
+        request.resource.resource != 'replicationcontrollers' ||
+        (has(object.spec.replicas) && object.spec.replicas == 0) ||
+        (request.operation == 'UPDATE' && oldObject != null && object.spec == oldObject.spec)
+      message: O namespace está inativo no slot; ReplicationControllers devem permanecer com zero réplica.
+    - expression: >-
+        request.resource.resource != 'jobs' ||
+        (has(object.spec.suspend) && object.spec.suspend == true) ||
+        (request.operation == 'UPDATE' && oldObject != null && object.spec == oldObject.spec)
+      message: O namespace está inativo no slot; Jobs novos devem nascer suspensos.
+    - expression: >-
+        request.resource.resource != 'cronjobs' ||
+        (has(object.spec.suspend) && object.spec.suspend == true) ||
+        (request.operation == 'UPDATE' && oldObject != null && object.spec == oldObject.spec)
+      message: O namespace está inativo no slot; CronJobs devem permanecer suspensos.
+    - expression: >-
+        request.resource.resource != 'pods' ||
+        (request.operation == 'UPDATE' && oldObject != null && object.spec == oldObject.spec)
+      message: O namespace está inativo no slot; Pods não podem ser criados diretamente.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: secondary-slot-inactive-workloads
+  labels:
+    platform.servidor.local/managed: "true"
+spec:
+  policyName: secondary-slot-inactive-workloads
+  validationActions:
+    - Deny
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - key: platform.servidor.local/secondary-slot-member
+          operator: Exists
+        - key: platform.servidor.local/secondary-slot-state
+          operator: NotIn
+          values:
+            - active
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: secondary-slot-uninitialized-workloads
+  labels:
+    platform.servidor.local/managed: "true"
+spec:
+  policyName: secondary-slot-inactive-workloads
+  validationActions:
+    - Deny
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - key: platform.servidor.local/secondary-slot-member
+          operator: Exists
+        - key: platform.servidor.local/secondary-slot-state
+          operator: DoesNotExist

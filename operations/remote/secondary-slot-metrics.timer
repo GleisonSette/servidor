@@ -1,0 +1,12 @@
+[Unit]
+Description=Atualiza métricas do slot alternável a cada minuto
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Persistent=true
+Unit=secondary-slot-metrics.service
+
+[Install]
+WantedBy=timers.target

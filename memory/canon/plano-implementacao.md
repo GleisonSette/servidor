@@ -250,9 +250,10 @@ Objetivos:
 
 ## Fase 3 - Slot alternável APIWPP/SaferWPP
 
-Status: auditoria viva, decisão D023 e fundação declarativa concluídas no
-repositório em 2026-08-26. Nada dessa fundação foi aplicado ao host ou ao K3s;
-o estado vivo permanece APIWPP ativo e SaferWPP vazio.
+Status: auditoria viva, decisão D023, fundação SaferWPP e contratos dos itens 4
+e 5 concluídos nos repositórios em 2026-08-26. Nada desses novos contratos foi
+instalado ou aplicado ao host/K3s; o estado vivo permanece APIWPP ativo e
+SaferWPP vazio.
 Nenhuma etapa desta fase autoriza, por si só, alterar o servidor.
 
 Objetivo:
@@ -277,11 +278,14 @@ Ordem obrigatória:
    exporter e alertas exclusivos, fechar orçamentos separados de Keycloak e
    Control Plane e recalibrar a quota `saferwpp-lab`; nenhum artefato foi
    aplicado ao servidor;
-4. fechar os contratos de estado e implementar no repositório APIWPP operações
+4. concluído no repositório APIWPP em 2026-08-26: fechar os contratos de estado
+   e implementar operações
    `suspend`, `verify-suspended` e `resume`, incluindo lock, auditoria,
    reconciliação, rollback e recusa de retomada com SaferWPP ativo;
-5. atualizar declarativamente a plataforma compartilhada para admitir SaferWPP
-   sem mudar nenhum recurso Blindou;
+5. concluído declarativamente no repositório `servidor` em 2026-08-26:
+   implementar atestado root-only, lock global, admissão fail-closed,
+   reconciliação, auditoria, alertas e gates dos namespaces, sem mudar nenhum
+   recurso Blindou e sem instalar os artefatos no host;
 6. criar e validar o `saferwpp-deployctl`, que recusa ativação enquanto APIWPP
    não estiver suspenso e verificado e que nunca opera recursos Blindou;
 7. somente em janela e autorização próprias, criar backup prévio, suspender o
@@ -306,9 +310,11 @@ Resultado da auditoria:
   conector saudáveis; nenhum recurso foi alterado pela auditoria;
 - D023 resolvida: cluster SaferWPP exclusivo com teto 24 e PgBouncer de dez
   backends; nenhum recurso foi criado no host;
-- próximo gate: fechar o contrato e implementar no repositório APIWPP as
-  operações `suspend`, `verify-suspended` e `resume`; nenhuma suspensão viva é
-  autorizada por esse trabalho.
+- controlador compartilhado: contrato, bootstrap, sudoers, admissão, métricas,
+  alertas, reconciliação e runbook passam na validação offline; o escritor ainda
+  não existe no host e o primeiro atestado ainda não foi publicado;
+- próximo gate: criar e validar `saferwpp-deployctl` no repositório SaferWPP;
+  nenhuma instalação ou suspensão viva é autorizada por esse trabalho.
 
 Aceite automatizado:
 

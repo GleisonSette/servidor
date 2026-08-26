@@ -322,6 +322,16 @@ suspensão e recusar retomada enquanto houver workload SaferWPP ativo. Transiç�
 ambígua falha fechada, mantém recibo auditável e exige reconciliação antes de
 nova tentativa.
 
+Em 2026-08-26, a aplicação declarativa desta decisão foi fechada no repositório
+da plataforma. `secondary-slotctl` é o único escritor do atestado root-only,
+compartilha o lock global com os controladores de aplicação e controla labels
+de admissão nos namespaces membros. A admissão nega workloads em estado
+inativo, ausente ou desconhecido. A reconciliação explícita só escolhe um
+ocupante quando o runtime observado é inequívoco; split-brain ou rollout
+parcial continua bloqueado e alerta. O outbox JSONL preserva falha e resolução
+para integração futura com a ferramenta administrativa. Esses artefatos ainda
+não foram instalados, e a decisão continua sem autorizar uma transição viva.
+
 Antes de criar banco, dependência ou workload SaferWPP, é obrigatório medir o
 consumo vivo do Blindou, APIWPP e serviços compartilhados, definir margem para
 host, K3s, PostgreSQL, backup e picos, e recalibrar a quota `saferwpp-lab`. A

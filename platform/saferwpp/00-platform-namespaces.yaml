@@ -6,6 +6,7 @@ metadata:
     platform.servidor.local/managed: "true"
     platform.servidor.local/project: saferdock-identity
     platform.servidor.local/saferwpp-dependency: "true"
+    platform.servidor.local/secondary-slot-member: saferwpp
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/enforce-version: v1.36
     pod-security.kubernetes.io/audit: restricted
@@ -21,6 +22,7 @@ metadata:
     platform.servidor.local/managed: "true"
     platform.servidor.local/project: saferdock-platform
     platform.servidor.local/saferwpp-dependency: "true"
+    platform.servidor.local/secondary-slot-member: saferwpp
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/enforce-version: v1.36
     pod-security.kubernetes.io/audit: restricted

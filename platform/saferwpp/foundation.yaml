@@ -11,6 +11,9 @@ spec:
     activationRequiresExplicitAuthorization: true
     apiwppMustBeSuspendedAndVerified: true
     blindouMustRemainUnchanged: true
+    secondarySlotContract: platform.servidor.local/v1
+    secondarySlotStateFile: /var/lib/servidor-local/secondary-slot/state
+    secondarySlotReservationRequired: true
   ownership:
     product: saferwpp
     environment: lab

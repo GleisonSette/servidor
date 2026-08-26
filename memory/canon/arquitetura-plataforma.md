@@ -12,8 +12,10 @@ metadata:
 O Blindou permanece sempre ativo e intacto. A capacidade residual do servidor
 será usada por um slot alternável entre APIWPP e SaferWPP, com exclusão mútua:
 somente um deles poderá manter workloads ativos por vez. No estado vivo atual,
-o APIWPP permanece ativo e o SaferWPP permanece vazio; a alternância ainda não
-está implementada. Pixel/CIA não recebe workloads. Não há acesso de clientes ao
+o APIWPP permanece ativo e o SaferWPP permanece vazio. Os contratos dos
+controladores APIWPP e da plataforma compartilhada já estão implementados nos
+respectivos repositórios, mas ainda não foram instalados nem inicializados no
+host. Pixel/CIA não recebe workloads. Não há acesso de clientes ao
 host ou ao Kubernetes. O cluster fornece isolamento lógico, não isolamento
 forte contra comprometimento do kernel/root.
 
@@ -36,7 +38,10 @@ de artefato, namespaces, RBAC, ServiceAccounts, NetworkPolicy, dados e limites.
 Estado dos controladores em 2026-08-26:
 
 - `apiwpp-deployctl` e `apiwpp-backupctl` estão instalados, root-owned e são os
-  únicos caminhos sem senha do apiwpp;
+  únicos caminhos sem senha do apiwpp; as novas operações do slot existem no
+  repositório APIWPP, mas a versão instalada ainda não foi reconciliada;
+- `secondary-slotctl` existe declarativamente no repositório `servidor`, com
+  bootstrap e sudoers fechados, mas ainda não foi instalado ou inicializado;
 - `pixel-deployctl` e `saferwpp-deployctl` ainda não existem;
 - `blindou-deployctl` está instalado e governa a fundação, dados, backup,
   conector Cloudflare e releases assinadas do Blindou;
@@ -67,7 +72,35 @@ e negar retomada quando houver workload SaferWPP. O futuro
 `saferwpp-deployctl` deverá negar ativação enquanto o APIWPP não estiver
 suspenso e verificado. Cada transição usa lock, release/ação assinada, auditoria,
 verificação negativa do outro lado e rollback. Enquanto esses controles não
-existirem, a alternância falha fechada e nenhuma operação SaferWPP é autorizada.
+estiverem instalados e verificados no host, a alternância falha fechada e
+nenhuma operação SaferWPP é autorizada.
+
+A fonte de verdade compartilhada é o arquivo regular `root:root` `0600`
+`/var/lib/servidor-local/secondary-slot/state`, escrito atomicamente somente por
+`secondary-slotctl`. O contrato possui sete campos em ordem fixa: schema, slot,
+generation, ocupante ativo, contagens APIWPP/SaferWPP e timestamp com offset. O
+lock global é `/run/lock/servidor-local-secondary-slot.lock`.
+
+O gate Kubernetes usa `ValidatingAdmissionPolicy` com `failurePolicy: Fail` e
+exige que o recurso instalado coincida com o manifesto fixo pertencente a root.
+Ele nega
+Deployment, StatefulSet, DaemonSet, ReplicaSet,
+ReplicationController, Job, CronJob ou Pod que tente executar em namespace
+membro inativo ou sem estado. A reserva root-only atualiza o atestado antes de
+abrir os namespaces do novo ocupante. Estados ausentes, inseguros, divergentes,
+parciais ou com os dois lados ativos não liberam nenhum membro.
+
+A reconciliação explícita recompõe a admissão pelo manifesto fixo, observa o
+runtime e só publica APIWPP, SaferWPP ou `none` quando o resultado é inequívoco.
+Runtime ambíguo permanece bloqueado e gera auditoria,
+métrica e evento no outbox operacional. Falhas resolvidas continuam no
+histórico JSONL para futura ingestão pela ferramenta administrativa; auditoria
+e outbox mantêm o arquivo atual e até cinco rotações locais limitadas a 16 MiB
+cada, enquanto o histórico mantém no máximo 256 atestados e um estado compacto
+root-only preserva apenas os IDs não resolvidos para a coleta de métricas. Antes
+e depois de cada transição, o controlador verifica saúde e fingerprint estável
+do Blindou, sem invocar seu controlador sob o lock global e sem alterar qualquer
+recurso Blindou.
 
 Cada repositório de aplicação possui `README-SERVIDOR-LOCAL.md` e uma referência
 obrigatória em `AGENTS.md`. O guia define ownership, comandos permitidos,
