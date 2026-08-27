@@ -225,21 +225,22 @@ Estado D024/D052/D053 concluído em 2026-08-27:
 
 Próxima ação exata, ainda dependente de autorizações próprias:
 
-1. seguir D020 com Marketplaces: Amazon está configurada e validada; Mercado
-   Livre depende da extensão Blindou publicada e de seus parâmetros próprios,
-   Shopee depende de AppID/App Secret aprovados entregues por canal protegido e
-   Magazine Luiza depende do identificador comercial do cliente;
-2. quando houver decisão explícita de compra live, validar tokenização direta,
+1. publicar a release Blindou compatível com D026 e, sem migration, executar a
+   ativação fechada da Shopee; AppID/App Secret serão informados depois,
+   diretamente em `/marketplaces`, e testados com um produto ativo;
+2. Mercado Livre depende da extensão Blindou publicada e de seus parâmetros
+   próprios; Magazine Luiza depende do identificador comercial do cliente;
+3. quando houver decisão explícita de compra live, validar tokenização direta,
    assinatura, webhook, reconciliação e cancelamento
    sem PAN/CVV na API, logs ou banco;
-3. somente depois dos marketplaces, seguir com UAZAPI/Resend;
-4. manter a cota global da aplicação em 90 custom hostnames e monitorar a
+4. somente depois dos marketplaces, seguir com UAZAPI/Resend;
+5. manter a cota global da aplicação em 90 custom hostnames e monitorar a
    origem de fallback e o domínio já ativo sem criar hostname adicional.
 
 ## Fase 2E - Primeira release e capacidade do Blindou
 
-Status: a release `d5766d87a0cf5ba1d5827fa35e8e6a0cac801185` está aplicada
-com nove migrations, todos os workloads Ready, aplicação e EDGE em `passed`,
+Status: a release `11e21b3319c197ef18440e7f494290b298f2db1e` está aplicada
+com 12 migrations, todos os workloads Ready, aplicação e EDGE em `passed`,
 Tunnel e R2 saudáveis e backup `blindou-20260825T092915Z` confirmado offsite.
 O gate de atualização foi corrigido para aceitar EDGE `passed` somente quando
 há um ponteiro seguro de release corrente; a primeira instalação continua

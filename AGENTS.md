@@ -33,6 +33,11 @@
   credencial.
 - Preservar alterações do usuário nos repositórios irmãos. Mudança em outro
   repositório exige escopo explícito e commit separado.
+- Por D026, a ativação da Shopee usa operação fechada posterior ao deploy da
+  release compatível. O controlador gera somente a chave interna de cifra no
+  cofre root-only; AppID e App Secret pertencem ao tenant e entram diretamente
+  pelo painel Blindou. Pagar.me permanece ativo, e Mercado Livre, UAZAPI,
+  Resend e 2FA não são ativados por essa operação.
 
 ## Memória RAG obrigatória
 

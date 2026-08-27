@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-26",
+  "generated_at": "2026-08-27",
   "project": "servidor-local-compartilhado",
   "sources": [
     {
@@ -14,7 +14,7 @@
       "title": "Estado atual do laboratório",
       "canon_path": "memory/canon/estado-atual.md",
       "status": "canonical",
-      "tags": ["D024", "estado", "host", "k3s", "backup", "seguranca", "pages", "linker", "redirector", "postgresql", "rls"]
+      "tags": ["D024", "D025", "D026", "estado", "host", "k3s", "backup", "seguranca", "pages", "linker", "redirector", "postgresql", "rls", "Shopee"]
     },
     {
       "source_id": "arquitetura-plataforma",
@@ -28,21 +28,21 @@
       "title": "Plano de implementação da plataforma",
       "canon_path": "memory/canon/plano-implementacao.md",
       "status": "canonical",
-      "tags": ["D024", "plano", "fase", "proximo-passo", "aceite", "rollback", "ghcr", "pages", "linker", "migration-0012"]
+      "tags": ["D024", "D026", "plano", "fase", "proximo-passo", "aceite", "rollback", "ghcr", "pages", "linker", "migration-0012", "Shopee"]
     },
     {
       "source_id": "historico-execucao",
       "title": "Histórico de execução",
       "canon_path": "memory/canon/historico-execucao.md",
       "status": "canonical",
-      "tags": ["D024", "historico", "executado", "evidencia", "resultado", "redirector", "postgresql"]
+      "tags": ["D024", "D026", "historico", "executado", "evidencia", "resultado", "redirector", "postgresql", "Shopee"]
     },
     {
       "source_id": "decisoes",
       "title": "Decisões da plataforma local",
       "canon_path": "memory/canon/decisoes.md",
       "status": "canonical",
-      "tags": ["D024", "decisao", "pendencia", "alerta", "borda-publica", "ghcr", "github-actions", "cloudflare-pages", "automatic-deployment", "redirector", "rls", "menor-privilegio"]
+      "tags": ["D024", "D025", "D026", "decisao", "pendencia", "alerta", "borda-publica", "ghcr", "github-actions", "cloudflare-pages", "automatic-deployment", "redirector", "rls", "menor-privilegio", "Shopee"]
     }
   ]
 }

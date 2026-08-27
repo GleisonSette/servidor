@@ -44,6 +44,10 @@ SaferWPP continua vazio e o Blindou permanece ativo.
 - Por D025, o `.env` ignorado da estação será retido até a entrada do primeiro
   cliente. Somente o helper fechado pode ler `KEY_SERVIDOR` em memória para os
   dois bootstraps permitidos; o valor não foi aberto, exibido ou indexado.
+- D026 está preparada somente no repositório: o controlador ganhou ativação
+  Shopee posterior ao deploy, com chave interna root-only, compatibilidade da
+  release, journal, rollback, probes, recibo, status e métrica. Nada dessa etapa
+  foi instalado ou ativado no host neste estado registrado.
 
 ## Auditoria viva de capacidade em 2026-08-26
 

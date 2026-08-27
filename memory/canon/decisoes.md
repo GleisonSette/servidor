@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-decisoes
   source_path: memory/canon/decisoes.md
   generated_from: decisões do usuário e limites observados do laboratório
-  updated_at: 2026-08-26
+  updated_at: 2026-08-27
   status: canonical
 
 ## Resolvida D001 - Projetos admitidos pela plataforma
@@ -444,3 +444,24 @@ log, resposta, argumento, variável de ambiente, Git, RAG, comando livre, outro
 host ou outro projeto continuam proibidos. Na entrada do primeiro cliente, ou
 antes diante de suspeita de exposição, o arquivo deve ser removido e a
 credencial rotacionada.
+
+## Resolvida D026 - Ativação fechada da Shopee após release compatível
+
+Em 2026-08-27, o usuário autorizou prosseguir com Marketplaces depois do link
+Amazon validado. A primeira ativação adicional é a Shopee Open API. O deploy da
+aplicação e a ativação do provider são operações separadas: a release entra com
+Shopee desligada e deve marcar backend e exatamente 16 workers como
+`blindou.io/marketplaces-compatible=true`.
+
+O controlador aceita ativar somente o SHA corrente, com aplicação e EDGE em
+`passed` e recibo Pagar.me íntegro. Ele gera uma chave aleatória de 32 bytes em
+Base64 no cofre root-only, materializa somente a configuração e o Secret
+necessários, reinicia backend/workers, aguarda as probes e grava recibo seguro.
+Journal durável permite recuperar interrupção; falha restaura configuração,
+Secret e workloads anteriores e remove a chave recém-gerada.
+
+AppID e App Secret não entram na plataforma administrativa. Eles pertencem ao
+tenant e são informados pelo usuário diretamente no painel Blindou, junto de um
+produto ativo usado para validar a geração oficial antes da persistência
+cifrada. Pagar.me permanece ativo; Mercado Livre, UAZAPI, Resend e 2FA não são
+ativados por D026. Não há migration.

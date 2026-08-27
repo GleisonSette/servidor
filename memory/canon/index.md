@@ -51,6 +51,11 @@ corpus por padrão.
   em `go.guiadoconsumo.com` redirecionou preservando o identificador de
   afiliado, registrou Analytics e códigos desconhecidos continuaram em 404.
   Pagar.me permaneceu ativo; UAZAPI e Resend continuam adiados.
+- D026 prepara, ainda sem instalação no host, a ativação separada da Shopee
+  Open API. A release compatível entra com a flag desligada; depois o
+  controlador gera a chave interna root-only e só conclui após backend e 16
+  workers passarem nas probes. Credenciais do tenant entram pelo painel, não
+  pelo servidor administrativo.
 - A auditoria viva de 2026-08-26 aprovou somente a continuidade do planejamento
   de hardware. O PostgreSQL real possui teto 50 e pico de 48 backends, por isso
   reprovou o orçamento SaferWPP de dez conexões runtime mais duas de migration.

@@ -10,6 +10,7 @@ readonly R2_RUNTIME_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouR2Runtim
 readonly PAGARME_CREDENTIAL_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouPagarmeCredential.ps1"
 readonly PAGARME_ACTIVATION_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouPagarmeActivation.ps1"
 readonly PAGARME_PLANS_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouPagarmePlans.ps1"
+readonly MARKETPLACES_ACTIVATION_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouMarketplacesActivation.ps1"
 readonly PAGARME_PLAN_PROVISIONER="${REMOTE_DIR}/blindou-pagarme-plans.py"
 readonly EMERGENCY_CONTROLLER="${REMOTE_DIR}/blindou-release-emergencyctl"
 
@@ -32,6 +33,8 @@ fail() {
   || fail 'orquestrador fechado da ativação Pagar.me ausente ou simbólico'
 [[ -f "$PAGARME_PLANS_SCRIPT" && ! -L "$PAGARME_PLANS_SCRIPT" ]] \
   || fail 'executor fechado dos planos Pagar.me ausente ou simbólico'
+[[ -f "$MARKETPLACES_ACTIVATION_SCRIPT" && ! -L "$MARKETPLACES_ACTIVATION_SCRIPT" ]] \
+  || fail 'orquestrador fechado da ativação de Marketplaces ausente ou simbólico'
 [[ -f "$PAGARME_PLAN_PROVISIONER" && ! -L "$PAGARME_PLAN_PROVISIONER" ]] \
   || fail 'provisionador root-only dos planos Pagar.me ausente ou simbólico'
 python3 "$PAGARME_PLAN_PROVISIONER" --mode self-test >/dev/null
@@ -217,10 +220,11 @@ grep -Fq '"PUT",' "$PAGARME_PLAN_PROVISIONER" \
 for powershell_script in \
   "$PAGARME_CREDENTIAL_SCRIPT" \
   "$PAGARME_PLANS_SCRIPT" \
-  "$PAGARME_ACTIVATION_SCRIPT"; do
+  "$PAGARME_ACTIVATION_SCRIPT" \
+  "$MARKETPLACES_ACTIVATION_SCRIPT"; do
   bom="$(od -An -tx1 -N3 "$powershell_script" | tr -d ' \n')"
   [[ "$bom" == 'efbbbf' ]] \
-    || fail "script Pagar.me não possui UTF-8 BOM para Windows PowerShell 5.1: ${powershell_script}"
+    || fail "script administrativo não possui UTF-8 BOM para Windows PowerShell 5.1: ${powershell_script}"
 done
 grep -Fq "[ValidatePattern('^[0-9a-f]{40}$')]" "$PAGARME_ACTIVATION_SCRIPT" \
   || fail 'ativação Pagar.me não fixa o SHA completo da release'
@@ -232,6 +236,18 @@ grep -Fq 'verify-pagarme-credential' "$PAGARME_ACTIVATION_SCRIPT" \
   || fail 'ativação Pagar.me não valida a credencial antes da transição fechada'
 grep -Fq 'if ($exitCode -ne 2)' "$PAGARME_ACTIVATION_SCRIPT" \
   || fail 'retry da ativação Pagar.me não está restrito ao lock ocupado'
+grep -Fq "[ValidatePattern('^[0-9a-f]{40}$')]" "$MARKETPLACES_ACTIVATION_SCRIPT" \
+  && grep -Fq '[switch]$ConfirmActivation' "$MARKETPLACES_ACTIVATION_SCRIPT" \
+  || fail 'ativação de Marketplaces não exige SHA completo e autorização explícita'
+grep -Fq 'activate-marketplaces-runtime $ReleaseId blindou-marketplaces-runtime' \
+  "$MARKETPLACES_ACTIVATION_SCRIPT" \
+  && grep -Fq 'verify-marketplaces-runtime' "$MARKETPLACES_ACTIVATION_SCRIPT" \
+  || fail 'ativação de Marketplaces não usa as interfaces fechadas do controlador'
+grep -Fq 'if ($exitCode -ne 2)' "$MARKETPLACES_ACTIVATION_SCRIPT" \
+  || fail 'retry da ativação de Marketplaces não está restrito ao lock ocupado'
+if grep -Fq 'Read-Host' "$MARKETPLACES_ACTIVATION_SCRIPT"; then
+  fail 'ativação de Marketplaces não pode receber credenciais do tenant no terminal'
+fi
 for orchestrator in \
   Invoke-BlindouCloudflareConnector.ps1 \
   Invoke-BlindouCloudflareSaasToken.ps1 \
@@ -427,9 +443,9 @@ ui_review_config_line="$(grep -nF 'write_ui_review_runtime_config' \
 [[ "$ui_review_dir_line" =~ ^[0-9]+$ && "$ui_review_config_line" =~ ^[0-9]+$ \
   && "$ui_review_dir_line" -lt "$ui_review_config_line" ]] \
   || fail 'cofre da revisão da UI não precede a gravação de production.env'
-grep -Fq 'write_deferred_provider_runtime_config true false' \
+grep -Fq 'write_deferred_provider_runtime_config true false false' \
   "${REMOTE_DIR}/blindou-deployctl" \
-  || fail 'runtime fechado não declara PAGARME_ENABLED=false explicitamente'
+  || fail 'runtime fechado não declara Pagar.me e Shopee desabilitados explicitamente'
 if grep -Fq 'PAGARME_SECRET_DIR' <<<"$ui_review_runtime_function"; then
   fail 'runtime fechado não pode recusar o cofre Pagar.me dedicado e ainda inativo'
 fi
@@ -664,6 +680,39 @@ grep -Fq 'provision-pagarme-credential blindou-pagarme-credential' \
 grep -Fq 'blindou.io/pagarme-first-compatible' \
   "${REMOTE_DIR}/blindou-release-verify.py" \
   || fail 'release assinada não exige marcador de compatibilidade Pagar.me-first'
+grep -Fq 'blindou.io/marketplaces-compatible' \
+  "${REMOTE_DIR}/blindou-release-verify.py" \
+  || fail 'release assinada não exige marcador de compatibilidade com Marketplaces'
+grep -Fq 'activate-marketplaces-runtime)' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'verify-marketplaces-runtime)' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'current_release_is_marketplaces_compatible "$release_id"' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'operações fechadas de Marketplaces ou gate de compatibilidade ausentes'
+grep -Fq 'SHOPEE_OPEN_API_CREDENTIAL_ENCRYPTION_KEY' \
+  "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'ensure_random_base64_key SHOPEE_OPEN_API_CREDENTIAL_ENCRYPTION_KEY' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'SHOPEE_OPEN_API_ENABLED=true' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'runtime Shopee não materializa chave interna e feature flag fechadas'
+grep -Fq 'MARKETPLACES_RUNTIME_ROLLBACK_CONFIG' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'configuração, segredo e workloads anteriores foram restaurados' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'ativação de Marketplaces não possui journal e rollback automático'
+grep -Fq 'cached_release_is_marketplaces_compatible "$release_id"' \
+  "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'rollback recusado: Shopee ativa exige release compatível' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'rollback não bloqueia release incompatível depois da ativação Shopee'
+grep -Fq 'blindou_shopee_open_api_runtime_ready' \
+  "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'marketplaces_runtime_state=shopee_ready_for_tenant_credentials' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'observabilidade segura do runtime Shopee está ausente'
+grep -Fq 'activate-marketplaces-runtime * blindou-marketplaces-runtime' \
+  "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  && grep -Fq 'verify-marketplaces-runtime' \
+    "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  || fail 'sudoers não limita Marketplaces ao contrato fechado'
 grep -Fq 'controlador permaneceu ocupado por um minuto após o bootstrap' \
   "${REMOTE_DIR}/bootstrap-blindou-deployctl.sh" \
   || fail 'bootstrap do controlador não trata contenção do coletor de métricas'

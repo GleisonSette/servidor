@@ -47,6 +47,8 @@ readonly PAGARME_PLANS_RECEIPT="${STATE_ROOT}/pagarme-plans.json"
 readonly PAGARME_VERIFICATION_RECEIPT="${STATE_ROOT}/pagarme-credential.state"
 readonly PAGARME_RUNTIME_RECEIPT="${STATE_ROOT}/pagarme-runtime.state"
 readonly PAGARME_RUNTIME_ROLLBACK_CONFIG="${STATE_ROOT}/pagarme-runtime.rollback.env"
+readonly MARKETPLACES_RUNTIME_RECEIPT="${STATE_ROOT}/marketplaces-runtime.state"
+readonly MARKETPLACES_RUNTIME_ROLLBACK_CONFIG="${STATE_ROOT}/marketplaces-runtime.rollback.env"
 readonly DATABASE_SECRET_DIR="${DATA_ROOT}/database"
 readonly DATABASE_CREDENTIALS="${DATABASE_SECRET_DIR}/credentials.env"
 readonly CLIENT_CA_DIR="${DATA_ROOT}/postgres-ca"
@@ -84,6 +86,7 @@ readonly PAGARME_CREDENTIAL_CONFIRMATION='blindou-pagarme-credential'
 readonly PAGARME_WEBHOOK_ROTATION_CONFIRMATION='blindou-pagarme-webhook-rotation'
 readonly PAGARME_PLANS_CONFIRMATION='blindou-pagarme-plans'
 readonly PAGARME_RUNTIME_CONFIRMATION='blindou-pagarme-runtime'
+readonly MARKETPLACES_RUNTIME_CONFIRMATION='blindou-marketplaces-runtime'
 readonly DATA_CONFIRMATION='blindou-data-foundation'
 readonly DATA_ROLLBACK_CONFIRMATION='blindou-empty-data-foundation'
 readonly BACKUP_CONFIRMATION='blindou-database-backup'
@@ -125,6 +128,8 @@ cleanup() {
        "${PAGARME_VERIFICATION_RECEIPT}.tmp"|"${PAGARME_PLANS_RECEIPT}.tmp."*|\
        "${PAGARME_RUNTIME_RECEIPT}.tmp"|\
       "${PAGARME_RUNTIME_ROLLBACK_CONFIG}.tmp"|\
+      "${MARKETPLACES_RUNTIME_RECEIPT}.tmp"|\
+      "${MARKETPLACES_RUNTIME_ROLLBACK_CONFIG}.tmp"|\
       /var/tmp/blindou-ghcr-headers.*|\
       "${GHCR_PULL_PROOF_ROOT}"/.tmp.*|\
       "${GHCR_PULL_PROOF_LATEST}.tmp."*|\
@@ -1180,6 +1185,20 @@ pagarme_runtime_receipt_is_secure() {
       "$PAGARME_RUNTIME_RECEIPT"
 }
 
+marketplaces_runtime_receipt_is_secure() {
+  [[ -f "$MARKETPLACES_RUNTIME_RECEIPT" \
+      && ! -L "$MARKETPLACES_RUNTIME_RECEIPT" \
+      && "$(stat -c '%U:%G:%a' "$MARKETPLACES_RUNTIME_RECEIPT" 2>/dev/null)" == 'root:root:600' \
+      && "$(wc -l <"$MARKETPLACES_RUNTIME_RECEIPT")" == '5' ]] \
+    || return 1
+  grep -Fxq 'schema=1' "$MARKETPLACES_RUNTIME_RECEIPT" \
+    && grep -Fxq 'feature=shopee-open-api' "$MARKETPLACES_RUNTIME_RECEIPT" \
+    && grep -Fxq 'state=ready-for-tenant-credentials' "$MARKETPLACES_RUNTIME_RECEIPT" \
+    && grep -Eq '^release_id=[0-9a-f]{40}$' "$MARKETPLACES_RUNTIME_RECEIPT" \
+    && grep -Eq '^activated_at_utc=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' \
+      "$MARKETPLACES_RUNTIME_RECEIPT"
+}
+
 verify_pagarme_credential() {
   require_platform_preconditions
   pagarme_credential_files_are_secure \
@@ -1988,6 +2007,12 @@ runtime_secret_file_is_secure() {
     && "$(stat -c '%U:%G:%a' "$path")" == 'root:root:600' ]]
 }
 
+shopee_encryption_key_is_secure() {
+  local key_file="${RUNTIME_SECRET_DIR}/SHOPEE_OPEN_API_CREDENTIAL_ENCRYPTION_KEY"
+  runtime_secret_file_is_secure "$key_file" \
+    && [[ "$(base64 -d <"$key_file" 2>/dev/null | wc -c)" == '32' ]]
+}
+
 write_runtime_value_to_path() {
   local path="$1" value="$2" temporary
   temporary="$(mktemp "${path}.tmp.XXXXXX")"
@@ -2308,6 +2333,15 @@ ML_CONNECTOR_BASE_URL=http://blindou-ml-affiliate-connector:8095
 ML_CONNECTOR_BIND_ADDR=0.0.0.0:8095
 ML_OFFICIAL_LINKS_ENABLED=false
 ML_EXTENSION_ENABLED=false
+SHOPEE_OPEN_API_ENABLED=true
+SHOPEE_OPEN_API_ENDPOINT=https://open-api.affiliate.shopee.com.br/graphql
+SHOPEE_OPEN_API_TIMEOUT_SECS=10
+SHOPEE_OPEN_API_MAX_RETRIES=2
+SHOPEE_OPEN_API_CREDENTIAL_KEY_ID=shopee-open-api-key-v1
+SHOPEE_OPEN_API_RATE_LIMIT_PER_TENANT_PER_MIN=60
+SHOPEE_OPEN_API_RATE_LIMIT_GLOBAL_PER_MIN=120
+SHOPEE_OPEN_API_CIRCUIT_FAILURE_THRESHOLD=5
+SHOPEE_OPEN_API_CIRCUIT_OPEN_SECS=120
 AUTH_REQUIRE_2FA=false
 EMAIL_PROVIDER=resend
 EMAIL_FROM_EMAIL=${email_from}
@@ -2336,9 +2370,10 @@ EOF
 }
 
 write_deferred_provider_runtime_config() {
-  local initial_ui_review_mode="$1" pagarme_enabled="$2"
+  local initial_ui_review_mode="$1" pagarme_enabled="$2" shopee_enabled="$3"
   [[ "$initial_ui_review_mode" =~ ^(true|false)$ \
-      && "$pagarme_enabled" =~ ^(true|false)$ ]] \
+      && "$pagarme_enabled" =~ ^(true|false)$ \
+      && "$shopee_enabled" =~ ^(true|false)$ ]] \
     || fail 'modo de runtime externo inválido'
   cat >"${RUNTIME_CONFIG_FILE}.tmp" <<EOF
 RUST_ENV=production
@@ -2393,6 +2428,15 @@ ML_CONNECTOR_BASE_URL=http://blindou-ml-affiliate-connector:8095
 ML_CONNECTOR_BIND_ADDR=0.0.0.0:8095
 ML_OFFICIAL_LINKS_ENABLED=false
 ML_EXTENSION_ENABLED=false
+SHOPEE_OPEN_API_ENABLED=${shopee_enabled}
+SHOPEE_OPEN_API_ENDPOINT=https://open-api.affiliate.shopee.com.br/graphql
+SHOPEE_OPEN_API_TIMEOUT_SECS=10
+SHOPEE_OPEN_API_MAX_RETRIES=2
+SHOPEE_OPEN_API_CREDENTIAL_KEY_ID=shopee-open-api-key-v1
+SHOPEE_OPEN_API_RATE_LIMIT_PER_TENANT_PER_MIN=60
+SHOPEE_OPEN_API_RATE_LIMIT_GLOBAL_PER_MIN=120
+SHOPEE_OPEN_API_CIRCUIT_FAILURE_THRESHOLD=5
+SHOPEE_OPEN_API_CIRCUIT_OPEN_SECS=120
 AUTH_REQUIRE_2FA=false
 EMAIL_PROVIDER=disabled
 WORKER_ROUTED_QUEUES_ENABLED=true
@@ -2418,11 +2462,15 @@ EOF
 }
 
 write_ui_review_runtime_config() {
-  write_deferred_provider_runtime_config true false
+  write_deferred_provider_runtime_config true false false
 }
 
 write_pagarme_first_runtime_config() {
-  write_deferred_provider_runtime_config false true
+  write_deferred_provider_runtime_config false true false
+}
+
+write_marketplaces_runtime_config() {
+  write_deferred_provider_runtime_config false true true
 }
 
 create_runtime_kubernetes_material() {
@@ -2461,6 +2509,13 @@ create_runtime_kubernetes_material() {
     core_secret_args+=(
       --from-file=PAGARME_SECRET_KEY="$PAGARME_SECRET_KEY_FILE"
       --from-file=PAGARME_WEBHOOK_SECRET="$PAGARME_WEBHOOK_SECRET_FILE"
+    )
+  fi
+  if grep -Fxq 'SHOPEE_OPEN_API_ENABLED=true' "$RUNTIME_CONFIG_FILE"; then
+    shopee_encryption_key_is_secure \
+      || fail 'Shopee Open API está habilitada sem chave de cifra segura no cofre root-only'
+    core_secret_args+=(
+      --from-file=SHOPEE_OPEN_API_CREDENTIAL_ENCRYPTION_KEY="${RUNTIME_SECRET_DIR}/SHOPEE_OPEN_API_CREDENTIAL_ENCRYPTION_KEY"
     )
   fi
   kube -n "$APP_NAMESPACE" create secret generic blindou-core-secrets \
@@ -2557,6 +2612,21 @@ verify_runtime_material() {
     [[ ! -e "${RUNTIME_SECRET_DIR}/${misplaced_key}" ]] \
       || fail "${misplaced_key} deve permanecer somente no cofre Pagar.me dedicado"
   done
+  if grep -Fxq 'SHOPEE_OPEN_API_ENABLED=true' "$RUNTIME_CONFIG_FILE"; then
+    shopee_encryption_key_is_secure \
+      || fail 'Shopee Open API foi habilitada sem chave de cifra segura no cofre root-only'
+    secret_has_keys "$APP_NAMESPACE" blindou-core-secrets \
+      SHOPEE_OPEN_API_CREDENTIAL_ENCRYPTION_KEY
+  else
+    if grep -q '^SHOPEE_OPEN_API_ENABLED=' "$RUNTIME_CONFIG_FILE"; then
+      grep -Fxq 'SHOPEE_OPEN_API_ENABLED=false' "$RUNTIME_CONFIG_FILE" \
+        || fail 'SHOPEE_OPEN_API_ENABLED deve declarar true ou false'
+    fi
+    ! grep -Fxq SHOPEE_OPEN_API_CREDENTIAL_ENCRYPTION_KEY <<<"$core_keys" \
+      || fail 'chave de cifra Shopee apareceu com a Open API desabilitada'
+    [[ ! -e "${RUNTIME_SECRET_DIR}/SHOPEE_OPEN_API_CREDENTIAL_ENCRYPTION_KEY" ]] \
+      || fail 'chave de cifra Shopee apareceu no cofre com a Open API desabilitada'
+  fi
   if grep -Fxq 'INITIAL_UI_REVIEW_MODE=true' "$RUNTIME_CONFIG_FILE"; then
     grep -Fxq 'UAZAPI_ENABLED=false' "$RUNTIME_CONFIG_FILE" \
       && grep -Fxq 'EMAIL_PROVIDER=disabled' "$RUNTIME_CONFIG_FILE" \
@@ -2608,6 +2678,9 @@ prepare_internal_runtime_material() {
     ML_SESSION_ENCRYPTION_KEY; do
     ensure_random_base64_key "$name"
   done
+  if grep -Fxq 'SHOPEE_OPEN_API_ENABLED=true' "$RUNTIME_CONFIG_FILE"; then
+    ensure_random_base64_key SHOPEE_OPEN_API_CREDENTIAL_ENCRYPTION_KEY
+  fi
   cleanup_paths+=("${RUNTIME_SECRET_DIR}/users.acl.tmp")
   printf 'user default on >%s ~* &* +@all' \
     "$(<"${RUNTIME_SECRET_DIR}/REDIS_PASSWORD")" >"${RUNTIME_SECRET_DIR}/users.acl.tmp"
@@ -2725,6 +2798,44 @@ current_release_is_pagarme_compatible() {
   ' <<<"$worker_json" >/dev/null
 }
 
+current_release_is_marketplaces_compatible() {
+  local release_id="$1" worker_json
+  [[ "$release_id" =~ $RELEASE_PATTERN \
+      && -f "$CURRENT_RELEASE" \
+      && ! -L "$CURRENT_RELEASE" \
+      && "$(stat -c '%U:%G:%a' "$CURRENT_RELEASE")" == 'root:root:600' \
+      && "$(<"$CURRENT_RELEASE")" == "$release_id" ]] \
+    || return 1
+  [[ "$(kube -n "$APP_NAMESPACE" get deployment blindou-backend \
+      -o jsonpath='{.spec.template.metadata.annotations.blindou\.io/marketplaces-compatible}')" == 'true' \
+      && "$(kube -n "$APP_NAMESPACE" get deployment blindou-backend \
+      -o jsonpath='{.spec.template.metadata.annotations.blindou\.io/release}')" == "$release_id" ]] \
+    || return 1
+  worker_json="$(kube -n "$APP_NAMESPACE" get deployment \
+    -l blindou.io/tier=worker -o json)" || return 1
+  jq -e --arg release_id "$release_id" '
+    (.items | length) == 16
+    and all(.items[];
+      .spec.template.metadata.annotations["blindou.io/marketplaces-compatible"] == "true"
+      and .spec.template.metadata.annotations["blindou.io/release"] == $release_id
+    )
+  ' <<<"$worker_json" >/dev/null
+}
+
+cached_release_is_marketplaces_compatible() {
+  local release_id="$1" rendered="${RELEASE_CACHE}/${release_id}/rendered"
+  local worker_count
+  [[ "$release_id" =~ $RELEASE_PATTERN \
+      && -d "$rendered" \
+      && ! -L "$rendered" \
+      && "$(grep -Fc 'blindou.io/marketplaces-compatible: "true"' \
+        "${rendered}/40-workloads.yaml")" == '1' ]] \
+    || return 1
+  worker_count="$(grep -Fl 'blindou.io/marketplaces-compatible: "true"' \
+    "${rendered}"/workers/*.yaml | wc -l)"
+  [[ "$worker_count" == '16' ]]
+}
+
 restart_pagarme_consumers() {
   local -a deployments=()
   mapfile -t deployments < <(
@@ -2732,7 +2843,7 @@ restart_pagarme_consumers() {
       -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | sort
   )
   [[ "${#deployments[@]}" -eq 16 ]] \
-    || fail 'ativação Pagar.me exige exatamente os 16 workers contínuos'
+    || fail 'ativação de provedor externo exige exatamente os 16 workers contínuos'
   kube -n "$APP_NAMESPACE" rollout restart deployment/blindou-backend >/dev/null
   local deployment
   for deployment in "${deployments[@]}"; do
@@ -2847,6 +2958,139 @@ activate_pagarme_runtime() {
   rm -f -- "${PAGARME_RUNTIME_RECEIPT}.tmp"
   rm -f -- "$PAGARME_RUNTIME_ROLLBACK_CONFIG"
   pass "Pagar.me ativado na release compatível ${release_id}; UAZAPI e Resend permanecem ausentes"
+}
+
+verify_marketplaces_runtime() {
+  require_platform_preconditions
+  [[ "$(namespace_label "$APP_NAMESPACE" 'platform\.servidor\.local/deployment-gate')" == 'passed' \
+      && "$(namespace_label "$EDGE_NAMESPACE" 'platform\.servidor\.local/deployment-gate')" == 'passed' ]] \
+    || fail 'verificação de Marketplaces exige aplicação e EDGE em passed'
+  [[ -f "$CURRENT_RELEASE" && ! -L "$CURRENT_RELEASE" \
+      && "$(stat -c '%U:%G:%a' "$CURRENT_RELEASE")" == 'root:root:600' ]] \
+    || fail 'release corrente ausente ou insegura'
+  local release_id
+  release_id="$(<"$CURRENT_RELEASE")"
+  current_release_is_marketplaces_compatible "$release_id" \
+    || fail 'release corrente não declara compatibilidade com Marketplaces'
+  marketplaces_runtime_receipt_is_secure \
+    || fail 'recibo de ativação da Shopee está ausente ou inseguro'
+  grep -Fxq 'PAGARME_ENABLED=true' "$RUNTIME_CONFIG_FILE" \
+    && grep -Fxq 'SHOPEE_OPEN_API_ENABLED=true' "$RUNTIME_CONFIG_FILE" \
+    && grep -Fxq 'UAZAPI_ENABLED=false' "$RUNTIME_CONFIG_FILE" \
+    && grep -Fxq 'EMAIL_PROVIDER=disabled' "$RUNTIME_CONFIG_FILE" \
+    || fail 'runtime de Marketplaces diverge do rollout autorizado'
+  verify_runtime_material >/dev/null
+  pass "Shopee Open API pronta para credenciais por tenant na release ${release_id}"
+}
+
+activate_marketplaces_runtime() {
+  local release_id="$1" confirmation="$2" activation_status rollback_status
+  local shopee_key_file="${RUNTIME_SECRET_DIR}/SHOPEE_OPEN_API_CREDENTIAL_ENCRYPTION_KEY"
+  [[ "$confirmation" == "$MARKETPLACES_RUNTIME_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${MARKETPLACES_RUNTIME_CONFIRMATION}"
+  [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id de Marketplaces inválido'
+  require_platform_preconditions
+  [[ "$(namespace_label "$APP_NAMESPACE" 'platform\.servidor\.local/deployment-gate')" == 'passed' \
+      && "$(namespace_label "$EDGE_NAMESPACE" 'platform\.servidor\.local/deployment-gate')" == 'passed' ]] \
+    || fail 'ativação de Marketplaces exige aplicação e EDGE em passed'
+  current_release_is_marketplaces_compatible "$release_id" \
+    || fail 'release corrente não declara compatibilidade com Marketplaces'
+  pagarme_runtime_receipt_is_secure \
+    || fail 'ativação de Marketplaces exige o runtime Pagar.me já ativo'
+
+  if marketplaces_runtime_receipt_is_secure \
+      && grep -Fxq 'SHOPEE_OPEN_API_ENABLED=true' "$RUNTIME_CONFIG_FILE"; then
+    verify_runtime_material >/dev/null
+    if [[ -e "$MARKETPLACES_RUNTIME_ROLLBACK_CONFIG" \
+        || -L "$MARKETPLACES_RUNTIME_ROLLBACK_CONFIG" ]]; then
+      runtime_secret_file_is_secure "$MARKETPLACES_RUNTIME_ROLLBACK_CONFIG" \
+        || fail 'journal residual de Marketplaces está inseguro; remoção automática recusada'
+      rm -f -- "$MARKETPLACES_RUNTIME_ROLLBACK_CONFIG"
+    fi
+    pass "Shopee Open API já está pronta na release ${release_id}"
+    return
+  fi
+
+  if [[ -e "$MARKETPLACES_RUNTIME_ROLLBACK_CONFIG" \
+      || -L "$MARKETPLACES_RUNTIME_ROLLBACK_CONFIG" ]]; then
+    runtime_secret_file_is_secure "$MARKETPLACES_RUNTIME_ROLLBACK_CONFIG" \
+      || fail 'ativação de Marketplaces interrompida deixou journal inseguro; recuperação recusada'
+    install -o root -g root -m 0600 \
+      "$MARKETPLACES_RUNTIME_ROLLBACK_CONFIG" "$RUNTIME_CONFIG_FILE"
+    rm -f -- "$shopee_key_file"
+    create_runtime_kubernetes_material
+    verify_runtime_material
+    restart_pagarme_consumers
+    rm -f -- "$MARKETPLACES_RUNTIME_ROLLBACK_CONFIG"
+  fi
+
+  grep -Fxq 'INITIAL_UI_REVIEW_MODE=false' "$RUNTIME_CONFIG_FILE" \
+    && grep -Fxq 'PAGARME_ENABLED=true' "$RUNTIME_CONFIG_FILE" \
+    && grep -Fxq 'UAZAPI_ENABLED=false' "$RUNTIME_CONFIG_FILE" \
+    && grep -Fxq 'EMAIL_PROVIDER=disabled' "$RUNTIME_CONFIG_FILE" \
+    || fail 'ativação de Marketplaces exige o rollout Pagar.me-first vigente'
+  if grep -q '^SHOPEE_OPEN_API_ENABLED=' "$RUNTIME_CONFIG_FILE"; then
+    grep -Fxq 'SHOPEE_OPEN_API_ENABLED=false' "$RUNTIME_CONFIG_FILE" \
+      || fail 'Shopee Open API já está em estado divergente do rollout esperado'
+  fi
+  verify_runtime_material >/dev/null
+
+  [[ ! -e "${MARKETPLACES_RUNTIME_ROLLBACK_CONFIG}.tmp" \
+      && ! -L "${MARKETPLACES_RUNTIME_ROLLBACK_CONFIG}.tmp" ]] \
+    || fail 'arquivo temporário inesperado no journal de Marketplaces'
+  install -o root -g root -m 0600 "$RUNTIME_CONFIG_FILE" \
+    "${MARKETPLACES_RUNTIME_ROLLBACK_CONFIG}.tmp"
+  cleanup_paths+=("${MARKETPLACES_RUNTIME_ROLLBACK_CONFIG}.tmp")
+  mv -- "${MARKETPLACES_RUNTIME_ROLLBACK_CONFIG}.tmp" \
+    "$MARKETPLACES_RUNTIME_ROLLBACK_CONFIG"
+  set +e
+  (
+    set -Eeuo pipefail
+    write_marketplaces_runtime_config
+    ensure_random_base64_key SHOPEE_OPEN_API_CREDENTIAL_ENCRYPTION_KEY
+    create_runtime_kubernetes_material
+    verify_runtime_material
+    restart_pagarme_consumers
+  )
+  activation_status=$?
+  set -e
+  if (( activation_status != 0 )); then
+    set +e
+    (
+      set -Eeuo pipefail
+      install -o root -g root -m 0600 \
+        "$MARKETPLACES_RUNTIME_ROLLBACK_CONFIG" "$RUNTIME_CONFIG_FILE"
+      rm -f -- "$shopee_key_file"
+      create_runtime_kubernetes_material
+      verify_runtime_material
+      restart_pagarme_consumers
+    )
+    rollback_status=$?
+    set -e
+    (( rollback_status == 0 )) \
+      || fail 'ativação de Marketplaces falhou e o rollback automático também falhou; journal preservado'
+    rm -f -- "$MARKETPLACES_RUNTIME_ROLLBACK_CONFIG"
+    fail 'ativação de Marketplaces falhou; configuração, segredo e workloads anteriores foram restaurados'
+  fi
+  if [[ -e "$MARKETPLACES_RUNTIME_RECEIPT" \
+      || -L "$MARKETPLACES_RUNTIME_RECEIPT" ]]; then
+    marketplaces_runtime_receipt_is_secure \
+      || fail 'recibo de ativação de Marketplaces existente está inseguro'
+  fi
+  [[ ! -e "${MARKETPLACES_RUNTIME_RECEIPT}.tmp" \
+      && ! -L "${MARKETPLACES_RUNTIME_RECEIPT}.tmp" ]] \
+    || fail 'arquivo temporário inesperado no recibo de ativação de Marketplaces'
+  {
+    printf 'schema=1\nfeature=shopee-open-api\nstate=ready-for-tenant-credentials\n'
+    printf 'release_id=%s\nactivated_at_utc=%s\n' \
+      "$release_id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } >"${MARKETPLACES_RUNTIME_RECEIPT}.tmp"
+  cleanup_paths+=("${MARKETPLACES_RUNTIME_RECEIPT}.tmp")
+  install -o root -g root -m 0600 \
+    "${MARKETPLACES_RUNTIME_RECEIPT}.tmp" "$MARKETPLACES_RUNTIME_RECEIPT"
+  rm -f -- "${MARKETPLACES_RUNTIME_RECEIPT}.tmp"
+  rm -f -- "$MARKETPLACES_RUNTIME_ROLLBACK_CONFIG"
+  pass "Shopee Open API pronta para credenciais por tenant na release ${release_id}; Pagar.me preservado e UAZAPI/Resend adiados"
 }
 
 confirm_alert_delivery() {
@@ -3101,6 +3345,11 @@ rollback_release() {
   [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
   local rendered="${RELEASE_CACHE}/${release_id}/rendered"
   [[ -d "$rendered" && ! -L "$rendered" ]] || fail 'release de rollback ausente do cache'
+  if marketplaces_runtime_receipt_is_secure \
+      && grep -Fxq 'SHOPEE_OPEN_API_ENABLED=true' "$RUNTIME_CONFIG_FILE"; then
+    cached_release_is_marketplaces_compatible "$release_id" \
+      || fail 'rollback recusado: Shopee ativa exige release compatível ou desativação reconciliada'
+  fi
   require_release_gates "$release_id"
   kube apply -f "$rendered/00-platform.yaml" >/dev/null
   kube apply -f "$rendered/10-services.yaml" >/dev/null
@@ -3162,7 +3411,7 @@ apply_release() {
 
 metrics() {
   require_root_and_host
-  local foundation=0 data=0 latest_backup=0 gate_app=0 gate_edge=0 cloudflare_saas_token=0 ghcr_pull_credential=0 ghcr_candidate_pull=0 r2_credential=0 pagarme_credential=0 pagarme_runtime=0
+  local foundation=0 data=0 latest_backup=0 gate_app=0 gate_edge=0 cloudflare_saas_token=0 ghcr_pull_credential=0 ghcr_candidate_pull=0 r2_credential=0 pagarme_credential=0 pagarme_runtime=0 marketplaces_runtime=0
   if ( verify_foundation >/dev/null 2>&1 ); then foundation=1; fi
   if ( verify_data_foundation >/dev/null 2>&1 ); then data=1; fi
   if [[ -f "${DATABASE_BACKUP_ROOT}/latest" ]]; then
@@ -3183,6 +3432,10 @@ metrics() {
   if pagarme_runtime_receipt_is_secure \
       && grep -Fxq 'PAGARME_ENABLED=true' "$RUNTIME_CONFIG_FILE"; then
     pagarme_runtime=1
+  fi
+  if marketplaces_runtime_receipt_is_secure \
+      && grep -Fxq 'SHOPEE_OPEN_API_ENABLED=true' "$RUNTIME_CONFIG_FILE"; then
+    marketplaces_runtime=1
   fi
   cat <<EOF
 # HELP blindou_platform_foundation_up Fundação Kubernetes bloqueada e íntegra.
@@ -3216,6 +3469,9 @@ blindou_pagarme_credential_secure ${pagarme_credential}
 # HELP blindou_pagarme_runtime_active Runtime Pagar.me foi ativado por operação fechada em release compatível.
 # TYPE blindou_pagarme_runtime_active gauge
 blindou_pagarme_runtime_active ${pagarme_runtime}
+# HELP blindou_shopee_open_api_runtime_ready Runtime Shopee está pronto para credenciais cifradas por tenant.
+# TYPE blindou_shopee_open_api_runtime_ready gauge
+blindou_shopee_open_api_runtime_ready ${marketplaces_runtime}
 EOF
 }
 
@@ -3308,6 +3564,12 @@ show_status() {
   else
     printf 'pagarme_runtime_state=inactive\n'
   fi
+  if marketplaces_runtime_receipt_is_secure \
+      && grep -Fxq 'SHOPEE_OPEN_API_ENABLED=true' "$RUNTIME_CONFIG_FILE"; then
+    printf 'marketplaces_runtime_state=shopee_ready_for_tenant_credentials\n'
+  else
+    printf 'marketplaces_runtime_state=inactive\n'
+  fi
   if [[ -f "$RUNTIME_CONFIG_FILE" && ! -L "$RUNTIME_CONFIG_FILE" ]]; then
     printf 'runtime_material=present\n'
   else
@@ -3361,6 +3623,10 @@ case "${1:-}" in
   verify-pagarme-plans)
     [[ $# -eq 1 ]] || fail 'uso: blindou-deployctl verify-pagarme-plans'
     verify_pagarme_plans
+    ;;
+  verify-marketplaces-runtime)
+    [[ $# -eq 1 ]] || fail 'uso: blindou-deployctl verify-marketplaces-runtime'
+    verify_marketplaces_runtime
     ;;
   verify-ghcr-candidate-pull)
     [[ $# -eq 2 ]] || fail 'usage: blindou-deployctl verify-ghcr-candidate-pull RELEASE_ID'
@@ -3450,6 +3716,10 @@ case "${1:-}" in
     [[ $# -eq 3 ]] || fail 'uso: blindou-deployctl activate-pagarme-runtime RELEASE_ID CONFIRMAÇÃO'
     activate_pagarme_runtime "$2" "$3"
     ;;
+  activate-marketplaces-runtime)
+    [[ $# -eq 3 ]] || fail 'uso: blindou-deployctl activate-marketplaces-runtime RELEASE_ID CONFIRMAÇÃO'
+    activate_marketplaces_runtime "$2" "$3"
+    ;;
   confirm-alert-delivery)
     [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl confirm-alert-delivery CONFIRMAÇÃO'
     confirm_alert_delivery "$2"
@@ -3486,6 +3756,6 @@ case "${1:-}" in
     metrics
     ;;
   *)
-    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-r2-runtime-credential|verify-pagarme-credential|verify-pagarme-plans|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|provision-r2-runtime-credential CONFIRMAÇÃO|provision-pagarme-credential CONFIRMAÇÃO|rotate-pagarme-webhook-secret CONFIRMAÇÃO|provision-pagarme-plans CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|provision-runtime-secrets CONFIRMAÇÃO|provision-ui-review-runtime CONFIRMAÇÃO|activate-pagarme-runtime RELEASE_ID CONFIRMAÇÃO|confirm-alert-delivery CONFIRMAÇÃO|confirm-offsite-backup BACKUP_ID SHA256 CONFIRMAÇÃO|activate-release-gates RELEASE_ID CONFIRMAÇÃO|validate-release RELEASE_ID|apply RELEASE_ID|bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
+    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-r2-runtime-credential|verify-pagarme-credential|verify-pagarme-plans|verify-marketplaces-runtime|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|provision-r2-runtime-credential CONFIRMAÇÃO|provision-pagarme-credential CONFIRMAÇÃO|rotate-pagarme-webhook-secret CONFIRMAÇÃO|provision-pagarme-plans CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|provision-runtime-secrets CONFIRMAÇÃO|provision-ui-review-runtime CONFIRMAÇÃO|activate-pagarme-runtime RELEASE_ID CONFIRMAÇÃO|activate-marketplaces-runtime RELEASE_ID CONFIRMAÇÃO|confirm-alert-delivery CONFIRMAÇÃO|confirm-offsite-backup BACKUP_ID SHA256 CONFIRMAÇÃO|activate-release-gates RELEASE_ID CONFIRMAÇÃO|validate-release RELEASE_ID|apply RELEASE_ID|bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
     ;;
 esac

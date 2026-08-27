@@ -297,6 +297,10 @@ def validate_documents(documents: list[dict[str, Any]], release_id: str) -> None
                 "blindou.io/pagarme-first-compatible"
             ) != "true":
                 fail(f"compatibilidade Pagar.me-first ausente em {resource}")
+            if (name == "blindou-backend" or WORKER_RE.fullmatch(name)) and annotations.get(
+                "blindou.io/marketplaces-compatible"
+            ) != "true":
+                fail(f"compatibilidade com Marketplaces ausente em {resource}")
 
     required_deployments = {
         "blindou-backend",

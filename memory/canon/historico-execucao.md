@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-historico-execucao
   source_path: memory/canon/historico-execucao.md
   generated_from: auditorias e implementações autorizadas no laboratório
-  updated_at: 2026-08-26
+  updated_at: 2026-08-27
   status: canonical
 
 ## Regra de registro
@@ -1368,3 +1368,19 @@ ponta a ponta.
   primeiro cliente. Nenhum valor foi aberto ou registrado; D025 preserva a
   leitura exclusiva pelo helper fechado e exige remoção/rotação nesse marco ou
   antes diante de suspeita de exposição.
+## 2026-08-27 - Ativação fechada da Shopee preparada
+
+Resultado: D026 implementada e validada offline no repositório; nenhum arquivo
+foi instalado no host e nenhum runtime ou segredo foi alterado nesta etapa.
+
+- o controlador exige SHA corrente, aplicação/EDGE em `passed`, Pagar.me ativo
+  e marcador de compatibilidade no backend e nos 16 workers;
+- a chave de cifra Shopee é gerada no cofre root-only e só entra no Secret
+  quando a flag é ativada;
+- journal e rollback removem a chave recém-gerada e restauram configuração e
+  workloads se a ativação falhar ou for recuperada antes do recibo;
+- AppID/App Secret permanecem fora do terminal e serão informados diretamente
+  no painel do tenant;
+- o verificador offline passou em container Linux, incluindo sintaxe, sudoers
+  contratual, marcador da release, observabilidade e orquestrador PowerShell;
+- Mercado Livre, UAZAPI, Resend e 2FA permaneceram fora do escopo.
