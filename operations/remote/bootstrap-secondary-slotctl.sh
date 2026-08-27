@@ -24,6 +24,7 @@ readonly SUDOERS_TARGET='/etc/sudoers.d/secondary-slotctl'
 readonly RULES_TARGET='/etc/prometheus/rules/secondary-slot.yml'
 readonly PROMETHEUS_CONFIG='/etc/prometheus/prometheus.yml'
 readonly TMPFILES_TARGET='/etc/tmpfiles.d/secondary-slot.conf'
+readonly METRICS_TARGET='/var/lib/prometheus/node-exporter/secondary-slot.prom'
 readonly BACKUP_ROOT='/var/backups/servidor-local/secondary-slot-bootstrap'
 
 fail() {
@@ -33,7 +34,7 @@ fail() {
 
 [[ "${EUID}" -eq 0 ]] || fail 'execute como root'
 [[ "$(hostname)" == "$EXPECTED_HOSTNAME" ]] || fail 'hostname inesperado'
-for command in python3 visudo promtool systemd-analyze systemd-tmpfiles k3s install cp diff sha256sum sudo systemctl; do
+for command in python3 visudo promtool systemd-analyze systemd-tmpfiles k3s install cp diff sha256sum sudo systemctl tr; do
   command -v "$command" >/dev/null || fail "dependência ausente: ${command}"
 done
 for source in \
@@ -107,7 +108,7 @@ for target in \
   "$CONTROLLER_TARGET" "${LIBRARY_TARGET}/secondary_slot.py" \
   "${LIBRARY_TARGET}/contract.yaml" "${LIBRARY_TARGET}/admission.yaml" \
   "$SUDOERS_TARGET" "$RULES_TARGET" \
-  "$TMPFILES_TARGET" \
+  "$TMPFILES_TARGET" "$METRICS_TARGET" \
   /etc/systemd/system/secondary-slot-metrics.service \
   /etc/systemd/system/secondary-slot-metrics.timer; do
   if [[ -f "$target" && ! -L "$target" ]]; then
@@ -185,7 +186,15 @@ PY
 visudo -cf "$SUDOERS_TARGET" >/dev/null
 promtool check config "$PROMETHEUS_CONFIG" >/dev/null
 systemctl daemon-reload
-systemctl start --wait secondary-slot-metrics.service
+if ! direct_metrics_output="$("$CONTROLLER_TARGET" metrics 2>&1)"; then
+  fail "coleta direta de métricas falhou: ${direct_metrics_output}"
+fi
+if ! systemctl start --wait secondary-slot-metrics.service; then
+  unit_result="$(systemctl show secondary-slot-metrics.service \
+    --property=Result --property=ExecMainCode --property=ExecMainStatus \
+    --no-pager | tr '\n' ' ')"
+  fail "coleta systemd falhou: ${unit_result}"
+fi
 [[ "$(systemctl show secondary-slot-metrics.service --property=Result --value)" \
     == success ]] || fail 'coleta inicial de métricas falhou'
 systemctl enable --now secondary-slot-metrics.timer >/dev/null

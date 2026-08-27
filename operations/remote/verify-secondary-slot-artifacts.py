@@ -307,6 +307,13 @@ if "python3 \"$VERIFIER_SOURCE\"" not in bootstrap:
     fail("bootstrap não executa o verificador offline")
 if "promtool check config" not in bootstrap or "visudo -cf" not in bootstrap:
     fail("bootstrap não valida Prometheus e sudoers")
+for invariant in (
+    "METRICS_TARGET='/var/lib/prometheus/node-exporter/secondary-slot.prom'",
+    'direct_metrics_output="$("$CONTROLLER_TARGET" metrics 2>&1)"',
+    "--property=ExecMainStatus",
+):
+    if invariant not in bootstrap:
+        fail(f"diagnóstico ou rollback de métricas ausente: {invariant}")
 require_equal(
     tmpfiles,
     "f /run/lock/servidor-local-secondary-slot.lock 0600 root root -\n",
