@@ -213,6 +213,13 @@ próprio continuam gates bloqueantes. Nenhum estado runtime foi alterado.
   administrativos e papéis separados para migration, runtime, redirector e
   conector ML. Conexões do CIDR K3s exigem `hostssl`, certificado de cliente
   confiável e SCRAM; as migrations `0001` a `0008` estão registradas.
+- O banco operacional avançou posteriormente para 11 migrations. No teste de
+  2026-08-26, o hostname próprio alcançou o redirector, mas o link válido
+  respondeu `not found`: `blindou_redirect_login` ainda pertence ao grupo amplo
+  `blindou_app`, enquanto `FORCE RLS` não aceita o bypass tentado pelo processo.
+  D024 e a migration Blindou `0012` preparam `blindou_redirector` com grants
+  mínimos e a revogação pós-migration do legado. Controlador, papel e migration
+  ainda não foram instalados ou aplicados no host.
 - O primeiro backup lógico Blindou é `blindou-20260820T111734Z`, armazenado
   somente como envelope CMS AES-256-GCM. O catálogo foi validado por
   `pg_restore` antes da criptografia; uma prova local abriu o envelope com a

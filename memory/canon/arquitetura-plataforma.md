@@ -213,10 +213,15 @@ cluster, a stanza, o bucket, o exporter e os timers ainda não existem no host.
 
 A fundação Blindou prepara quatro logins sem privilégio administrativo. As
 conexões vindas do CIDR dos Pods exigem senha SCRAM e certificado assinado pela
-CA cliente exclusiva do Blindou. O backup físico pgBackRest continua abrangendo
-o cluster compartilhado; adicionalmente o database Blindou recebe dump lógico
-isolado, validado e criptografado para uma chave de recuperação mantida fora do
-servidor.
+CA cliente exclusiva do Blindou. Por D024, o login do redirector deve pertencer
+ao grupo dedicado `blindou_redirector`, `NOLOGIN` e `NOBYPASSRLS`, e não aos
+grupos amplos `blindou_app` ou `blindou_runtime`. A migration `0012` define os
+grants mínimos e as policies RLS; o controlador prepara o grupo antes da
+migration e revoga o legado somente depois de seu registro. Essa mudança está
+declarada, mas ainda não instalada nem aplicada no host. O backup físico
+pgBackRest continua abrangendo o cluster compartilhado; adicionalmente o
+database Blindou recebe dump lógico isolado, validado e criptografado para uma
+chave de recuperação mantida fora do servidor.
 
 NATS e Redis do Blindou pertencem somente ao produto e rodam no seu namespace.
 O namespace Pixel/CIA permanece vazio. O SaferWPP também permanece vazio no

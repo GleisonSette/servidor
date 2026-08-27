@@ -213,12 +213,16 @@ concluiu a ativação.
 
 Próxima ação exata, ainda dependente de autorizações próprias:
 
-1. quando houver decisão explícita de compra live, validar tokenização direta,
+1. publicar e validar a candidata D024/D052, instalar o controlador compatível,
+   obter backup offsite e somente então aplicar `0012` e o rollout autorizados;
+2. confirmar que o link Amazon em `go.guiadoconsumo.com` redireciona e registra
+   Analytics, mantendo host e código desconhecidos em falha fechada;
+3. quando houver decisão explícita de compra live, validar tokenização direta,
    assinatura, webhook, reconciliação e cancelamento
    sem PAN/CVV na API, logs ou banco;
-2. seguir D020 com domínio personalizado, marketplaces e somente ao final
+4. seguir D020 com marketplaces e somente ao final
    UAZAPI/Resend;
-3. manter a cota global da aplicação em 90 custom hostnames e revalidar a
+5. manter a cota global da aplicação em 90 custom hostnames e revalidar a
    origem de fallback antes do primeiro fluxo autorizado de domínio por
    conta/tenant.
 

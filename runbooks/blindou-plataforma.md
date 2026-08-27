@@ -11,8 +11,10 @@ conector `cloudflared`, mantendo a aplicação em quarentena.
 
 O PostgreSQL 18 continua sendo um processo compartilhado com o `apiwpp`, mas o
 Blindou possui database, quatro logins, grupos `NOLOGIN`, CA cliente, certificado
-e backup lógico próprios. O backup físico pgBackRest continua cobrindo o cluster
-PostgreSQL inteiro; ele não substitui a cópia lógica isolada do Blindou.
+e backup lógico próprios. A candidata D052 acrescenta o grupo mínimo
+`blindou_redirector`; ela não cria um quinto login. O backup físico pgBackRest
+continua cobrindo o cluster PostgreSQL inteiro; ele não substitui a cópia lógica
+isolada do Blindou.
 
 ## Autoridades e arquivos
 
@@ -287,6 +289,22 @@ O provisionamento é idempotente e cria o database vazio `blindou`, quatro
 logins sem privilégio administrativo e os grupos esperados pelas migrations. As
 regras HBA exigem simultaneamente TLS, certificado emitido pela CA cliente do
 Blindou e senha SCRAM. Nenhuma tabela da aplicação é criada nesta etapa.
+
+A migration `0012` introduz o grupo `blindou_redirector`, `NOLOGIN` e
+`NOBYPASSRLS`, sem tornar o login membro de `blindou_runtime`. O rollout usa
+expansão/contração para não criar uma janela incompatível:
+
+1. `apply` prepara o grupo dedicado e o concede a
+   `blindou_redirect_login`, preservando temporariamente `blindou_app`;
+2. o migrator separado aplica `0012`, que cria grants mínimos e policies RLS;
+3. somente depois de `_sqlx_migrations.version = 12`, o controlador revoga
+   `blindou_app` e verifica que o login não pertence aos grupos amplos;
+4. o rollout da aplicação prossegue apenas depois dessa reconciliação.
+
+Antes de `0012`, `verify-data` exige o papel legado para manter o runtime atual.
+Depois de `0012`, exige exclusivamente o grupo dedicado. Falha do migrator
+mantém o estado compatível com a release anterior; não conceder
+`blindou_runtime` nem executar `GRANT` manual para contornar uma falha.
 
 Rollback de dados exige senha administrativa e só é aceito quando não existe
 tabela de aplicação:

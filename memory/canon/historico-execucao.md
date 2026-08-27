@@ -1206,3 +1206,25 @@ runtime permaneceram inalterados.
   os três binários SaferWPP podem ser construídos, examinados, assinados e
   transportados para um bootstrap fechado; instalação e qualquer mudança viva
   continuam dependentes de autorização própria.
+
+## 2026-08-26 - Papel mínimo do redirector Blindou preparado
+
+Resultado: causa do `not found` confirmada e correção declarativa validada
+offline; servidor, banco e runtime permaneceram inalterados.
+
+- O hostname próprio passou a alcançar o redirector após a correção separada da
+  rota catch-all do Tunnel; a resposta `not found` isolou a falha na autorização
+  PostgreSQL.
+- `blindou_redirect_login` pertence ao grupo amplo `blindou_app`, mas o bypass
+  tentado pelo processo é aceito pelas policies somente para
+  `blindou_runtime`; `FORCE RLS` ocultava o link válido.
+- D024 escolheu o grupo dedicado `blindou_redirector`, sem `BYPASSRLS` nem
+  privilégios administrativos, em vez de ampliar o papel runtime.
+- `blindou-deployctl` passou a preparar o grupo antes da migration e a revogar o
+  legado somente depois de registrar `0012`; seu verificador cobre ordem,
+  privilégios e proibição do grant amplo.
+- O verificador integral dos artefatos da plataforma e seus seis testes de
+  contrato passaram, além da sintaxe shell e da verificação de diferenças.
+- Nenhum commit, push, bootstrap, instalação, grant vivo, backup, migration,
+  imagem ou deploy foi executado. Os próximos gates exigem autorizações próprias
+  e o SHA Blindou limpo e publicado.

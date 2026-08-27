@@ -465,6 +465,31 @@ grep -Fq "e.extname='pg_stat_statements'" "${REMOTE_DIR}/blindou-deployctl" \
 grep -Fq 'migration_history_count=%s' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'pg_stat_statements=%s' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'status não expõe progresso seguro da migration e pré-requisito PostgreSQL'
+grep -Fq "('blindou_redirector')" "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'NOBYPASSRLS' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'papel dedicado e não privilegiado do redirector ausente'
+grep -Fq 'ALTER ROLE blindou_redirect_login INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS' \
+  "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'REVOKE blindou_runtime, blindou_app FROM blindou_redirector' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'login ou herança do papel dedicado do redirector permanece privilegiado'
+if grep -Fq 'GRANT blindou_runtime TO blindou_redirect_login' \
+    "${REMOTE_DIR}/blindou-deployctl"; then
+  fail 'redirector recebeu indevidamente o papel geral de runtime'
+fi
+prepare_redirector_role_function="$(sed -n \
+  '/^prepare_redirector_database_role()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+reconcile_redirector_role_function="$(sed -n \
+  '/^reconcile_redirector_database_role()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+grep -Fq 'GRANT blindou_redirector TO blindou_redirect_login' \
+  <<<"$prepare_redirector_role_function" \
+  && grep -Fq 'redirector_least_privilege_migration_applied' \
+    <<<"$reconcile_redirector_role_function" \
+  && grep -Fq 'REVOKE blindou_app FROM blindou_redirect_login' \
+    <<<"$reconcile_redirector_role_function" \
+  || fail 'transição atômica do papel dedicado do redirector está incompleta'
 grep -Fq 'rpo_minutes=15' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'RPO aprovado não foi registrado'
 grep -Fq 'rto_hours=4' "${REMOTE_DIR}/blindou-deployctl" \
@@ -487,6 +512,12 @@ grep -Fq 'bootstrap-superadmin)' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'bootstrap fechado do superadmin ausente'
 apply_release_function="$(sed -n '/^apply_release()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
+apply_cached_release_function="$(sed -n '/^apply_cached_release()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+grep -Fq 'prepare_redirector_database_role' <<<"$apply_release_function" \
+  && grep -Fq 'reconcile_redirector_database_role' <<<"$apply_cached_release_function" \
+  && grep -Fq 'verify_data_foundation >/dev/null' <<<"$apply_cached_release_function" \
+  || fail 'release não prepara, finaliza e verifica o papel do redirector ao redor da migration'
 grep -Fq 'set +e' <<<"$apply_release_function" \
   && grep -Fq 'set -Eeuo pipefail' <<<"$apply_release_function" \
   && grep -Fq 'apply_status=$?' <<<"$apply_release_function" \

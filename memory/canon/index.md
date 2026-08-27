@@ -45,6 +45,11 @@ corpus por padrão.
   no host: APIWPP continua ativo e SaferWPP vazio até `saferwpp-deployctl`, os
   gates operacionais e uma autorização de janela própria passarem. Pixel/CIA
   não recebe novos workloads.
+- D024 corrige declarativamente a identidade PostgreSQL do redirector Blindou:
+  quatro logins são preservados, mas `blindou_redirect_login` migra do grupo
+  amplo `blindou_app` para `blindou_redirector`, sem `BYPASSRLS` e com grants
+  mínimos definidos por `0012`. A mudança ainda não foi instalada, migrada ou
+  implantada; o link de teste continua falhando fechado como `not found`.
 - A auditoria viva de 2026-08-26 aprovou somente a continuidade do planejamento
   de hardware. O PostgreSQL real possui teto 50 e pico de 48 backends, por isso
   reprovou o orçamento SaferWPP de dez conexões runtime mais duas de migration.

@@ -48,6 +48,12 @@
       "query": "auditoria SaferWPP PostgreSQL exclusivo porta 55432 teto 24 Blindou intacto próximo gate",
       "top": 5,
       "expected_source_ids": ["estado-atual", "decisoes", "plano-implementacao"]
+    },
+    {
+      "id": "qa-009-redirector-blindou-papel-dedicado",
+      "query": "D024 Blindou redirector not found PostgreSQL FORCE RLS papel dedicado blindou_redirector migration 0012 menor privilégio",
+      "top": 5,
+      "expected_source_ids": ["decisoes", "arquitetura-plataforma", "estado-atual", "plano-implementacao"]
     }
   ]
 }

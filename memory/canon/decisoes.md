@@ -380,3 +380,31 @@ físico continuam compartilhados. A decisão resolve a topologia, mas não cria 
 cluster, não suspende APIWPP e não autoriza deploy. Até a implementação
 declarativa, os preflights e os controladores passarem, APIWPP permanece ativo e
 SaferWPP sem workloads.
+
+## Resolvida D024 - Papel PostgreSQL dedicado para o redirector Blindou
+
+Em 2026-08-26, o primeiro teste de um link protegido Amazon no hostname próprio
+chegou ao redirector depois da correção da rota catch-all do Tunnel, mas
+respondeu `not found`. A inspeção confirmou que `blindou_redirect_login`
+pertencia a `blindou_app`, enquanto o processo tentava ligar um bypass aceito
+pelas policies somente para `blindou_runtime`. Como as tabelas usam `FORCE ROW
+LEVEL SECURITY`, o link válido permanecia invisível.
+
+O usuário autorizou a correção coordenada nos repositórios Blindou e servidor.
+Foi rejeitado adicionar o login a `blindou_runtime`, pois isso entregaria acesso
+amplo desnecessário. A plataforma passa a declarar o grupo
+`blindou_redirector`, `NOLOGIN`, `NOBYPASSRLS` e sem privilégios administrativos.
+O número de logins permanece quatro. Grants por tabela, operação e coluna são
+autoridade da migration Blindou `0012`; usuários, sessões, assinaturas, billing,
+WhatsApp e equipe não ficam acessíveis.
+
+O controlador usa expansão/contração: prepara o grupo dedicado antes do
+migrator, mantém temporariamente `blindou_app` para compatibilidade, aplica
+`0012` e somente depois de seu registro revoga o grupo legado. Em falha anterior
+à migration, a release atual continua compatível. Depois de `0012`, a imagem
+anterior pode usar as policies dedicadas sem receber novamente o papel amplo.
+
+A decisão resolve a arquitetura, mas não autoriza commit, push, instalação do
+controlador, alteração do host, migration ou deploy. Até essas operações e os
+gates do SHA exato passarem, o estado vivo permanece inalterado e o link de
+teste continua em falha fechada.

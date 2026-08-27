@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-21",
+  "generated_at": "2026-08-26",
   "project": "servidor-local-compartilhado",
   "sources": [
     {
@@ -14,35 +14,35 @@
       "title": "Estado atual do laboratório",
       "canon_path": "memory/canon/estado-atual.md",
       "status": "canonical",
-      "tags": ["estado", "host", "k3s", "backup", "seguranca", "pages", "linker"]
+      "tags": ["D024", "estado", "host", "k3s", "backup", "seguranca", "pages", "linker", "redirector", "postgresql", "rls"]
     },
     {
       "source_id": "arquitetura-plataforma",
       "title": "Arquitetura da plataforma compartilhada",
       "canon_path": "memory/canon/arquitetura-plataforma.md",
       "status": "canonical",
-      "tags": ["arquitetura", "namespaces", "isolamento", "deploy", "rede", "ghcr", "read:packages", "github-actions", "supply-chain"]
+      "tags": ["D024", "arquitetura", "namespaces", "isolamento", "deploy", "rede", "ghcr", "read:packages", "github-actions", "supply-chain", "redirector", "menor-privilegio"]
     },
     {
       "source_id": "plano-implementacao",
       "title": "Plano de implementação da plataforma",
       "canon_path": "memory/canon/plano-implementacao.md",
       "status": "canonical",
-      "tags": ["plano", "fase", "proximo-passo", "aceite", "rollback", "ghcr", "pages", "linker"]
+      "tags": ["D024", "plano", "fase", "proximo-passo", "aceite", "rollback", "ghcr", "pages", "linker", "migration-0012"]
     },
     {
       "source_id": "historico-execucao",
       "title": "Histórico de execução",
       "canon_path": "memory/canon/historico-execucao.md",
       "status": "canonical",
-      "tags": ["historico", "executado", "evidencia", "resultado"]
+      "tags": ["D024", "historico", "executado", "evidencia", "resultado", "redirector", "postgresql"]
     },
     {
       "source_id": "decisoes",
       "title": "Decisões da plataforma local",
       "canon_path": "memory/canon/decisoes.md",
       "status": "canonical",
-      "tags": ["decisao", "pendencia", "alerta", "borda-publica", "ghcr", "github-actions", "cloudflare-pages", "automatic-deployment"]
+      "tags": ["D024", "decisao", "pendencia", "alerta", "borda-publica", "ghcr", "github-actions", "cloudflare-pages", "automatic-deployment", "redirector", "rls", "menor-privilegio"]
     }
   ]
 }

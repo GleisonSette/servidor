@@ -1561,8 +1561,14 @@ create_database_roles() {
     --set=runtime_password="$BLINDOU_RUNTIME_PASSWORD" \
     --set=redirect_password="$BLINDOU_REDIRECT_PASSWORD" \
     --set=ml_password="$BLINDOU_ML_PASSWORD" <<'SQL' >/dev/null
-SELECT format('CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION', role_name)
-FROM (VALUES ('blindou_migrator'), ('blindou_runtime'), ('blindou_app'), ('blindou_auth')) AS roles(role_name)
+SELECT format('CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', role_name)
+FROM (VALUES
+  ('blindou_migrator'),
+  ('blindou_runtime'),
+  ('blindou_app'),
+  ('blindou_auth'),
+  ('blindou_redirector')
+) AS roles(role_name)
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name)
 \gexec
 SELECT format('CREATE ROLE blindou_migration_login LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION', :'migration_password')
@@ -1571,7 +1577,7 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'blindou_migration_logi
 SELECT format('CREATE ROLE blindou_runtime_login LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION', :'runtime_password')
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'blindou_runtime_login')
 \gexec
-SELECT format('CREATE ROLE blindou_redirect_login LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION', :'redirect_password')
+SELECT format('CREATE ROLE blindou_redirect_login LOGIN INHERIT PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', :'redirect_password')
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'blindou_redirect_login')
 \gexec
 SELECT format('CREATE ROLE blindou_ml_login LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION', :'ml_password')
@@ -1579,11 +1585,12 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'blindou_ml_login')
 \gexec
 ALTER ROLE blindou_migration_login PASSWORD :'migration_password';
 ALTER ROLE blindou_runtime_login PASSWORD :'runtime_password';
-ALTER ROLE blindou_redirect_login PASSWORD :'redirect_password';
+ALTER ROLE blindou_redirect_login INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'redirect_password';
 ALTER ROLE blindou_ml_login PASSWORD :'ml_password';
 GRANT blindou_migrator TO blindou_migration_login;
 GRANT blindou_runtime TO blindou_runtime_login;
 GRANT blindou_app TO blindou_redirect_login;
+GRANT blindou_redirector TO blindou_redirect_login;
 GRANT blindou_app TO blindou_ml_login;
 SELECT 'CREATE DATABASE blindou OWNER blindou_migration_login ENCODING ''UTF8'' TEMPLATE template0'
 WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'blindou')
@@ -1591,6 +1598,41 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'blindou')
 REVOKE ALL ON DATABASE blindou FROM PUBLIC;
 GRANT CONNECT, TEMPORARY ON DATABASE blindou TO blindou_migration_login, blindou_runtime_login, blindou_redirect_login, blindou_ml_login;
 SQL
+}
+
+redirector_least_privilege_migration_applied() {
+  [[ "$(postgres_query -d blindou -Atqc \
+    "SELECT to_regclass('public._sqlx_migrations') IS NOT NULL")" == 't' ]] \
+    || return 1
+  [[ "$(postgres_query -d blindou -Atqc \
+    "SELECT count(*) FROM public._sqlx_migrations WHERE version=12 AND success")" == '1' ]]
+}
+
+prepare_redirector_database_role() {
+  postgres_query -d postgres <<'SQL' >/dev/null
+SELECT 'CREATE ROLE blindou_redirector NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS'
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'blindou_redirector')
+\gexec
+ALTER ROLE blindou_redirector NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ALTER ROLE blindou_redirect_login INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+REVOKE blindou_runtime, blindou_app FROM blindou_redirector;
+GRANT blindou_redirector TO blindou_redirect_login;
+SQL
+}
+
+reconcile_redirector_database_role() {
+  prepare_redirector_database_role
+  if redirector_least_privilege_migration_applied; then
+    postgres_query -d postgres <<'SQL' >/dev/null
+REVOKE blindou_app FROM blindou_redirect_login;
+GRANT blindou_redirector TO blindou_redirect_login;
+SQL
+  else
+    postgres_query -d postgres <<'SQL' >/dev/null
+GRANT blindou_app TO blindou_redirect_login;
+GRANT blindou_redirector TO blindou_redirect_login;
+SQL
+  fi
 }
 
 provision_database_extensions() {
@@ -1622,7 +1664,7 @@ write_database_urls() {
 
 verify_data_foundation() {
   require_root_and_host
-  local hba_rule_count hba_diagnostic
+  local hba_rule_count hba_diagnostic redirector_contract
   [[ -f "$DATABASE_CREDENTIALS" && "$(stat -c '%U:%G:%a' "$DATABASE_CREDENTIALS")" == 'root:root:600' ]] \
     || fail 'credenciais do banco ausentes ou expostas'
   [[ -f "${DATABASE_SECRET_DIR}/urls.env" \
@@ -1639,11 +1681,34 @@ verify_data_foundation() {
     "SELECT count(*) FROM pg_extension e JOIN pg_namespace n ON n.oid=e.extnamespace JOIN pg_roles r ON r.oid=e.extowner WHERE e.extname='pg_stat_statements' AND n.nspname='public' AND r.rolname='postgres'")" == '1' ]] \
     || fail 'extensão administrativa pg_stat_statements ausente ou com autoridade divergente'
   [[ "$(postgres_query -d postgres -Atqc \
-    "SELECT count(*) FROM pg_roles WHERE rolname IN ('blindou_migration_login','blindou_runtime_login','blindou_redirect_login','blindou_ml_login') AND rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication")" == '4' ]] \
+    "SELECT count(*) FROM pg_roles WHERE rolname IN ('blindou_migration_login','blindou_runtime_login','blindou_redirect_login','blindou_ml_login') AND rolcanlogin AND rolinherit AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls")" == '4' ]] \
     || fail 'logins Blindou ausentes ou privilegiados'
   [[ "$(postgres_query -d postgres -Atqc \
-    "SELECT count(*) FROM pg_auth_members m JOIN pg_roles member ON member.oid=m.member JOIN pg_roles role ON role.oid=m.roleid WHERE (member.rolname,role.rolname) IN (('blindou_migration_login','blindou_migrator'),('blindou_runtime_login','blindou_runtime'),('blindou_redirect_login','blindou_app'),('blindou_ml_login','blindou_app'))")" == '4' ]] \
-    || fail 'associação de papéis Blindou divergente'
+    "SELECT count(*) FROM pg_auth_members m JOIN pg_roles member ON member.oid=m.member JOIN pg_roles role ON role.oid=m.roleid WHERE (member.rolname,role.rolname) IN (('blindou_migration_login','blindou_migrator'),('blindou_runtime_login','blindou_runtime'),('blindou_ml_login','blindou_app'))")" == '3' ]] \
+    || fail 'associação dos papéis principais Blindou divergente'
+  if redirector_least_privilege_migration_applied; then
+    redirector_contract='dedicated'
+    [[ "$(postgres_query -d postgres -Atqc \
+      "SELECT count(*) FROM pg_roles AS role WHERE role.rolname='blindou_redirector' AND NOT role.rolcanlogin AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls AND NOT EXISTS (SELECT 1 FROM pg_auth_members AS membership WHERE membership.member=role.oid)")" == '1' ]] \
+      || fail 'papel dedicado do redirector ausente ou privilegiado'
+    [[ "$(postgres_query -d postgres -Atqc \
+      "SELECT count(*) FROM pg_auth_members m JOIN pg_roles member ON member.oid=m.member JOIN pg_roles role ON role.oid=m.roleid WHERE member.rolname='blindou_redirect_login' AND role.rolname='blindou_redirector'")" == '1' ]] \
+      || fail 'login do redirector não recebeu o papel dedicado'
+    [[ "$(postgres_query -d postgres -Atqc \
+      "SELECT count(*) FROM pg_auth_members m JOIN pg_roles member ON member.oid=m.member JOIN pg_roles role ON role.oid=m.roleid WHERE member.rolname='blindou_redirect_login' AND role.rolname IN ('blindou_app','blindou_runtime')")" == '0' ]] \
+      || fail 'login do redirector ainda herda papel geral depois da migration 0012'
+  else
+    redirector_contract='legacy'
+    [[ "$(postgres_query -d postgres -Atqc \
+      "SELECT count(*) FROM pg_auth_members m JOIN pg_roles member ON member.oid=m.member JOIN pg_roles role ON role.oid=m.roleid WHERE member.rolname='blindou_redirect_login' AND role.rolname='blindou_app'")" == '1' ]] \
+      || fail 'papel legado do redirector ausente antes da migration 0012'
+    if [[ "$(postgres_query -d postgres -Atqc \
+      "SELECT count(*) FROM pg_roles WHERE rolname='blindou_redirector'")" != '0' ]]; then
+      [[ "$(postgres_query -d postgres -Atqc \
+        "SELECT count(*) FROM pg_roles AS role WHERE role.rolname='blindou_redirector' AND NOT role.rolcanlogin AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls AND NOT EXISTS (SELECT 1 FROM pg_auth_members AS membership WHERE membership.member=role.oid)")" == '1' ]] \
+        || fail 'papel de transição do redirector está privilegiado'
+    fi
+  fi
   [[ "$(postgres_query -d postgres -Atqc 'SHOW ssl_ca_file')" == "$POSTGRES_CA_FILE" ]] \
     || fail 'PostgreSQL não usa a CA cliente Blindou'
   hba_rule_count="$(postgres_query -d postgres -Atqc \
@@ -1672,7 +1737,7 @@ verify_data_foundation() {
   fi
   /usr/local/sbin/apiwpp-deployctl verify >/dev/null \
     || fail 'apiwpp regrediu depois do provisionamento do banco'
-  pass 'database vazio, quatro logins, TLS cliente e papéis isolados verificados'
+  pass "database, quatro logins, TLS cliente e papéis isolados verificados (redirector=${redirector_contract})"
 }
 
 provision_data_foundation() {
@@ -1684,6 +1749,7 @@ provision_data_foundation() {
   create_database_roles
   provision_database_extensions
   write_database_urls
+  reconcile_redirector_database_role
   verify_data_foundation
   pass 'fundação de dados Blindou provisionada sem executar migrations'
 }
@@ -1701,7 +1767,7 @@ rollback_data_foundation() {
 SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='blindou' AND pid <> pg_backend_pid();
 DROP DATABASE IF EXISTS blindou;
 DROP ROLE IF EXISTS blindou_migration_login, blindou_runtime_login, blindou_redirect_login, blindou_ml_login;
-DROP ROLE IF EXISTS blindou_migrator, blindou_runtime, blindou_app, blindou_auth;
+DROP ROLE IF EXISTS blindou_migrator, blindou_runtime, blindou_app, blindou_auth, blindou_redirector;
 SQL
   rm -f -- "$POSTGRES_CONFIG_FILE" "$POSTGRES_HBA_FILE"
   local hba_tmp
@@ -3013,6 +3079,8 @@ apply_cached_release() {
   kube -n "$APP_NAMESPACE" rollout status statefulset/blindou-redis --timeout=300s
   kube apply -f "$rendered/40-workloads.yaml" -l 'blindou.io/tier=migration' >/dev/null
   wait_migration_job "blindou-migrate-${release_id:0:12}"
+  reconcile_redirector_database_role
+  verify_data_foundation >/dev/null
   kube apply -f "$rendered/40-workloads.yaml" -l 'blindou.io/tier=app' >/dev/null
   kube apply -f "$rendered/workers" >/dev/null
   kube apply -f "$rendered/60-cloudflared.yaml" >/dev/null
@@ -3053,6 +3121,7 @@ rollback_release() {
 apply_release() {
   local release_id="$1" previous='' apply_status=0
   [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
+  prepare_redirector_database_role
   cache_release "$release_id"
   [[ -f "$CURRENT_RELEASE" ]] && previous="$(<"$CURRENT_RELEASE")"
   set +e
@@ -3063,6 +3132,7 @@ apply_release() {
   apply_status=$?
   set -e
   if (( apply_status != 0 )); then
+    reconcile_redirector_database_role
     if [[ "$previous" =~ $RELEASE_PATTERN ]]; then
       rollback_release "$previous" "$ROLLBACK_CONFIRMATION" \
         || fail 'release falhou e rollback automático também falhou'
