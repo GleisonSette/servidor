@@ -517,14 +517,15 @@ segundos. Gates e `apply` são comandos separados para que nenhum efeito
 concluído entre em um retry ambíguo. Qualquer outro código interrompe a release
 imediatamente.
 
-Na primeira instalação, `activate-release-gates` exige a EDGE em
-`connector-only` e ausência de `current_release`. Em atualização, a EDGE pode
-permanecer `passed` para não derrubar o Tunnel saudável, mas o controlador exige
-um ponteiro `current_release` regular, `root:root 0600` e com SHA válido. Em
-ambos os casos, a verificação anterior valida a composição exata do namespace;
-um gate diferente ou objeto inesperado falha fechado. A aplicação permanece em
-`secrets-only` até a prova GHCR, o backup recente e o recibo offsite da nova
-candidata serem confirmados.
+Na primeira instalação, `activate-release-gates` exige o par
+`blindou-production=secrets-only` e `blindou-edge=connector-only`, além da
+ausência de `current_release`. Em atualização, exige o par `passed`/`passed`
+para preservar o runtime e o Tunnel saudáveis, junto de um ponteiro
+`current_release` regular, `root:root 0600` e com SHA válido. Pares mistos,
+gate diferente ou objeto inesperado falham fechados. Antes da primeira release,
+a aplicação permanece em `secrets-only` até a prova GHCR, o backup recente e o
+recibo offsite da candidata serem confirmados; uma atualização não rebaixa o
+namespace ativo a esse gate intermediário.
 
 O `apply` executa o corpo da release em subshell com `errexit` explicitamente
 reativado e só então captura o código para decidir rollback. Não envolver

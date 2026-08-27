@@ -500,14 +500,16 @@ grep -Fq 'activate-release-gates)' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'transição fechada dos gates ausente'
 activate_release_gates_function="$(sed -n '/^activate_release_gates()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
-grep -Fq 'connector-only)' <<<"$activate_release_gates_function" \
-  && grep -Fq 'EDGE connector-only é aceita somente antes da primeira release' \
+grep -Fq 'secrets-only:connector-only)' <<<"$activate_release_gates_function" \
+  && grep -Fq 'gates de primeira instalação exigem ausência de release corrente' \
     <<<"$activate_release_gates_function" \
-  && grep -Fq 'passed)' <<<"$activate_release_gates_function" \
-  && grep -Fq 'EDGE passed exige ponteiro seguro da release corrente' \
+  && grep -Fq 'passed:passed)' <<<"$activate_release_gates_function" \
+  && grep -Fq 'gates passed exigem ponteiro seguro da release corrente' \
+    <<<"$activate_release_gates_function" \
+  && grep -Fq 'combinação de gates não é aceita para primeira instalação ou atualização' \
     <<<"$activate_release_gates_function" \
   && grep -Fq "root:root:600" <<<"$activate_release_gates_function" \
-  || fail 'gate de release não distingue primeira instalação de atualização segura'
+  || fail 'gate de release não exige pares seguros na primeira instalação e na atualização'
 grep -Fq 'bootstrap-superadmin)' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'bootstrap fechado do superadmin ausente'
 apply_release_function="$(sed -n '/^apply_release()/,/^}/p' \

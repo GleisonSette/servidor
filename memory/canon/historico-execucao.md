@@ -1271,3 +1271,26 @@ offline; servidor, banco e runtime permaneceram inalterados.
 - Nenhum commit, push, bootstrap, instalação, grant vivo, backup, migration,
   imagem ou deploy foi executado. Os próximos gates exigem autorizações próprias
   e o SHA Blindou limpo e publicado.
+
+## 2026-08-27 - Gate de atualização do Blindou corrigido offline
+
+Resultado: defeito do caminho de atualização reproduzido e correção validada;
+migration e rollout permaneceram bloqueados antes de qualquer alteração de
+schema ou workload.
+
+- A release Blindou `d5766d87a0cf5ba1d5827fa35e8e6a0cac801185` foi assinada,
+  validada no cache e passou na prova integral de quatro imagens, 25 blobs e
+  119.720.015 bytes.
+- A contenção IPv6 foi reconciliada pelo comando idempotente fechado depois de
+  o gate detectar uma reconfiguração tardia da interface; UFW, DNS, Internet,
+  ONT, K3s e APIWPP voltaram a passar.
+- O backup criptografado `blindou-20260827T095256Z`, com 3.023.505 bytes, foi
+  baixado em uma única conexão, conferido por SHA-256 e confirmado offsite.
+- `activate-release-gates` recusou corretamente antes de alterar namespaces,
+  porque sua implementação ainda exigia `blindou-production=secrets-only` em
+  uma atualização cujo estado vivo válido era `passed`/`passed`.
+- O controlador passou a aceitar somente os pares
+  `secrets-only`/`connector-only`, sem release corrente, e `passed`/`passed`,
+  com ponteiro root-only válido. Pares mistos continuam falhando fechados.
+- Sintaxe, diff e o verificador integral passaram, inclusive os seis testes da
+  prova GHCR. A correção ainda não foi instalada no host neste registro.

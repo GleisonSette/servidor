@@ -2886,7 +2886,7 @@ confirm_offsite_backup() {
 
 activate_release_gates() {
   local release_id="$1" confirmation="$2" backup_id backup_timestamp backup_epoch now_epoch
-  local edge_gate current_release=''
+  local app_gate edge_gate current_release=''
   [[ "$confirmation" == "$RELEASE_GATES_CONFIRMATION" ]] \
     || fail "confirmação exigida: ${RELEASE_GATES_CONFIRMATION}"
   [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
@@ -2894,23 +2894,22 @@ activate_release_gates() {
   verify_data_foundation >/dev/null
   verify_runtime_material
   verify_r2_runtime_credential >/dev/null
-  [[ "$(namespace_label "$APP_NAMESPACE" 'platform\.servidor\.local/deployment-gate')" == 'secrets-only' ]] \
-    || fail 'aplicação não está no gate intermediário secrets-only'
+  app_gate="$(namespace_label "$APP_NAMESPACE" 'platform\.servidor\.local/deployment-gate')"
   edge_gate="$(namespace_label "$EDGE_NAMESPACE" 'platform\.servidor\.local/deployment-gate')"
-  case "$edge_gate" in
-    connector-only)
+  case "${app_gate}:${edge_gate}" in
+    secrets-only:connector-only)
       [[ ! -e "$CURRENT_RELEASE" && ! -L "$CURRENT_RELEASE" ]] \
-        || fail 'EDGE connector-only é aceita somente antes da primeira release'
+        || fail 'gates de primeira instalação exigem ausência de release corrente'
       ;;
-    passed)
+    passed:passed)
       [[ -f "$CURRENT_RELEASE" && ! -L "$CURRENT_RELEASE" \
           && "$(stat -c '%U:%G:%a' "$CURRENT_RELEASE")" == 'root:root:600' ]] \
-        || fail 'EDGE passed exige ponteiro seguro da release corrente'
+        || fail 'gates passed exigem ponteiro seguro da release corrente'
       current_release="$(<"$CURRENT_RELEASE")"
       [[ "$current_release" =~ $RELEASE_PATTERN ]] \
         || fail 'ponteiro da release corrente é inválido'
       ;;
-    *) fail 'EDGE não está em um gate aceito para release' ;;
+    *) fail 'combinação de gates não é aceita para primeira instalação ou atualização' ;;
   esac
   [[ -d "${RELEASE_CACHE}/${release_id}/rendered" ]] || fail 'release assinada não está no cache'
   [[ "$(<"$GHCR_PULL_PROOF_LATEST")" == "$release_id" ]] \

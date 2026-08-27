@@ -404,6 +404,15 @@ migrator, mantém temporariamente `blindou_app` para compatibilidade, aplica
 à migration, a release atual continua compatível. Depois de `0012`, a imagem
 anterior pode usar as policies dedicadas sem receber novamente o papel amplo.
 
+Na primeira tentativa autorizada de rollout, a candidata foi validada e o
+backup offsite foi confirmado, mas `activate-release-gates` recusou o estado
+vivo porque exigia `blindou-production=secrets-only` também em atualizações. A
+regra corrigida distingue os únicos pares seguros: `secrets-only` com
+`connector-only` e ausência de release para a primeira instalação; `passed`
+com `passed` e ponteiro root-only válido para atualização. Estados mistos
+continuam recusados, e o controlador não rebaixa um namespace ativo para
+contornar o gate.
+
 A decisão resolve a arquitetura, mas não autoriza commit, push, instalação do
 controlador, alteração do host, migration ou deploy. Até essas operações e os
 gates do SHA exato passarem, o estado vivo permanece inalterado e o link de

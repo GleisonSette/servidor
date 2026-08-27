@@ -213,16 +213,21 @@ concluiu a ativação.
 
 Próxima ação exata, ainda dependente de autorizações próprias:
 
-1. publicar e validar a candidata D024/D052, instalar o controlador compatível,
-   obter backup offsite e somente então aplicar `0012` e o rollout autorizados;
-2. confirmar que o link Amazon em `go.guiadoconsumo.com` redireciona e registra
+1. instalar a correção que aceita somente os pares de gates seguros na primeira
+   instalação e na atualização; a candidata D024/D052 `d5766d8` já passou na
+   prova integral de quatro imagens e o backup
+   `blindou-20260827T095256Z` foi confirmado offsite, mas a migration e o
+   rollout ainda não começaram;
+2. revalidar contenção, dados e idade do backup e somente então aplicar `0012`
+   e o rollout autorizados;
+3. confirmar que o link Amazon em `go.guiadoconsumo.com` redireciona e registra
    Analytics, mantendo host e código desconhecidos em falha fechada;
-3. quando houver decisão explícita de compra live, validar tokenização direta,
+4. quando houver decisão explícita de compra live, validar tokenização direta,
    assinatura, webhook, reconciliação e cancelamento
    sem PAN/CVV na API, logs ou banco;
-4. seguir D020 com marketplaces e somente ao final
+5. seguir D020 com marketplaces e somente ao final
    UAZAPI/Resend;
-5. manter a cota global da aplicação em 90 custom hostnames e revalidar a
+6. manter a cota global da aplicação em 90 custom hostnames e revalidar a
    origem de fallback antes do primeiro fluxo autorizado de domínio por
    conta/tenant.
 
