@@ -465,3 +465,27 @@ tenant e são informados pelo usuário diretamente no painel Blindou, junto de u
 produto ativo usado para validar a geração oficial antes da persistência
 cifrada. Pagar.me permanece ativo; Mercado Livre, UAZAPI, Resend e 2FA não são
 ativados por D026. Não há migration.
+
+## Resolvida D027 - Credencial administrativa limitada ao bootstrap do slot
+
+Em 2026-08-27, o usuário autorizou explicitamente usar `KEY_SERVIDOR` do `.env`
+local ignorado, sem abrir seu conteúdo, para instalar o pré-requisito
+`secondary-slotctl`. Esta decisão amplia D025 somente para essa materialização
+e não converte a credencial em uma interface administrativa genérica.
+
+O único caminho adicional permitido é
+`operations/SecondarySlot.SudoBootstrap.psm1`, chamado por
+`operations/Invoke-SecondarySlotBootstrap.ps1`. O orquestrador fixa o servidor,
+a identidade SSH, os arquivos do commit, o staging e as verificações de APIWPP
+e Blindou; calcula e compara o SHA-256 local e remoto. A etapa privilegiada
+copia primeiro o arquivo autenticado para um cache root-owned, repete o hash,
+executa o verificador offline e somente então chama
+`bootstrap-secondary-slotctl.sh`.
+
+A chave permanece apenas em memória e entra por `stdin` do `sudo` fechado. Ela
+não pode aparecer em argumento, variável de ambiente, arquivo gerado, log,
+índice ou resposta. A autorização não alcança a inicialização do estado por
+senha, shell livre, fundação PostgreSQL, controladores SaferWPP, suspensão do
+APIWPP, deploy, rollback destrutivo ou qualquer recurso Blindou. Depois da
+instalação, inicialização e operação usam somente o sudoers restrito do próprio
+`secondary-slotctl`.

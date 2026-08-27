@@ -269,6 +269,8 @@ library = read("operations/remote/secondary_slot.py")
 sudoers = read("operations/remote/secondary-slotctl.sudoers")
 bootstrap = read("operations/remote/bootstrap-secondary-slotctl.sh")
 tmpfiles = read("operations/remote/secondary-slot-tmpfiles.conf")
+sudo_bootstrap = read("operations/SecondarySlot.SudoBootstrap.psm1")
+orchestrator = read("operations/Invoke-SecondarySlotBootstrap.ps1")
 for invariant in (
     "/run/lock/servidor-local-secondary-slot.lock",
     "/var/lib/servidor-local/secondary-slot",
@@ -314,6 +316,44 @@ if "O_NOFOLLOW" not in controller or "metadata.st_nlink != 1" not in controller:
     fail("controlador não protege o lock contra symlink ou hard link")
 if "secondary_slot_admission_matches" not in controller:
     fail("métricas não atestam a integridade da admissão")
+
+for invariant in (
+    "apiadmin@192.168.100.59",
+    "saferwpp-secondary-slot-bootstrap-",
+    "/var/lib/servidor-local/bootstrap-releases/secondary-slot",
+    "servidor-local-platform-bootstrap.lock",
+    "sha256sum",
+    "apiadmin:apiadmin:600:1",
+    "verify-secondary-slot-artifacts.py",
+    "bootstrap-secondary-slotctl.sh",
+    "Export-ModuleMember -Function Invoke-SecondarySlotSudoBootstrap",
+):
+    if invariant not in sudo_bootstrap:
+        fail(f"invariante ausente no bootstrap autenticado: {invariant}")
+for forbidden in (
+    "Write-Host $password",
+    "Write-Output $password",
+    "$env:KEY_SERVIDOR",
+):
+    if forbidden in sudo_bootstrap:
+        fail(f"bootstrap autenticado pode expor credencial: {forbidden}")
+for invariant in (
+    "git.exe",
+    "verify-secondary-slot-artifacts.py",
+    "Get-FileHash -Algorithm SHA256",
+    "IdentitiesOnly=yes",
+    "BatchMode=yes",
+    "StrictHostKeyChecking=yes",
+    "apiwpp-deployctl verify",
+    "blindou-deployctl status",
+    "blindou-hostctl verify",
+    "Invoke-SecondarySlotSudoBootstrap",
+    "secondary-slotctl status",
+):
+    if invariant not in orchestrator:
+        fail(f"invariante ausente no orquestrador do bootstrap: {invariant}")
+if "Read-Host" in orchestrator or "Invoke-Expression" in orchestrator:
+    fail("orquestrador possui entrada ou execução dinâmica proibida")
 
 for source in (controller, library):
     if "shell=True" in source or re.search(r"\b(?:eval|exec)\s*\(", source):

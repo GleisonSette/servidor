@@ -29,17 +29,31 @@ SaferWPP também exige ao menos um workload de longa duração Ready em cada
 namespace obrigatório. O PostgreSQL exclusivo, seus backups e exporter
 pertencem à fundação persistente do SaferWPP e não entram nessa contagem.
 
-## Instalação futura
+## Instalação autenticada
 
-Uma janela separada e explicitamente autorizada deve:
+Uma janela separada e explicitamente autorizada deve executar, no computador
+administrativo:
 
-1. validar o bundle offline com
+```powershell
+& .\operations\Invoke-SecondarySlotBootstrap.ps1
+```
+
+O orquestrador é o único caminho autorizado para usar `KEY_SERVIDOR` nesta
+instalação. Ele não lê a chave para saída: mantém o valor apenas em memória e o
+envia por `stdin` ao bootstrap fixo. O fluxo:
+
+1. valida o bundle offline com
    `operations/remote/verify-secondary-slot-artifacts.py`;
-2. transportar o commit aprovado e comparar seu hash;
-3. executar `bootstrap-secondary-slotctl.sh` como root;
-4. gerar um `operation_id` no formato
+2. recusa alteração não commitada em qualquer artefato transportado;
+3. gera um arquivo seletivo do commit, transporta-o pelo SSH fixo e compara seu
+   SHA-256 local e remoto;
+4. cria um snapshot root-owned, repete o hash e executa somente
+   `bootstrap-secondary-slotctl.sh` após o verificador offline passar;
+5. confirma novamente APIWPP e Blindou, sem suspender, escalar ou implantar
+   workload;
+6. gera um `operation_id` no formato
    `YYYYMMDDTHHMMSSZ-<12 caracteres hexadecimais>`;
-5. inicializar somente após confirmar APIWPP exatamente ativo, SaferWPP vazio e
+7. inicializa somente após confirmar APIWPP exatamente ativo, SaferWPP vazio e
    Blindou Ready e íntegro:
 
    ```text
@@ -48,7 +62,7 @@ Uma janela separada e explicitamente autorizada deve:
      secondary-slot-initialize-apiwpp-active
    ```
 
-6. executar `secondary-slotctl verify` e validar as métricas e as cinco regras
+8. executa `secondary-slotctl verify` e valida as métricas e as cinco regras
    de alerta.
 
 O bootstrap apenas instala os artefatos, preserva versões anteriores e habilita

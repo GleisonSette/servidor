@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-arquitetura-plataforma
   source_path: memory/canon/arquitetura-plataforma.md
   generated_from: decisão do usuário, auditoria e requisitos de apiwpp/Blindou/SaferWPP
-  updated_at: 2026-08-26
+  updated_at: 2026-08-27
   status: canonical
 
 ## Objetivo e limite
@@ -29,6 +29,11 @@ forte contra comprometimento do kernel/root.
   `stdin` somente aos bootstraps fechados dos controladores Blindou. O helper
   fixa host, staging e nomes dos instaladores e não aceita comando livre nem
   rollback destrutivo.
+- D027 concede uma segunda capacidade, separada e de uso único, ao helper
+  `SecondarySlot.SudoBootstrap.psm1`: materializar somente o controlador
+  compartilhado do slot a partir de um arquivo produzido pelo commit aprovado,
+  com host, staging, SHA-256, cache root-owned e bootstrap fixos. Essa concessão
+  não instala fundação ou controlador SaferWPP e não oferece `sudo` genérico.
 - Uma ServiceAccount por workload, com token desabilitado quando não necessário.
 - Secrets, credenciais de banco e certificados separados por finalidade.
 
