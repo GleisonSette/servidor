@@ -2918,9 +2918,13 @@ activate_release_gates() {
     [[ -f "$UI_REVIEW_RECEIPT" ]] \
       && grep -Fxq 'status=authorized' "$UI_REVIEW_RECEIPT" \
       || fail 'adiamento dos provedores para revisão da UI não foi registrado'
+  elif [[ -f "$ALERT_RECEIPT" ]] && grep -Fxq 'status=confirmed' "$ALERT_RECEIPT"; then
+    :
+  elif pagarme_runtime_receipt_is_secure \
+      && grep -Fxq 'PAGARME_ENABLED=true' "$RUNTIME_CONFIG_FILE"; then
+    :
   else
-    [[ -f "$ALERT_RECEIPT" ]] && grep -Fxq 'status=confirmed' "$ALERT_RECEIPT" \
-      || fail 'receptor externo de alertas não foi confirmado'
+    fail 'receptor externo de alertas não foi confirmado e o adiamento UAZAPI/Resend não está autorizado'
   fi
   backup_id="$(<"${DATABASE_BACKUP_ROOT}/latest")"
   [[ -f "$OFFSITE_BACKUP_RECEIPT" ]] \

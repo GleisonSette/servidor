@@ -510,6 +510,15 @@ grep -Fq 'secrets-only:connector-only)' <<<"$activate_release_gates_function" \
     <<<"$activate_release_gates_function" \
   && grep -Fq "root:root:600" <<<"$activate_release_gates_function" \
   || fail 'gate de release não exige pares seguros na primeira instalação e na atualização'
+grep -Fq "grep -Fxq 'status=confirmed' \"\$ALERT_RECEIPT\"" \
+  <<<"$activate_release_gates_function" \
+  && grep -Fq 'elif pagarme_runtime_receipt_is_secure' \
+    <<<"$activate_release_gates_function" \
+  && grep -Fq "grep -Fxq 'PAGARME_ENABLED=true' \"\$RUNTIME_CONFIG_FILE\"" \
+    <<<"$activate_release_gates_function" \
+  && grep -Fq 'o adiamento UAZAPI/Resend não está autorizado' \
+    <<<"$activate_release_gates_function" \
+  || fail 'gate de release não preserva alerta confirmado nem o adiamento Pagar.me-first autorizado'
 grep -Fq 'bootstrap-superadmin)' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'bootstrap fechado do superadmin ausente'
 apply_release_function="$(sed -n '/^apply_release()/,/^}/p' \

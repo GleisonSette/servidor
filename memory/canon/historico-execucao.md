@@ -1294,3 +1294,20 @@ schema ou workload.
   com ponteiro root-only válido. Pares mistos continuam falhando fechados.
 - Sintaxe, diff e o verificador integral passaram, inclusive os seis testes da
   prova GHCR. A correção ainda não foi instalada no host neste registro.
+
+## 2026-08-27 - Adiamento Pagar.me-first preservado no gate de atualização
+
+Resultado: segunda divergência do controlador corrigida offline; Pagar.me,
+schema e workloads permaneceram inalterados.
+
+- Depois da instalação da correção dos pares de gates, a candidata e os gates
+  vivos passaram novamente, com Pagar.me ativo e UAZAPI/Resend ausentes.
+- `activate-release-gates` ainda exigia o receptor D005 sempre que o modo de
+  revisão estivesse encerrado, contradizendo a ordem D020 que deixa
+  UAZAPI/Resend por último.
+- O usuário confirmou que o Pagar.me já ativo deve ser preservado e autorizou
+  alinhar o gate: recibo root-only Pagar.me íntegro mais
+  `PAGARME_ENABLED=true` comprovam o adiamento específico; receptor externo já
+  confirmado continua aceito e ausência dos dois caminhos falha fechada.
+- A correção não lê nem muda chaves, planos, webhook, ConfigMap, Secret,
+  migration ou workload. Neste registro ela ainda não foi instalada no host.

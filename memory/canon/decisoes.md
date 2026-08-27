@@ -269,6 +269,13 @@ mantém UAZAPI/Resend desligados, reinicia consumidores e restaura a configuraç
 anterior se a prontidão falhar. Preparar o fluxo no repositório não autoriza
 instalar o controlador no host, aplicar release, migration ou ativar cobrança.
 
+Até a última etapa dessa ordem externa, atualizações da aplicação reconhecem o
+adiamento de UAZAPI/Resend somente quando o recibo root-only de ativação
+Pagar.me estiver íntegro e a configuração protegida mantiver
+`PAGARME_ENABLED=true`. Isso não substitui o canal futuro definido em D005,
+não altera o Pagar.me e não aceita ausência genérica de alertas. Receptor já
+confirmado continua válido; sem uma das duas provas, o gate falha fechado.
+
 ## Resolvida D021 - Prefixos atuais e criação fechada dos planos Pagar.me
 
 Em 2026-08-24, o painel real e a documentação oficial da API V5 mostraram que

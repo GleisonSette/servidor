@@ -527,6 +527,13 @@ a aplicação permanece em `secrets-only` até a prova GHCR, o backup recente e 
 recibo offsite da candidata serem confirmados; uma atualização não rebaixa o
 namespace ativo a esse gate intermediário.
 
+Enquanto a ordem Pagar.me-first da D020 mantiver UAZAPI e Resend adiados, uma
+atualização aceita essa ausência somente quando o recibo root-only de ativação
+Pagar.me estiver íntegro e `PAGARME_ENABLED=true` na configuração protegida. Um
+receptor externo já confirmado continua sendo aceito normalmente. Ausência ou
+divergência dos dois caminhos falha fechada; o gate não cria credencial, não
+altera o Pagar.me e não antecipa UAZAPI/Resend.
+
 O `apply` executa o corpo da release em subshell com `errexit` explicitamente
 reativado e só então captura o código para decidir rollback. Não envolver
 `apply_cached_release` diretamente em `if !`: Bash desabilita `errexit` também
