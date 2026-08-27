@@ -93,6 +93,10 @@ exec 9>"$bootstrap_lock"
 chmod 0600 "$bootstrap_lock"
 flock -n 9 || fail 'outro bootstrap de plataforma está em andamento'
 
+/usr/local/sbin/apiwpp-deployctl verify >/dev/null
+/usr/local/sbin/blindou-hostctl verify >/dev/null
+/usr/local/sbin/blindou-deployctl status >/dev/null
+
 work_directory=''
 cleanup() {
   local result="$?"

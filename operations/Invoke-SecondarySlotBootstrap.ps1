@@ -109,8 +109,8 @@ try {
 set -eu
 test "$(hostname)" = apiwpp
 sudo -n /usr/local/sbin/apiwpp-deployctl verify
-sudo -n /usr/local/sbin/blindou-deployctl status >/dev/null
 sudo -n /usr/local/sbin/blindou-hostctl verify
+sudo -n /usr/local/sbin/blindou-deployctl status >/dev/null
 '@
     Invoke-CheckedProcess -FilePath 'ssh.exe' `
         -ArgumentList ($sshArguments + @($server, $remotePreflight)) `
