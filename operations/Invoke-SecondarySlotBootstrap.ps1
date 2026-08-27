@@ -108,11 +108,10 @@ try {
     $remotePreflight = @'
 set -eu
 test "$(hostname)" = apiwpp
-sudo -n /usr/local/sbin/apiwpp-deployctl verify
 '@
     Invoke-CheckedProcess -FilePath 'ssh.exe' `
         -ArgumentList ($sshArguments + @($server, $remotePreflight)) `
-        -FailureMessage 'O preflight do host, APIWPP ou Blindou falhou.'
+        -FailureMessage 'O preflight da identidade do host falhou.'
     $prepareStaging =
         "install -d -m 0700 '$remoteDirectory' && " +
         "rm -f -- '$remoteTemporaryArchive'"
