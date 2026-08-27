@@ -124,7 +124,6 @@ for sudoers in "${payload}/sudoers/saferwpp-deployctl" \
   visudo -cf "$sudoers" >/dev/null
 done
 bash -n "$IDENTITY_CONTROLLER_SOURCE"
-systemd-analyze verify "$IDENTITY_SERVICE_SOURCE" "$IDENTITY_TIMER_SOURCE" >/dev/null
 promtool check rules "$ALERTS_SOURCE" >/dev/null
 [[ -f "$PROMETHEUS_CONFIG" && ! -L "$PROMETHEUS_CONFIG" ]] \
   || fail 'prometheus.yml ausente ou simbólico'
@@ -289,6 +288,9 @@ for mapping in "${mappings[@]}"; do
     install -D -o root -g root -m "$mode" "$source" "$target"
   fi
 done
+systemd-analyze verify \
+  /etc/systemd/system/saferwpp-kube-identities.service \
+  /etc/systemd/system/saferwpp-kube-identities.timer >/dev/null
 visudo -cf /etc/sudoers.d/saferwpp-deployctl >/dev/null
 visudo -cf /etc/sudoers.d/saferwpp-backupctl >/dev/null
 visudo -cf /etc/sudoers.d/saferwpp-secretsctl >/dev/null
