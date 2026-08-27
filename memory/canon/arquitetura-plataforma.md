@@ -12,10 +12,10 @@ metadata:
 O Blindou permanece sempre ativo e intacto. A capacidade residual do servidor
 será usada por um slot alternável entre APIWPP e SaferWPP, com exclusão mútua:
 somente um deles poderá manter workloads ativos por vez. No estado vivo atual,
-o APIWPP permanece ativo e o SaferWPP permanece vazio. Os contratos dos
-controladores APIWPP e da plataforma compartilhada já estão implementados nos
-respectivos repositórios, mas ainda não foram instalados nem inicializados no
-host. Pixel/CIA não recebe workloads. Não há acesso de clientes ao
+o APIWPP permanece ativo e o SaferWPP permanece vazio. O controlador
+compartilhado do slot está instalado e inicializado; os controladores SaferWPP
+continuam apenas nos repositórios e no staging. Pixel/CIA não recebe workloads.
+Não há acesso de clientes ao
 host ou ao Kubernetes. O cluster fornece isolamento lógico, não isolamento
 forte contra comprometimento do kernel/root.
 
@@ -40,13 +40,14 @@ forte contra comprometimento do kernel/root.
 SSH identifica o operador. O isolamento entre projetos é feito por assinatura
 de artefato, namespaces, RBAC, ServiceAccounts, NetworkPolicy, dados e limites.
 
-Estado dos controladores em 2026-08-26:
+Estado dos controladores em 2026-08-27:
 
 - `apiwpp-deployctl` e `apiwpp-backupctl` estão instalados, root-owned e são os
   únicos caminhos sem senha do apiwpp; as novas operações do slot existem no
   repositório APIWPP, mas a versão instalada ainda não foi reconciliada;
-- `secondary-slotctl` existe declarativamente no repositório `servidor`, com
-  bootstrap e sudoers fechados, mas ainda não foi instalado ou inicializado;
+- `secondary-slotctl` está instalado e inicializado na geração 1, com APIWPP
+  ativo, SaferWPP vazio, atestado root-only, admissão fail-closed, timer,
+  métricas e sudoers restrito;
 - `pixel-deployctl` ainda não existe; `saferwpp-deployctl`,
   `saferwpp-backupctl` e `saferwpp-secretsctl` possuem release assinada, SBOM,
   scan, proveniência e verificador independente. A plataforma possui bootstrap

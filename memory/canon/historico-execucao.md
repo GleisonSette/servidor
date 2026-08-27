@@ -1384,3 +1384,33 @@ foi instalado no host e nenhum runtime ou segredo foi alterado nesta etapa.
 - o verificador offline passou em container Linux, incluindo sintaxe, sudoers
   contratual, marcador da release, observabilidade e orquestrador PowerShell;
 - Mercado Livre, UAZAPI, Resend e 2FA permaneceram fora do escopo.
+
+## 2026-08-27 - Slot secundário materializado e inicializado
+
+Resultado: controlador compartilhado instalado e atestado na geração 1, com
+APIWPP ativo e SaferWPP vazio; Blindou permaneceu íntegro.
+
+- D027 criou o orquestrador fechado que usa a credencial administrativa somente
+  em memória e por `stdin`, fixa host, commit, staging e SHA-256 e copia o
+  arquivo autenticado para cache root-owned antes do bootstrap. Nenhum valor da
+  credencial foi aberto, impresso ou persistido.
+- Tentativas iniciais foram barradas pelo lock de outra operação Blindou ou
+  revertidas automaticamente por falhas no coletor de métricas. O diagnóstico
+  mostrou o textfile collector padrão como `prometheus:prometheus` `0755` e um
+  disparo imediato do timer concorrendo pelo lock do slot. O contrato passou a
+  aceitar somente ownership root ou Prometheus sem escrita de grupo/outros, a
+  preservar o arquivo de métricas no rollback, limpar somente o estado failed
+  da própria unidade e aguardar a coleta liberar o lock. Todos os testes e
+  verificadores offline passaram após as correções.
+- A instalação final usou o commit
+  `76fec3cad8d2f58a37e43fc7bf6ce6ba095cf4cf`, SHA-256
+  `5cd4b2ecfbf4199feb3509791b8602d786bef87e14f117132afafe4e2653bfcd`, e criou
+  backup transacional em
+  `/var/backups/servidor-local/secondary-slot-bootstrap/20260827T220310Z`.
+- A operação `20260827T220459Z-b332c6c44b27` inicializou a geração 1 com
+  `active_occupant=apiwpp`, um workload APIWPP, zero SaferWPP, admissão instalada
+  e nenhuma transição pendente. `verify`, métricas e status passaram.
+- Depois da mudança, APIWPP permaneceu Ready com 18 migrations e gateway
+  privado; `blindou-deployctl status` e `blindou-hostctl verify` passaram. Não
+  houve suspensão, fundação PostgreSQL, Secret, migration, controlador ou
+  workload SaferWPP.

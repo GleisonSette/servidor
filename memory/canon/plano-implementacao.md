@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-plano-implementacao
   source_path: memory/canon/plano-implementacao.md
   generated_from: plano aprovado pelo usuário em 2026-08-15
-  updated_at: 2026-08-26
+  updated_at: 2026-08-27
   status: canonical
 
 ## Regra de continuidade
@@ -266,9 +266,9 @@ Objetivos:
 ## Fase 3 - Slot alternável APIWPP/SaferWPP
 
 Status: auditoria viva, decisão D023, fundação SaferWPP e contratos dos itens 4
-a 7 concluídos nos repositórios em 2026-08-26. Nada desses novos contratos foi
-instalado ou aplicado ao host/K3s; o estado vivo permanece APIWPP ativo e
-SaferWPP vazio.
+a 7 concluídos nos repositórios. Em 2026-08-27, `secondary-slotctl` foi instalado
+e inicializado na geração 1 com APIWPP ativo e SaferWPP vazio. Fundação e
+controladores SaferWPP ainda não foram materializados.
 Nenhuma etapa desta fase autoriza, por si só, alterar o servidor.
 
 Objetivo:
@@ -310,9 +310,11 @@ Ordem obrigatória:
    a release, implementar verificador independente, bootstrap root fechado,
    certificados Kubernetes exclusivos com renovação e alertas; nenhum
    artefato foi instalado no host;
-8. somente em janela e autorização próprias, materializar primeiro o
-   controlador do slot e a fundação vazia, instalar os três controladores
-   SaferWPP e produzir as evidências reais de backup e Secrets;
+8. concluído parcialmente em 2026-08-27: materializar e inicializar o
+   controlador do slot com APIWPP ativo, zero workload SaferWPP, admissão e
+   métricas verificadas; ainda em janela e autorização próprias, materializar a
+   fundação vazia, instalar os três controladores SaferWPP e produzir as
+   evidências reais de backup e Secrets;
 9. somente em janela e autorização próprias, criar backup prévio, suspender o
    APIWPP, validar sua recuperabilidade e provar que Blindou permaneceu igual;
 10. somente após todos os gates, criar dados/dependências e implantar a release
@@ -335,9 +337,9 @@ Resultado da auditoria:
   conector saudáveis; nenhum recurso foi alterado pela auditoria;
 - D023 resolvida: cluster SaferWPP exclusivo com teto 24 e PgBouncer de dez
   backends; nenhum recurso foi criado no host;
-- controlador compartilhado: contrato, bootstrap, sudoers, admissão, métricas,
-  alertas, reconciliação e runbook passam na validação offline; o escritor ainda
-  não existe no host e o primeiro atestado ainda não foi publicado;
+- controlador compartilhado: instalado a partir do commit `76fec3c`, com
+  sudoers, admissão, timer, métricas, alertas e reconciliação; o atestado
+  root-only está válido na geração 1, com APIWPP ativo e SaferWPP vazio;
 - controladores SaferWPP: deploy, backup/restore e inventário de Secrets estão
   implementados localmente; o schema da plataforma exige as mesmas provas de
   papéis, grants e RLS do consumidor;
@@ -347,9 +349,9 @@ Resultado da auditoria:
   implementados, mas continuam ausentes do host;
 - transporte e validação Linux: concluídos no staging user-owned
   `/home/apiadmin/saferwpp-platform-bootstrap-a8127c9-5e8b21d`, sem instalação;
-- próximo gate: materializar, em ordem, `secondary-slotctl`, fundação vazia e
-  controladores SaferWPP. Nenhuma instalação, suspensão ou mudança de workload
-  é autorizada por este registro.
+- próximo gate: materializar a fundação vazia e depois os controladores
+  SaferWPP. Nenhuma suspensão do APIWPP ou mudança de workload SaferWPP foi
+  executada por este registro.
 
 Aceite automatizado:
 

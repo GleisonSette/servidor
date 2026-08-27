@@ -39,12 +39,11 @@ corpus por padrão.
   servidor. `apiwpp` e Blindou têm controladores próprios instalados; Pixel e
   SaferWPP falham fechados para alterações.
 - D022 mantém o Blindou sempre ativo e reserva a capacidade residual a um slot
-  alternável entre APIWPP e SaferWPP, com exclusão mútua. Os contratos APIWPP e
-  da plataforma compartilhada já existem nos repositórios: atestado root-only,
-  lock global, admissão fail-closed, reconciliação e alertas. Nada foi instalado
-  no host: APIWPP continua ativo e SaferWPP vazio até `saferwpp-deployctl`, os
-  gates operacionais e uma autorização de janela própria passarem. Pixel/CIA
-  não recebe novos workloads.
+  alternável entre APIWPP e SaferWPP, com exclusão mútua. Em 2026-08-27,
+  `secondary-slotctl` foi instalado e inicializado na geração 1, com atestado
+  root-only, APIWPP ativo, SaferWPP vazio, admissão fail-closed, reconciliação,
+  métricas e alertas. Fundação e controladores SaferWPP continuam ausentes;
+  Pixel/CIA não recebe novos workloads.
 - D024 está implantada. `blindou_redirect_login` usa o grupo mínimo
   `blindou_redirector`, sem `BYPASSRLS`; a migration `0012` está registrada e a
   release `d5766d87a0cf5ba1d5827fa35e8e6a0cac801185` está ativa. O link Amazon

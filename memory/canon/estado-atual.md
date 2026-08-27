@@ -14,6 +14,21 @@ workloads e serviços. A última auditoria de capacidade ocorreu em 2026-08-26 e
 a última operação Blindou foi concluída em 2026-08-27. APIWPP continua ativo,
 SaferWPP continua vazio e o Blindou permanece ativo.
 
+## Controlador do slot secundário ativo em 2026-08-27
+
+- `secondary-slotctl` está instalado como arquivo root-owned, com sudoers
+  restrito, admissão fail-closed, timer de métricas e regras Prometheus.
+- O atestado root-only está válido na geração 1, com `apiwpp` como ocupante,
+  um workload APIWPP, zero workload SaferWPP e nenhuma transição pendente.
+- A admissão compartilhada está instalada. APIWPP permaneceu Ready com 18
+  migrations; `blindou-deployctl status` e `blindou-hostctl verify` passaram
+  depois da inicialização.
+- A release da plataforma instalada veio do commit
+  `76fec3cad8d2f58a37e43fc7bf6ce6ba095cf4cf`, SHA-256
+  `5cd4b2ecfbf4199feb3509791b8602d786bef87e14f117132afafe4e2653bfcd`.
+- Fundação PostgreSQL, controladores e workloads SaferWPP continuam ausentes.
+  O próximo gate permanece a fundação vazia exclusiva do produto.
+
 ## Operação Blindou concluída em 2026-08-27
 
 - A release Blindou `11e21b3319c197ef18440e7f494290b298f2db1e` está ativa.
