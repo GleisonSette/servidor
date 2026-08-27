@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import pathlib
+import stat
 import sys
 import unittest
+from types import SimpleNamespace
 
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -22,6 +24,7 @@ from secondary_slot import (  # noqa: E402
     runtime_is_fully_suspended,
     state_matches_runtime,
     state_from_unambiguous_runtime,
+    textfile_directory_metadata_is_safe,
     workload_is_active,
 )
 
@@ -156,6 +159,26 @@ class WorkloadClassificationTests(unittest.TestCase):
         job = {"kind": "Job", "spec": {}, "status": {"active": 1}}
         self.assertTrue(workload_is_active(job))
         self.assertFalse(long_running_workload_is_active(job))
+
+
+class TextfileCollectorDirectoryTests(unittest.TestCase):
+    def test_root_and_prometheus_ownership_are_accepted(self) -> None:
+        for uid, gid in ((0, 0), (112, 118)):
+            metadata = SimpleNamespace(
+                st_mode=stat.S_IFDIR | 0o755,
+                st_uid=uid,
+                st_gid=gid,
+            )
+            self.assertTrue(textfile_directory_metadata_is_safe(metadata, 112, 118))
+
+    def test_writable_or_unexpected_owner_is_rejected(self) -> None:
+        for mode, uid, gid in ((0o775, 112, 118), (0o755, 1000, 1000)):
+            metadata = SimpleNamespace(
+                st_mode=stat.S_IFDIR | mode,
+                st_uid=uid,
+                st_gid=gid,
+            )
+            self.assertFalse(textfile_directory_metadata_is_safe(metadata, 112, 118))
 
 
 if __name__ == "__main__":

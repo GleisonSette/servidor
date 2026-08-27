@@ -61,6 +61,21 @@ BLINDOU_FINGERPRINT_RESOURCES = (
 )
 
 
+def textfile_directory_metadata_is_safe(
+    metadata: os.stat_result,
+    prometheus_uid: int,
+    prometheus_gid: int,
+) -> bool:
+    """Aceita somente o diretório padrão imutável por grupo/outros."""
+
+    ownership = (metadata.st_uid, metadata.st_gid)
+    return (
+        stat.S_ISDIR(metadata.st_mode)
+        and stat.S_IMODE(metadata.st_mode) == 0o755
+        and ownership in {(0, 0), (prometheus_uid, prometheus_gid)}
+    )
+
+
 class ContractError(RuntimeError):
     """Indica que um invariante operacional falhou de forma fechada."""
 

@@ -296,6 +296,7 @@ for invariant in (
     "namespace_gates_match",
     "saferwpp_required_namespaces_active",
     "STATE_HISTORY_MAX_FILES",
+    "textfile_directory_metadata_is_safe",
 ):
     if invariant not in library:
         fail(f"invariante ausente na biblioteca: {invariant}")
@@ -324,6 +325,13 @@ if "O_NOFOLLOW" not in controller or "metadata.st_nlink != 1" not in controller:
     fail("controlador não protege o lock contra symlink ou hard link")
 if "secondary_slot_admission_matches" not in controller:
     fail("métricas não atestam a integridade da admissão")
+for invariant in (
+    'pwd.getpwnam("prometheus")',
+    'grp.getgrnam("prometheus")',
+    "textfile_directory_metadata_is_safe",
+):
+    if invariant not in controller:
+        fail(f"validação do textfile collector ausente: {invariant}")
 
 for invariant in (
     "apiadmin@192.168.100.59",

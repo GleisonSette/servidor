@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import grp
 import json
 import os
 import pathlib
+import pwd
 import re
 import socket
 import stat
@@ -59,6 +61,7 @@ from secondary_slot import (  # noqa: E402
     set_namespace_gates,
     state_matches_runtime,
     state_from_unambiguous_runtime,
+    textfile_directory_metadata_is_safe,
     utc_now,
     validate_fingerprint,
     validate_operation_id,
@@ -738,7 +741,14 @@ def pending_age_seconds() -> int:
 def write_metrics_file(content: str) -> None:
     parent = METRICS_FILE.parent
     metadata = parent.lstat()
-    if not stat.S_ISDIR(metadata.st_mode) or parent.is_symlink() or metadata.st_uid != 0:
+    try:
+        prometheus_uid = pwd.getpwnam("prometheus").pw_uid
+        prometheus_gid = grp.getgrnam("prometheus").gr_gid
+    except KeyError:
+        fail("identidade do textfile collector está ausente")
+    if parent.is_symlink() or not textfile_directory_metadata_is_safe(
+        metadata, prometheus_uid, prometheus_gid
+    ):
         fail("diretório do textfile collector é inseguro")
     descriptor, temporary_name = tempfile.mkstemp(prefix=".secondary-slot.", dir=parent)
     temporary = pathlib.Path(temporary_name)
