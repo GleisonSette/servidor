@@ -20,15 +20,17 @@
 - Não expor SSH, Kubernetes API, PostgreSQL, métricas ou NodePort à internet.
 - Não enfraquecer UFW, SSH, Pod Security, NetworkPolicy ou criptografia de
   Secrets para contornar falha.
-- Por decisão D018 de 2026-08-22, somente o helper versionado
+- Por decisões D018 e D025, somente o helper versionado
   `operations/Blindou.SudoBootstrap.psm1` pode carregar `KEY_SERVIDOR` do
   arquivo local ignorado `.env`. O valor nunca pode ser aberto manualmente,
   impresso, registrado, indexado, persistido, colocado em argumento ou variável
   de ambiente; ele passa apenas pela memória do processo e por `stdin` para os
   bootstraps fechados do `blindou-hostctl` e do `blindou-deployctl` no host
   aprovado. A permissão não alcança `sudo` genérico, rollback destrutivo, outro
-  host, projeto ou comando. Depois do trabalho, lembrar o usuário de apagar o
-  arquivo temporário.
+  host, projeto ou comando. Por decisão explícita do usuário em 2026-08-27, o
+  arquivo será retido até a entrada do primeiro cliente; nesse marco, ou diante
+  de suspeita de exposição, lembrar o usuário de removê-lo e rotacionar a
+  credencial.
 - Preservar alterações do usuário nos repositórios irmãos. Mudança em outro
   repositório exige escopo explícito e commit separado.
 

@@ -225,8 +225,9 @@ bootstrap aceitos. Ele não recebe comando arbitrário e não automatiza rollbac
 destrutivo.
 
 D011 continua proibindo `sudo` genérico e shell administrativo automatizado.
-O `.env` é uma credencial temporária da estação, não um cofre permanente; ao
-terminar o trabalho dependente dela, o operador deve apagá-lo.
+O `.env` é uma credencial temporária da estação, não um cofre permanente. O
+prazo original de remoção ao fim do trabalho foi substituído somente quanto ao
+prazo por D025.
 
 ## Resolvida D019 - Revisão da interface antes dos provedores externos
 
@@ -428,3 +429,18 @@ comprovou o login dedicado, 12 migrations, aplicação e EDGE em `passed`, link
 Amazon funcional e códigos desconhecidos em HTTP 404. Pagar.me permaneceu ativo
 sem alteração de chave, planos, webhook ou cobrança; UAZAPI/Resend continuam
 adiados.
+
+## Resolvida D025 - `.env` administrativo retido até o primeiro cliente
+
+Em 2026-08-27, o usuário decidiu manter o arquivo local ignorado `.env` até a
+entrada do primeiro cliente. Esta decisão substitui somente o prazo de remoção
+de D018; não transforma o arquivo em cofre permanente nem amplia a autoridade
+de leitura.
+
+Somente `operations/Blindou.SudoBootstrap.psm1` pode carregar `KEY_SERVIDOR`,
+em memória, e entregá-la por `stdin` aos bootstraps fechados do
+`blindou-hostctl` e do `blindou-deployctl` no host aprovado. Leitura manual,
+log, resposta, argumento, variável de ambiente, Git, RAG, comando livre, outro
+host ou outro projeto continuam proibidos. Na entrada do primeiro cliente, ou
+antes diante de suspeita de exposição, o arquivo deve ser removido e a
+credencial rotacionada.

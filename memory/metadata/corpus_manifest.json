@@ -6,7 +6,7 @@
   "source_scope": "Host, K3s, APIWPP, Blindou, slot SaferWPP, operacao, seguranca e continuidade.",
   "layers": {
     "canon": 6,
-    "index_chunks": 132
+    "index_chunks": 134
   },
   "topics": [
     "indice-canonico",

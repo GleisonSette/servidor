@@ -211,7 +211,7 @@ concluiu a ativação.
 5. catálogo e checkout transparente validados sem enviar cartão ou criar
    cobrança real.
 
-Estado D024/D052 concluído em 2026-08-27:
+Estado D024/D052/D053 concluído em 2026-08-27:
 
 1. os dois gates corrigidos foram instalados e revalidados;
 2. o backup `blindou-20260827T120324Z` foi confirmado offsite;
@@ -219,19 +219,22 @@ Estado D024/D052 concluído em 2026-08-27:
 4. o link Amazon redirecionou, preservou o identificador de afiliado e
    registrou Analytics; host/código desconhecido permaneceu em HTTP 404;
 5. Pagar.me permaneceu ativo e UAZAPI/Resend continuaram adiados.
+6. a release `11e21b3` eliminou a concorrência do relatório, passou nos gates
+   e foi validada com carga fria e novo redirect Amazon;
+7. o relatório passou a sete acessos e o código desconhecido continuou em 404.
 
 Próxima ação exata, ainda dependente de autorizações próprias:
 
-1. tratar a concorrência da carga inicial do Relatório de proteção sem elevar
-   isoladamente o teto de conexões do PostgreSQL compartilhado;
+1. seguir D020 com Marketplaces: Amazon está configurada e validada; Mercado
+   Livre depende da extensão Blindou publicada e de seus parâmetros próprios,
+   Shopee depende de AppID/App Secret aprovados entregues por canal protegido e
+   Magazine Luiza depende do identificador comercial do cliente;
 2. quando houver decisão explícita de compra live, validar tokenização direta,
    assinatura, webhook, reconciliação e cancelamento
    sem PAN/CVV na API, logs ou banco;
-3. seguir D020 com marketplaces e somente ao final
-   UAZAPI/Resend;
-4. manter a cota global da aplicação em 90 custom hostnames e revalidar a
-   origem de fallback antes do primeiro fluxo autorizado de domínio por
-   conta/tenant.
+3. somente depois dos marketplaces, seguir com UAZAPI/Resend;
+4. manter a cota global da aplicação em 90 custom hostnames e monitorar a
+   origem de fallback e o domínio já ativo sem criar hostname adicional.
 
 ## Fase 2E - Primeira release e capacidade do Blindou
 

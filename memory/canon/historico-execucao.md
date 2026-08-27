@@ -1342,3 +1342,29 @@ link concluídas; Pagar.me permaneceu ativo e UAZAPI/Resend continuaram adiados.
   teto do PostgreSQL nem alterar dados.
 - `pagarme_runtime_state=active` foi preservado; nenhuma chave, plano, webhook
   ou cobrança foi modificada. O receptor segue `deferred_uazapi_resend`.
+
+## 2026-08-27 - D053 implantada e relatório validado com redirect real
+
+Resultado: a amplificação de conexões do Relatório de proteção foi removida da
+carga inicial, a release nova foi implantada e o link Amazon passou novamente
+ponta a ponta.
+
+- O SHA `11e21b3319c197ef18440e7f494290b298f2db1e` passou nos cinco gates D046;
+  backend, redirector, NATS e `cloudflared` foram publicados, examinados e
+  reunidos em bundle assinado.
+- A prova de pull viva confirmou quatro imagens, 25 blobs e 119.734.965 bytes.
+- O backup `blindou-20260827T143510Z`, com 3.052.306 bytes e SHA-256
+  `0ffcbf1eef8b4df0aa9f4be0dfaf3784451198bc4ce14354d235be4f39019614`,
+  foi conferido e confirmado offsite antes do rollout.
+- O `apply` implantou a release sem migration nova; aplicação, EDGE, workloads,
+  fundação, dados, backup, Cloudflare, GHCR, R2, Pagar.me, contenção do host e
+  APIWPP passaram.
+- A carga fria autenticada respondeu HTTP 200, sem erro GraphQL, com somente
+  `redirectAnalyticsOverview`. O clique real abriu a Amazon preservando
+  `tag=guia030-20` e elevou o relatório de seis para sete acessos; código
+  desconhecido continuou em HTTP 404.
+- Pagar.me permaneceu ativo e UAZAPI/Resend permaneceram adiados.
+- O usuário decidiu reter o `.env` administrativo ignorado até a entrada do
+  primeiro cliente. Nenhum valor foi aberto ou registrado; D025 preserva a
+  leitura exclusiva pelo helper fechado e exige remoção/rotação nesse marco ou
+  antes diante de suspeita de exposição.

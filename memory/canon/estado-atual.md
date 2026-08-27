@@ -16,37 +16,34 @@ SaferWPP continua vazio e o Blindou permanece ativo.
 
 ## Operação Blindou concluída em 2026-08-27
 
-- Os controladores corrigidos foram instalados depois de passarem sintaxe,
-  contratos, verificador integral e reinstalação fechada. Atualização aceita
-  somente `passed`/`passed` com release corrente íntegra; o adiamento de alertas
-  exige o recibo Pagar.me ativo enquanto UAZAPI/Resend permanecem ausentes.
-- A contenção IPv6 foi reconciliada pelo comando fechado e voltou a passar em
-  UFW, DNS, Internet, bloqueio da ONT, K3s e APIWPP.
-- O backup criptografado `blindou-20260827T120324Z`, com 3.023.504 bytes e
-  SHA-256 `7b64e59b05d948cb516b1f593774a5483202ce9f98be0ec0d33e686741e674de`,
-  foi conferido localmente e confirmado offsite antes da migration.
-- Uma única execução de `apply` registrou a migration `0012`, reconciliou o
-  login do redirector para `blindou_redirector` e implantou a release
-  `d5766d87a0cf5ba1d5827fa35e8e6a0cac801185`. O estado final possui 12
+- A release Blindou `11e21b3319c197ef18440e7f494290b298f2db1e` está ativa.
+  Ela limita a carga do Relatório de proteção a uma raiz GraphQL que executa
+  sequencialmente as sete leituras existentes, sem aumentar o pool ou alterar
+  PostgreSQL.
+- O SHA passou nos cinco gates D046, publicou quatro imagens examinadas com
+  SBOM/proveniência e zero achado Trivy High/Critical ou segredo. O bundle
+  assinado e a prova de pull passaram para quatro imagens, 25 blobs e
+  119.734.965 bytes.
+- O backup criptografado `blindou-20260827T143510Z`, com 3.052.306 bytes e
+  SHA-256 `0ffcbf1eef8b4df0aa9f4be0dfaf3784451198bc4ce14354d235be4f39019614`,
+  foi conferido localmente e confirmado offsite antes do rollout.
+- A implantação não aplicou migration nova. O estado permanece com 12
   migrations, aplicação e EDGE em `passed`, todos os workloads Ready e
   `redirector=dedicated`.
 - Fundação, dados, backup, Cloudflare SaaS, prova GHCR, R2, Pagar.me,
   contenção do host e APIWPP passaram. `api.blindou.com/health`,
-  `api.blindou.com/ready`, `app.blindou.com` e
-  `app.blindou.com/links-protegidos` responderam HTTP 200.
+  `api.blindou.com/ready` e `app.blindou.com` responderam HTTP 200.
 - O link protegido Amazon em `go.guiadoconsumo.com` abriu o destino correto e
-  preservou o identificador de afiliado. Host/código desconhecido continuou em
-  HTTP 404. O Relatório de proteção registrou seis acessos: três humanos, três
-  bots/previews e zero bloqueados.
-- Na primeira carga autenticada, `redirectTopGroups` e
-  `redirectTopCategories` excederam uma vez o tempo de espera do pool do
-  backend. A repetição isolada em sete e 30 dias completou sem erro e sem perda
-  de dados. A contenção definitiva dessa concorrência de inicialização exige
-  manutenção própria; aumentar `max_connections` do PostgreSQL compartilhado
-  continua proibido sem novo aceite de capacidade.
+  preservou `tag=guia030-20`. O código desconhecido `ZZZ404ZZZ` continuou em
+  HTTP 404. A carga fria do relatório respondeu sem erro e somente com
+  `redirectAnalyticsOverview`; o novo clique elevou o período a sete acessos:
+  quatro humanos, três bots/previews e zero bloqueados.
 - `pagarme_runtime_state=active` foi preservado. O estado externo de alertas é
   `deferred_uazapi_resend`; nenhuma chave, plano, webhook ou cobrança foi
   alterada nessa operação.
+- Por D025, o `.env` ignorado da estação será retido até a entrada do primeiro
+  cliente. Somente o helper fechado pode ler `KEY_SERVIDOR` em memória para os
+  dois bootstraps permitidos; o valor não foi aberto, exibido ou indexado.
 
 ## Auditoria viva de capacidade em 2026-08-26
 
