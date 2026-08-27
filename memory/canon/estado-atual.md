@@ -4,16 +4,49 @@ metadata:
   canon_id: canon-estado-atual
   source_path: memory/canon/estado-atual.md
   generated_from: auditoria SSH, runtime K3s, Prometheus e repositórios locais
-  updated_at: 2026-08-26
+  updated_at: 2026-08-27
   status: canonical
 
 ## Escopo e data da evidência
 
-Este canon reúne o estado atual do host observado na última auditoria
-operacional, em 2026-08-26: versões, portas e exposição, capacidade, backups e
-workloads. A decisão D022 é estado-alvo ainda não implementado e não altera esta
-evidência: APIWPP continua ativo, SaferWPP continua vazio e o Blindou permanece
-ativo e intacto.
+Este canon reúne o estado atual do host: versões, portas, capacidade, backups,
+workloads e serviços. A última auditoria de capacidade ocorreu em 2026-08-26 e
+a última operação Blindou foi concluída em 2026-08-27. APIWPP continua ativo,
+SaferWPP continua vazio e o Blindou permanece ativo.
+
+## Operação Blindou concluída em 2026-08-27
+
+- Os controladores corrigidos foram instalados depois de passarem sintaxe,
+  contratos, verificador integral e reinstalação fechada. Atualização aceita
+  somente `passed`/`passed` com release corrente íntegra; o adiamento de alertas
+  exige o recibo Pagar.me ativo enquanto UAZAPI/Resend permanecem ausentes.
+- A contenção IPv6 foi reconciliada pelo comando fechado e voltou a passar em
+  UFW, DNS, Internet, bloqueio da ONT, K3s e APIWPP.
+- O backup criptografado `blindou-20260827T120324Z`, com 3.023.504 bytes e
+  SHA-256 `7b64e59b05d948cb516b1f593774a5483202ce9f98be0ec0d33e686741e674de`,
+  foi conferido localmente e confirmado offsite antes da migration.
+- Uma única execução de `apply` registrou a migration `0012`, reconciliou o
+  login do redirector para `blindou_redirector` e implantou a release
+  `d5766d87a0cf5ba1d5827fa35e8e6a0cac801185`. O estado final possui 12
+  migrations, aplicação e EDGE em `passed`, todos os workloads Ready e
+  `redirector=dedicated`.
+- Fundação, dados, backup, Cloudflare SaaS, prova GHCR, R2, Pagar.me,
+  contenção do host e APIWPP passaram. `api.blindou.com/health`,
+  `api.blindou.com/ready`, `app.blindou.com` e
+  `app.blindou.com/links-protegidos` responderam HTTP 200.
+- O link protegido Amazon em `go.guiadoconsumo.com` abriu o destino correto e
+  preservou o identificador de afiliado. Host/código desconhecido continuou em
+  HTTP 404. O Relatório de proteção registrou seis acessos: três humanos, três
+  bots/previews e zero bloqueados.
+- Na primeira carga autenticada, `redirectTopGroups` e
+  `redirectTopCategories` excederam uma vez o tempo de espera do pool do
+  backend. A repetição isolada em sete e 30 dias completou sem erro e sem perda
+  de dados. A contenção definitiva dessa concorrência de inicialização exige
+  manutenção própria; aumentar `max_connections` do PostgreSQL compartilhado
+  continua proibido sem novo aceite de capacidade.
+- `pagarme_runtime_state=active` foi preservado. O estado externo de alertas é
+  `deferred_uazapi_resend`; nenhuma chave, plano, webhook ou cobrança foi
+  alterada nessa operação.
 
 ## Auditoria viva de capacidade em 2026-08-26
 

@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-indice-canonico
   source_path: memory/canon/index.md
   generated_from: decisão do usuário e auditoria do servidor em 2026-08-15
-  updated_at: 2026-08-26
+  updated_at: 2026-08-27
   status: canonical
 
 ## Regra de entrada
@@ -45,11 +45,12 @@ corpus por padrão.
   no host: APIWPP continua ativo e SaferWPP vazio até `saferwpp-deployctl`, os
   gates operacionais e uma autorização de janela própria passarem. Pixel/CIA
   não recebe novos workloads.
-- D024 corrige declarativamente a identidade PostgreSQL do redirector Blindou:
-  quatro logins são preservados, mas `blindou_redirect_login` migra do grupo
-  amplo `blindou_app` para `blindou_redirector`, sem `BYPASSRLS` e com grants
-  mínimos definidos por `0012`. A mudança ainda não foi instalada, migrada ou
-  implantada; o link de teste continua falhando fechado como `not found`.
+- D024 está implantada. `blindou_redirect_login` usa o grupo mínimo
+  `blindou_redirector`, sem `BYPASSRLS`; a migration `0012` está registrada e a
+  release `d5766d87a0cf5ba1d5827fa35e8e6a0cac801185` está ativa. O link Amazon
+  em `go.guiadoconsumo.com` redirecionou preservando o identificador de
+  afiliado, registrou Analytics e códigos desconhecidos continuaram em 404.
+  Pagar.me permaneceu ativo; UAZAPI e Resend continuam adiados.
 - A auditoria viva de 2026-08-26 aprovou somente a continuidade do planejamento
   de hardware. O PostgreSQL real possui teto 50 e pico de 48 backends, por isso
   reprovou o orçamento SaferWPP de dez conexões runtime mais duas de migration.

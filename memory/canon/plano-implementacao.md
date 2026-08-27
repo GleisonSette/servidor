@@ -211,29 +211,31 @@ concluiu a ativação.
 5. catálogo e checkout transparente validados sem enviar cartão ou criar
    cobrança real.
 
+Estado D024/D052 concluído em 2026-08-27:
+
+1. os dois gates corrigidos foram instalados e revalidados;
+2. o backup `blindou-20260827T120324Z` foi confirmado offsite;
+3. a migration `0012` e a release `d5766d8` foram aplicadas uma única vez;
+4. o link Amazon redirecionou, preservou o identificador de afiliado e
+   registrou Analytics; host/código desconhecido permaneceu em HTTP 404;
+5. Pagar.me permaneceu ativo e UAZAPI/Resend continuaram adiados.
+
 Próxima ação exata, ainda dependente de autorizações próprias:
 
-1. instalar a correção que aceita somente os pares de gates seguros na primeira
-   instalação e na atualização; a candidata D024/D052 `d5766d8` já passou na
-   prova integral de quatro imagens e o backup
-   `blindou-20260827T095256Z` foi confirmado offsite, mas a migration e o
-   rollout ainda não começaram;
-2. revalidar contenção, dados e idade do backup e somente então aplicar `0012`
-   e o rollout autorizados;
-3. confirmar que o link Amazon em `go.guiadoconsumo.com` redireciona e registra
-   Analytics, mantendo host e código desconhecidos em falha fechada;
-4. quando houver decisão explícita de compra live, validar tokenização direta,
+1. tratar a concorrência da carga inicial do Relatório de proteção sem elevar
+   isoladamente o teto de conexões do PostgreSQL compartilhado;
+2. quando houver decisão explícita de compra live, validar tokenização direta,
    assinatura, webhook, reconciliação e cancelamento
    sem PAN/CVV na API, logs ou banco;
-5. seguir D020 com marketplaces e somente ao final
+3. seguir D020 com marketplaces e somente ao final
    UAZAPI/Resend;
-6. manter a cota global da aplicação em 90 custom hostnames e revalidar a
+4. manter a cota global da aplicação em 90 custom hostnames e revalidar a
    origem de fallback antes do primeiro fluxo autorizado de domínio por
    conta/tenant.
 
 ## Fase 2E - Primeira release e capacidade do Blindou
 
-Status: a release `ab15a31b8b0538b772763cb0b5a52d6ef3c7c463` está aplicada
+Status: a release `d5766d87a0cf5ba1d5827fa35e8e6a0cac801185` está aplicada
 com nove migrations, todos os workloads Ready, aplicação e EDGE em `passed`,
 Tunnel e R2 saudáveis e backup `blindou-20260825T092915Z` confirmado offsite.
 O gate de atualização foi corrigido para aceitar EDGE `passed` somente quando

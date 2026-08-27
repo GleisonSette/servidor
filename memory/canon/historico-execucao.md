@@ -1311,3 +1311,34 @@ schema e workloads permaneceram inalterados.
   confirmado continua aceito e ausência dos dois caminhos falha fechada.
 - A correção não lê nem muda chaves, planos, webhook, ConfigMap, Secret,
   migration ou workload. Neste registro ela ainda não foi instalada no host.
+
+## 2026-08-27 - D024 implantada e link protegido validado ponta a ponta
+
+Resultado: migration `0012`, release do redirector mínimo e validação real do
+link concluídas; Pagar.me permaneceu ativo e UAZAPI/Resend continuaram adiados.
+
+- Os controladores dos commits `60a9510` e
+  `7a3e7e9374fa6d26f7e327ffd0cc373b6d00b760` foram reinstalados pelo fluxo
+  fechado. A candidata confirmou quatro imagens, 25 blobs e 119.720.015 bytes.
+- A contenção IPv6 foi reconciliada de forma idempotente; UFW, DNS, Internet,
+  bloqueio da ONT, K3s e APIWPP passaram novamente.
+- O backup criptografado `blindou-20260827T120324Z`, com 3.023.504 bytes e
+  SHA-256 `7b64e59b05d948cb516b1f593774a5483202ce9f98be0ec0d33e686741e674de`,
+  foi baixado, conferido e confirmado offsite.
+- Uma única execução de `apply` registrou `0012`, reconciliou
+  `blindou_redirect_login` para o grupo mínimo e implantou
+  `d5766d87a0cf5ba1d5827fa35e8e6a0cac801185`. O status final confirmou 12
+  migrations, `redirector=dedicated`, todos os workloads Ready e aplicação e
+  EDGE em `passed`.
+- Fundação, dados, backup, Cloudflare SaaS, GHCR, R2, Pagar.me, contenção do
+  host e APIWPP passaram. API, prontidão, painel e Links protegidos responderam
+  HTTP 200; host/código desconhecido permaneceu em HTTP 404.
+- O link Amazon abriu o produto correto preservando o identificador de
+  afiliado. O Relatório de proteção registrou seis acessos, sendo três humanos,
+  três bots/previews e zero bloqueados.
+- A primeira carga do relatório teve timeout parcial de pool em dois rankings;
+  as repetições isoladas em sete e 30 dias concluíram sem erro. A concorrência
+  de inicialização ficou registrada para manutenção própria, sem aumentar o
+  teto do PostgreSQL nem alterar dados.
+- `pagarme_runtime_state=active` foi preservado; nenhuma chave, plano, webhook
+  ou cobrança foi modificada. O receptor segue `deferred_uazapi_resend`.

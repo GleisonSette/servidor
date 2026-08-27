@@ -420,7 +420,11 @@ com `passed` e ponteiro root-only válido para atualização. Estados mistos
 continuam recusados, e o controlador não rebaixa um namespace ativo para
 contornar o gate.
 
-A decisão resolve a arquitetura, mas não autoriza commit, push, instalação do
-controlador, alteração do host, migration ou deploy. Até essas operações e os
-gates do SHA exato passarem, o estado vivo permanece inalterado e o link de
-teste continua em falha fechada.
+Em 2026-08-27, as autorizações operacionais foram concedidas separadamente. Os
+controladores corrigidos foram instalados, o backup offsite foi confirmado, a
+migration `0012` foi registrada e a release
+`d5766d87a0cf5ba1d5827fa35e8e6a0cac801185` foi implantada. O estado final
+comprovou o login dedicado, 12 migrations, aplicação e EDGE em `passed`, link
+Amazon funcional e códigos desconhecidos em HTTP 404. Pagar.me permaneceu ativo
+sem alteração de chave, planos, webhook ou cobrança; UAZAPI/Resend continuam
+adiados.
