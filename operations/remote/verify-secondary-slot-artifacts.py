@@ -311,6 +311,7 @@ for invariant in (
     "METRICS_TARGET='/var/lib/prometheus/node-exporter/secondary-slot.prom'",
     'direct_metrics_output="$("$CONTROLLER_TARGET" metrics 2>&1)"',
     "--property=ExecMainStatus",
+    "systemctl reset-failed secondary-slot-metrics.service",
 ):
     if invariant not in bootstrap:
         fail(f"diagnóstico ou rollback de métricas ausente: {invariant}")
@@ -334,6 +335,7 @@ for invariant in (
     "/usr/local/sbin/apiwpp-deployctl verify",
     "/usr/local/sbin/blindou-hostctl verify",
     "/usr/local/sbin/blindou-deployctl status",
+    "systemctl reset-failed secondary-slot-metrics.service",
     "verify-secondary-slot-artifacts.py",
     "bootstrap-secondary-slotctl.sh",
     "Export-ModuleMember -Function Invoke-SecondarySlotSudoBootstrap",

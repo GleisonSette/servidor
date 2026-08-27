@@ -93,6 +93,12 @@ exec 9>"$bootstrap_lock"
 chmod 0600 "$bootstrap_lock"
 flock -n 9 || fail 'outro bootstrap de plataforma está em andamento'
 
+systemctl reset-failed secondary-slot-metrics.service >/dev/null 2>&1 || true
+systemctl reset-failed secondary-slot-metrics.timer >/dev/null 2>&1 || true
+if systemctl is-failed --quiet secondary-slot-metrics.service \
+    secondary-slot-metrics.timer; then
+  fail 'estado failed anterior do slot não pôde ser limpo'
+fi
 /usr/local/sbin/apiwpp-deployctl verify >/dev/null
 /usr/local/sbin/blindou-hostctl verify >/dev/null
 /usr/local/sbin/blindou-deployctl status >/dev/null

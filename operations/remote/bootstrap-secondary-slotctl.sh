@@ -95,6 +95,8 @@ rollback_bootstrap() {
       rm -f -- /run/lock/servidor-local-secondary-slot.lock
     fi
     systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl reset-failed secondary-slot-metrics.service \
+      secondary-slot-metrics.timer >/dev/null 2>&1 || true
     visudo -cf "$SUDOERS_TARGET" >/dev/null 2>&1 || true
     promtool check config "$PROMETHEUS_CONFIG" >/dev/null 2>&1 \
       && systemctl reload prometheus.service >/dev/null 2>&1 || true
