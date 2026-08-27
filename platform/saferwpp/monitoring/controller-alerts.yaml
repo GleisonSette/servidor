@@ -1,0 +1,24 @@
+groups:
+  - name: saferwpp-controller-identities
+    rules:
+      - alert: SaferWppKubeIdentityCertificateExpiring
+        expr: >-
+          saferwpp_kube_identity_certificate_expiry_timestamp_seconds - time() < 2592000
+        for: 15m
+        labels:
+          severity: warning
+          service: saferwpp-platform
+        annotations:
+          summary: Certificado Kubernetes de controlador SaferWPP próximo da expiração
+          runbook: runbooks/saferwpp-controllers.md
+      - alert: SaferWppKubeIdentityReconciliationStale
+        expr: >-
+          absent(saferwpp_kube_identity_last_success_timestamp_seconds) == 1
+          or time() - saferwpp_kube_identity_last_success_timestamp_seconds > 93600
+        for: 15m
+        labels:
+          severity: critical
+          service: saferwpp-platform
+        annotations:
+          summary: Reconciliação das identidades Kubernetes do SaferWPP está atrasada
+          runbook: runbooks/saferwpp-controllers.md

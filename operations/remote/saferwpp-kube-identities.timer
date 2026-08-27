@@ -1,0 +1,11 @@
+[Unit]
+Description=Renova e verifica identidades Kubernetes do SaferWPP diariamente
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+RandomizedDelaySec=30m
+Persistent=true
+Unit=saferwpp-kube-identities.service
+
+[Install]
+WantedBy=timers.target

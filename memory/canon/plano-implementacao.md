@@ -255,7 +255,7 @@ Objetivos:
 ## Fase 3 - Slot alternável APIWPP/SaferWPP
 
 Status: auditoria viva, decisão D023, fundação SaferWPP e contratos dos itens 4
-a 6 concluídos nos repositórios em 2026-08-26. Nada desses novos contratos foi
+a 7 concluídos nos repositórios em 2026-08-26. Nada desses novos contratos foi
 instalado ou aplicado ao host/K3s; o estado vivo permanece APIWPP ativo e
 SaferWPP vazio.
 Nenhuma etapa desta fase autoriza, por si só, alterar o servidor.
@@ -294,9 +294,17 @@ Ordem obrigatória:
    `saferwpp-deployctl`, `saferwpp-backupctl` e `saferwpp-secretsctl`, fechar a
    prova pós-migration com papéis, grants e RLS e alinhar o schema consumidor
    da plataforma; nenhum controlador foi instalado no host;
-7. somente em janela e autorização próprias, criar backup prévio, suspender o
+7. concluído nos repositórios em 2026-08-26: construir os três controladores em
+   Linux/amd64, gerar SBOM, executar scan de vulnerabilidade e segredo, assinar
+   a release, implementar verificador independente, bootstrap root fechado,
+   certificados Kubernetes exclusivos com renovação e alertas; nenhum
+   artefato foi instalado no host;
+8. somente em janela e autorização próprias, materializar primeiro o
+   controlador do slot e a fundação vazia, instalar os três controladores
+   SaferWPP e produzir as evidências reais de backup e Secrets;
+9. somente em janela e autorização próprias, criar backup prévio, suspender o
    APIWPP, validar sua recuperabilidade e provar que Blindou permaneceu igual;
-8. somente após todos os gates, criar dados/dependências e implantar a release
+10. somente após todos os gates, criar dados/dependências e implantar a release
    SaferWPP assinada; validar rollback completo até APIWPP ativo e SaferWPP
    suspenso.
 
@@ -322,11 +330,14 @@ Resultado da auditoria:
 - controladores SaferWPP: deploy, backup/restore e inventário de Secrets estão
   implementados localmente; o schema da plataforma exige as mesmas provas de
   papéis, grants e RLS do consumidor;
-- próximo gate: concluir a segunda validação formal da Fase 3.1 com os contratos
-  alinhados; somente depois do aceite, construir, examinar, assinar e
-  transportar os três binários e materializar seus contratos por bootstrap
-  fechado. Nenhuma instalação, suspensão ou mudança viva é autorizada por esse
-  registro.
+- cadeia de release: `swpc-20260827T010424Z-5e8b21d60cd9` passou assinatura,
+  manifesto, SBOM, Trivy, proveniência e os verificadores independentes local e
+  da plataforma; o bootstrap fechado e a renovação de identidades foram
+  implementados, mas continuam ausentes do host;
+- próximo gate: transportar o commit aprovado e a release assinada para staging
+  isolado, repetir as validações offline no Linux e então materializar, em
+  ordem, `secondary-slotctl`, fundação vazia e controladores SaferWPP. Nenhuma
+  instalação, suspensão ou mudança de workload é autorizada por este registro.
 
 Aceite automatizado:
 

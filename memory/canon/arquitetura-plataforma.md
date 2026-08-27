@@ -43,14 +43,24 @@ Estado dos controladores em 2026-08-26:
 - `secondary-slotctl` existe declarativamente no repositório `servidor`, com
   bootstrap e sudoers fechados, mas ainda não foi instalado ou inicializado;
 - `pixel-deployctl` ainda não existe; `saferwpp-deployctl`,
-  `saferwpp-backupctl` e `saferwpp-secretsctl` existem no repositório SaferWPP,
-  mas ainda não foram transportados, instalados ou materializados no host;
+  `saferwpp-backupctl` e `saferwpp-secretsctl` possuem release assinada, SBOM,
+  scan, proveniência e verificador independente. A plataforma possui bootstrap
+  fechado, mas os artefatos ainda não foram instalados no host;
 - `blindou-deployctl` está instalado e governa a fundação, dados, backup,
   conector Cloudflare e releases assinadas do Blindou;
 - até a instalação de cada controlador, o respectivo Codex de aplicação pode
   preparar artefatos e confirmar o acesso, mas não alterar o servidor;
 - a capacidade administrativa com senha do usuário humano não é uma interface
   de automação e não pode ser usada para contornar um controlador ausente.
+
+As identidades Kubernetes dos controladores SaferWPP são certificados cliente
+exclusivos, emitidos pela CA cliente local do K3s sem grupo administrativo e
+guardados em kubeconfigs `root:root` `0600`. A plataforma renova os certificados
+com 365 dias de validade quando faltarem 45 dias, confirma o CN devolvido pelo API
+Server e alerta com 30 dias de antecedência ou quando a reconciliação ficar
+mais de 26 horas sem sucesso. Falha de uma renovação restaura o kubeconfig
+anterior quando ele existia. Essas identidades não reutilizam kubeconfig,
+certificado, Role ou credencial do APIWPP ou do Blindou.
 
 ## Slot alternável APIWPP/SaferWPP
 

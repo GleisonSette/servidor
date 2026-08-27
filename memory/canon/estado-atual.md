@@ -139,6 +139,11 @@ próprio continuam gates bloqueantes. Nenhum estado runtime foi alterado.
 - `apiwpp-deployctl` e `apiwpp-backupctl` estão instalados como controladores
   restritos. `pixel-deployctl` e `saferwpp-deployctl` ainda estão ausentes; por
   isso Pixel e SaferWPP não possuem caminho autorizado de alteração no host.
+- A candidata dos controladores SaferWPP
+  `swpc-20260827T010424Z-5e8b21d60cd9`, commit
+  `5e8b21d60cd9c90546434e2f45ee366b892ff797`, foi construída e assinada fora
+  do servidor. A plataforma possui verificador e bootstrap, mas nada foi
+  instalado; esse artefato não altera o estado vivo nem autoriza deploy.
 - `blindou-deployctl` está instalado como root com suporte fechado ao conector,
   às credenciais Cloudflare for SaaS/GHCR, à release assinada e à prova de pull
   das quatro imagens privadas. O SHA-256 da

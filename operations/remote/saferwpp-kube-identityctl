@@ -1,0 +1,294 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+readonly LC_ALL='C'
+export LC_ALL
+umask 077
+
+readonly EXPECTED_HOSTNAME='apiwpp'
+readonly K3S='/usr/local/bin/k3s'
+readonly CLIENT_CA='/var/lib/rancher/k3s/server/tls/client-ca.crt'
+readonly CLIENT_CA_KEY='/var/lib/rancher/k3s/server/tls/client-ca.key'
+readonly SERVER_CA='/var/lib/rancher/k3s/server/tls/server-ca.crt'
+readonly CONFIG_ROOT='/etc/rancher/k3s'
+readonly METRICS_DIRECTORY='/var/lib/prometheus/node-exporter'
+readonly METRICS_FILE="${METRICS_DIRECTORY}/saferwpp-kube-identities.prom"
+readonly VALID_DAYS=365
+readonly RENEW_BEFORE_SECONDS=3888000
+readonly MINIMUM_CA_VALIDITY_SECONDS=31622400
+readonly -a IDENTITIES=('saferwpp-deployctl' 'saferwpp-secretsctl')
+declare -a RENEWED_IDENTITIES=()
+
+fail() {
+  printf '[saferwpp-kube-identityctl] ERRO: %s\n' "$*" >&2
+  exit 1
+}
+
+new_work_directory() {
+  mktemp -d -p /var/tmp saferwpp-kube-identity.XXXXXX
+}
+
+remove_work_directory() {
+  local directory="$1"
+  [[ "$directory" == /var/tmp/saferwpp-kube-identity.* \
+      && -d "$directory" && ! -L "$directory" ]] \
+    || fail "diretório temporário inseguro: ${directory}"
+  rm -rf -- "$directory"
+}
+
+require_root_and_host() {
+  [[ "${EUID}" -eq 0 ]] || fail 'execute como root'
+  [[ "$(hostname)" == "$EXPECTED_HOSTNAME" ]] || fail 'hostname inesperado'
+  for command in openssl base64 install mktemp date python3 stat hostname rm mv \
+    cut "$K3S"; do
+    command -v "$command" >/dev/null || fail "dependência ausente: ${command}"
+  done
+  for source in "$CLIENT_CA" "$CLIENT_CA_KEY" "$SERVER_CA"; do
+    [[ -f "$source" && ! -L "$source" ]] \
+      || fail "material K3s ausente ou simbólico: ${source}"
+    [[ "$(stat -c '%U:%G:%h' "$source")" == 'root:root:1' ]] \
+      || fail "ownership ou hard link inseguro: ${source}"
+  done
+  openssl x509 -in "$CLIENT_CA" -noout \
+    -checkend "$MINIMUM_CA_VALIDITY_SECONDS" >/dev/null \
+    || fail 'CA cliente K3s não cobre toda a validade da próxima credencial'
+  openssl x509 -in "$SERVER_CA" -noout \
+    -checkend "$MINIMUM_CA_VALIDITY_SECONDS" >/dev/null \
+    || fail 'CA servidor K3s não cobre toda a validade da próxima credencial'
+}
+
+kubeconfig_for() {
+  printf '%s/%s.yaml\n' "$CONFIG_ROOT" "$1"
+}
+
+extract_client_certificate() {
+  local kubeconfig="$1" output="$2"
+  "$K3S" kubectl config view --raw --minify --kubeconfig "$kubeconfig" \
+    -o jsonpath='{.users[0].user.client-certificate-data}' \
+    | base64 --decode >"$output" \
+    || fail "não foi possível extrair certificado de ${kubeconfig}"
+  [[ -s "$output" ]] || fail "certificado vazio em ${kubeconfig}"
+}
+
+validate_local_identity() {
+  local identity="$1" kubeconfig certificate work
+  kubeconfig="$(kubeconfig_for "$identity")"
+  [[ -f "$kubeconfig" && ! -L "$kubeconfig" ]] \
+    || fail "kubeconfig ausente ou simbólico: ${kubeconfig}"
+  [[ "$(stat -c '%U:%G:%a:%h' "$kubeconfig")" == 'root:root:600:1' ]] \
+    || fail "kubeconfig inseguro: ${kubeconfig}"
+  work="$(new_work_directory)"
+  certificate="${work}/client.crt"
+  extract_client_certificate "$kubeconfig" "$certificate"
+  openssl verify -purpose sslclient -CAfile "$CLIENT_CA" "$certificate" >/dev/null \
+    || { remove_work_directory "$work"; fail "certificado inválido para ${identity}"; }
+  [[ "$(openssl x509 -in "$certificate" -noout -subject -nameopt RFC2253)" \
+      == "subject=CN=${identity}" ]] \
+    || { remove_work_directory "$work"; fail "subject divergente para ${identity}"; }
+  remove_work_directory "$work"
+}
+
+certificate_needs_renewal() {
+  local identity="$1" kubeconfig work certificate result
+  kubeconfig="$(kubeconfig_for "$identity")"
+  if [[ ! -e "$kubeconfig" && ! -L "$kubeconfig" ]]; then
+    return 0
+  fi
+  validate_local_identity "$identity"
+  work="$(new_work_directory)"
+  certificate="${work}/client.crt"
+  extract_client_certificate "$kubeconfig" "$certificate"
+  if openssl x509 -in "$certificate" -noout -checkend "$RENEW_BEFORE_SECONDS" >/dev/null; then
+    result=1
+  else
+    result=0
+  fi
+  remove_work_directory "$work"
+  return "$result"
+}
+
+issue_identity() {
+  local identity="$1" destination previous transient work private_key request certificate serial
+  destination="$(kubeconfig_for "$identity")"
+  previous="${destination}.previous"
+  if [[ -e "$destination" || -L "$destination" ]]; then
+    [[ -f "$destination" && ! -L "$destination" ]] \
+      || fail "alvo de kubeconfig inseguro: ${destination}"
+  fi
+  if [[ -e "$previous" || -L "$previous" ]]; then
+    [[ -f "$previous" && ! -L "$previous" \
+        && "$(stat -c '%U:%G:%a:%h' "$previous")" == 'root:root:600:1' ]] \
+      || fail "kubeconfig anterior inseguro: ${previous}"
+  fi
+  for transient in "${destination}.new" "${previous}.new"; do
+    [[ ! -e "$transient" && ! -L "$transient" ]] \
+      || fail "arquivo transitório preexistente: ${transient}"
+  done
+  work="$(new_work_directory)"
+  private_key="${work}/client.key"
+  request="${work}/client.csr"
+  certificate="${work}/client.crt"
+  serial="0x$(openssl rand -hex 16)"
+  openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 \
+    -out "$private_key" >/dev/null 2>&1
+  openssl req -new -sha256 -key "$private_key" -subj "/CN=${identity}" \
+    -out "$request" >/dev/null 2>&1
+  openssl x509 -req -sha256 -days "$VALID_DAYS" -set_serial "$serial" \
+    -in "$request" -CA "$CLIENT_CA" -CAkey "$CLIENT_CA_KEY" \
+    -extfile <(printf '%s\n' \
+      'basicConstraints=critical,CA:FALSE' \
+      'keyUsage=critical,digitalSignature' \
+      'extendedKeyUsage=clientAuth' \
+      'subjectKeyIdentifier=hash' \
+      'authorityKeyIdentifier=keyid,issuer') \
+    -out "$certificate" >/dev/null 2>&1
+  openssl verify -purpose sslclient -CAfile "$CLIENT_CA" "$certificate" >/dev/null \
+    || { remove_work_directory "$work"; fail "certificado recém-emitido inválido para ${identity}"; }
+  {
+    printf '%s\n' \
+      'apiVersion: v1' \
+      'kind: Config' \
+      'clusters:' \
+      '- name: k3s' \
+      '  cluster:'
+    printf '    certificate-authority-data: %s\n' "$(base64 -w 0 <"$SERVER_CA")"
+    printf '%s\n' \
+      '    server: https://127.0.0.1:6443' \
+      'users:' \
+      "- name: ${identity}" \
+      '  user:'
+    printf '    client-certificate-data: %s\n' "$(base64 -w 0 <"$certificate")"
+    printf '    client-key-data: %s\n' "$(base64 -w 0 <"$private_key")"
+    printf '%s\n' \
+      'contexts:' \
+      "- name: ${identity}@k3s" \
+      '  context:' \
+      '    cluster: k3s' \
+      "    user: ${identity}" \
+      "current-context: ${identity}@k3s"
+  } >"${work}/kubeconfig"
+  if [[ -f "$destination" ]]; then
+    install -o root -g root -m 0600 "$destination" "${previous}.new"
+    mv -f -- "${previous}.new" "$previous"
+  fi
+  install -o root -g root -m 0600 "${work}/kubeconfig" "${destination}.new"
+  mv -f -- "${destination}.new" "$destination"
+  RENEWED_IDENTITIES+=("$identity")
+  remove_work_directory "$work"
+  validate_local_identity "$identity"
+}
+
+restore_renewed_identities() {
+  local identity destination previous
+  for identity in "${RENEWED_IDENTITIES[@]}"; do
+    destination="$(kubeconfig_for "$identity")"
+    previous="${destination}.previous"
+    if [[ -f "$previous" && ! -L "$previous" ]]; then
+      mv -f -- "$previous" "$destination"
+    else
+      rm -f -- "$destination"
+    fi
+  done
+}
+
+discard_previous_identities() {
+  local identity destination previous
+  for identity in "${IDENTITIES[@]}"; do
+    destination="$(kubeconfig_for "$identity")"
+    previous="${destination}.previous"
+    if [[ -e "$previous" || -L "$previous" ]]; then
+      [[ -f "$previous" && ! -L "$previous" \
+          && "$(stat -c '%U:%G:%a:%h' "$previous")" == 'root:root:600:1' ]] \
+        || fail "kubeconfig anterior inseguro: ${previous}"
+      rm -f -- "$previous"
+    fi
+  done
+}
+
+ensure_identities() {
+  local identity
+  install -d -o root -g root -m 0755 "$CONFIG_ROOT"
+  for identity in "${IDENTITIES[@]}"; do
+    if certificate_needs_renewal "$identity"; then
+      issue_identity "$identity"
+    fi
+  done
+}
+
+verify_cluster_identities() {
+  local identity username kubeconfig
+  for identity in "${IDENTITIES[@]}"; do
+    validate_local_identity "$identity"
+    kubeconfig="$(kubeconfig_for "$identity")"
+    username="$("$K3S" kubectl --kubeconfig "$kubeconfig" auth whoami \
+      -o jsonpath='{.status.userInfo.username}')" \
+      || fail "API Server recusou ${identity}"
+    [[ "$username" == "$identity" ]] \
+      || fail "API Server devolveu identidade divergente para ${identity}"
+  done
+}
+
+write_metrics() {
+  local identity kubeconfig work certificate expiry now temporary
+  [[ -d "$METRICS_DIRECTORY" && ! -L "$METRICS_DIRECTORY" ]] \
+    || fail 'diretório textfile do Node Exporter ausente ou simbólico'
+  [[ "$(stat -c '%U:%G' "$METRICS_DIRECTORY")" == 'root:root' ]] \
+    || fail 'diretório textfile do Node Exporter possui ownership inesperado'
+  work="$(new_work_directory)"
+  temporary="${work}/metrics.prom"
+  now="$(date -u +%s)"
+  {
+    printf '%s\n' \
+      '# HELP saferwpp_kube_identity_certificate_expiry_timestamp_seconds Unix timestamp de expiração do certificado cliente.' \
+      '# TYPE saferwpp_kube_identity_certificate_expiry_timestamp_seconds gauge'
+    for identity in "${IDENTITIES[@]}"; do
+      kubeconfig="$(kubeconfig_for "$identity")"
+      certificate="${work}/${identity}.crt"
+      extract_client_certificate "$kubeconfig" "$certificate"
+      expiry="$(date -u -d "$(openssl x509 -in "$certificate" -noout -enddate | cut -d= -f2-)" +%s)"
+      printf 'saferwpp_kube_identity_certificate_expiry_timestamp_seconds{identity="%s"} %s\n' \
+        "$identity" "$expiry"
+    done
+    printf '%s\n' \
+      '# HELP saferwpp_kube_identity_last_success_timestamp_seconds Unix timestamp da última reconciliação válida.' \
+      '# TYPE saferwpp_kube_identity_last_success_timestamp_seconds gauge'
+    printf 'saferwpp_kube_identity_last_success_timestamp_seconds %s\n' "$now"
+  } >"$temporary"
+  install -o root -g root -m 0644 "$temporary" "${METRICS_FILE}.new"
+  mv -f -- "${METRICS_FILE}.new" "$METRICS_FILE"
+  remove_work_directory "$work"
+}
+
+reconcile() {
+  ensure_identities
+  if ! (verify_cluster_identities); then
+    if [[ "${#RENEWED_IDENTITIES[@]}" -gt 0 ]]; then
+      restore_renewed_identities
+      verify_cluster_identities \
+        || fail 'certificados anteriores também foram recusados pelo API Server'
+    fi
+    fail 'reconciliação recusada; renovação revertida quando aplicável'
+  fi
+  discard_previous_identities
+  write_metrics
+}
+
+require_root_and_host
+[[ "$#" -eq 1 ]] || fail 'uso: saferwpp-kube-identityctl ensure|verify|reconcile'
+case "$1" in
+  ensure)
+    ensure_identities
+    ;;
+  verify)
+    verify_cluster_identities
+    discard_previous_identities
+    ;;
+  reconcile)
+    reconcile
+    ;;
+  *)
+    fail 'comando recusado'
+    ;;
+esac

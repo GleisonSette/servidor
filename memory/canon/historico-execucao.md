@@ -1207,6 +1207,35 @@ runtime permaneceram inalterados.
   transportados para um bootstrap fechado; instalação e qualquer mudança viva
   continuam dependentes de autorização própria.
 
+## 2026-08-26 - Cadeia assinada dos controladores SaferWPP preparada
+
+Resultado: release e materialização da plataforma aprovadas offline; host e
+runtime permaneceram inalterados.
+
+- O repositório SaferWPP produziu a release
+  `swpc-20260827T010424Z-5e8b21d60cd9`, commit
+  `5e8b21d60cd9c90546434e2f45ee366b892ff797`, SHA-256
+  `d2827620e0fb9733d1e157d9e45e43e328ef8c5938df7bac3894284de721e284`.
+- Os três binários Linux/amd64, Node e Cosign isolados passaram contratos em
+  container restrito, SBOM SPDX, scan Trivy de vulnerabilidade/segredo,
+  proveniência, assinatura ECDSA e verificação independente do bundle exato.
+- A plataforma ganhou verificador próprio com trust root fixa, limites contra
+  archive malicioso, inventário/modos/hashes exatos e validação das evidências
+  antes da extração.
+- O bootstrap root fecha release, commit e SHA, exige APIWPP, Blindou e slot
+  íntegros, salva arquivos e objetos Kubernetes para rollback, instala somente
+  paths e manifests fixos e repete as três provas ao final.
+- `saferwpp-deployctl` e `saferwpp-secretsctl` recebem certificados Kubernetes
+  exclusivos, sem grupo administrativo, com kubeconfigs root-only, renovação
+  diária antecipada, reversão da credencial anterior quando aplicável, métricas
+  e alertas de expiração/reconciliação.
+- Os testes offline passaram contra o bundle real. Nenhum controlador,
+  kubeconfig, RBAC, admission, timer, namespace, Secret, banco, backup, workload
+  ou release SaferWPP foi instalado ou aplicado no servidor.
+- O próximo gate é transporte para staging e validação Linux. A instalação
+  continua condicionada à materialização anterior do slot e da fundação vazia;
+  suspensão do APIWPP e primeiro deploy permanecem operações separadas.
+
 ## 2026-08-26 - Papel mínimo do redirector Blindou preparado
 
 Resultado: causa do `not found` confirmada e correção declarativa validada

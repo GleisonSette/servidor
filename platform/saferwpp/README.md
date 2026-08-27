@@ -20,3 +20,9 @@ e o rollback estão em `runbooks/saferwpp-foundation.md`. Nenhum arquivo deste
 diretório autoriza acesso ao host, suspensão do APIWPP ou mudança no Blindou.
 Os três namespaces são membros inativos do slot alternável e somente podem
 receber workloads após reserva root-only conforme `runbooks/secondary-slot.md`.
+
+`monitoring/controller-alerts.yaml` pertence à materialização host-side dos
+controladores. Ele observa renovação e expiração das duas identidades
+Kubernetes exclusivas; o procedimento está em
+`runbooks/saferwpp-controllers.md`. O arquivo não cria a identidade, não contém
+certificado e não concede acesso ao cluster por si só.
