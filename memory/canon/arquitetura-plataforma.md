@@ -45,7 +45,8 @@ Estado dos controladores em 2026-08-26:
 - `pixel-deployctl` ainda não existe; `saferwpp-deployctl`,
   `saferwpp-backupctl` e `saferwpp-secretsctl` possuem release assinada, SBOM,
   scan, proveniência e verificador independente. A plataforma possui bootstrap
-  fechado, mas os artefatos ainda não foram instalados no host;
+  fechado; os artefatos estão em staging user-owned validado no Linux, mas
+  ainda não foram instalados no host;
 - `blindou-deployctl` está instalado e governa a fundação, dados, backup,
   conector Cloudflare e releases assinadas do Blindou;
 - até a instalação de cada controlador, o respectivo Codex de aplicação pode

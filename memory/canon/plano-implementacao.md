@@ -334,10 +334,11 @@ Resultado da auditoria:
   manifesto, SBOM, Trivy, proveniência e os verificadores independentes local e
   da plataforma; o bootstrap fechado e a renovação de identidades foram
   implementados, mas continuam ausentes do host;
-- próximo gate: transportar o commit aprovado e a release assinada para staging
-  isolado, repetir as validações offline no Linux e então materializar, em
-  ordem, `secondary-slotctl`, fundação vazia e controladores SaferWPP. Nenhuma
-  instalação, suspensão ou mudança de workload é autorizada por este registro.
+- transporte e validação Linux: concluídos no staging user-owned
+  `/home/apiadmin/saferwpp-platform-bootstrap-a8127c9-5e8b21d`, sem instalação;
+- próximo gate: materializar, em ordem, `secondary-slotctl`, fundação vazia e
+  controladores SaferWPP. Nenhuma instalação, suspensão ou mudança de workload
+  é autorizada por este registro.
 
 Aceite automatizado:
 

@@ -143,7 +143,11 @@ próprio continuam gates bloqueantes. Nenhum estado runtime foi alterado.
   `swpc-20260827T010424Z-5e8b21d60cd9`, commit
   `5e8b21d60cd9c90546434e2f45ee366b892ff797`, foi construída e assinada fora
   do servidor. A plataforma possui verificador e bootstrap, mas nada foi
-  instalado; esse artefato não altera o estado vivo nem autoriza deploy.
+  instalado; esse artefato não altera o estado vivo nem autoriza deploy. A
+  candidata, a release da aplicação e o commit de plataforma
+  `a8127c90757e2f62340ee814881374488060816e` estão no staging user-owned
+  `/home/apiadmin/saferwpp-platform-bootstrap-a8127c9-5e8b21d`, após validação
+  de hashes e contratos no Linux.
 - `blindou-deployctl` está instalado como root com suporte fechado ao conector,
   às credenciais Cloudflare for SaaS/GHCR, à release assinada e à prova de pull
   das quatro imagens privadas. O SHA-256 da

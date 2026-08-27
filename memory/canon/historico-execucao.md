@@ -1232,9 +1232,23 @@ runtime permaneceram inalterados.
 - Os testes offline passaram contra o bundle real. Nenhum controlador,
   kubeconfig, RBAC, admission, timer, namespace, Secret, banco, backup, workload
   ou release SaferWPP foi instalado ou aplicado no servidor.
-- O próximo gate é transporte para staging e validação Linux. A instalação
-  continua condicionada à materialização anterior do slot e da fundação vazia;
-  suspensão do APIWPP e primeiro deploy permanecem operações separadas.
+- A primeira validação no Linux recusou corretamente a unit systemd porque o
+  gate verificava `ExecStart` antes de instalar o binário no path final. O
+  commit `a8127c90757e2f62340ee814881374488060816e` moveu a verificação para
+  depois da cópia protegida e ainda dentro do rollback.
+- Plataforma, release dos controladores, release da aplicação e trust root
+  pública foram transportadas para
+  `/home/apiadmin/saferwpp-platform-bootstrap-a8127c9-5e8b21d`, com diretório
+  `0700` e arquivos `0600`. Os quatro hashes coincidiram.
+- No Linux passaram verificador/testes da plataforma, assinatura e evidências
+  do bundle real, três sudoers, duas regras Prometheus, Node/Cosign e os três
+  contratos. A análise offline da unit systemd também passou.
+- Depois do transporte, `apiwpp-deployctl verify`, `blindou-deployctl status` e
+  `blindou-hostctl verify` permaneceram aprovados. `secondary-slotctl` e os três
+  controladores SaferWPP continuam ausentes.
+- O próximo gate é materializar primeiro o slot e a fundação vazia. Instalação
+  dos controladores, suspensão do APIWPP e primeiro deploy permanecem operações
+  separadas.
 
 ## 2026-08-26 - Papel mínimo do redirector Blindou preparado
 

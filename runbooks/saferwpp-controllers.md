@@ -5,7 +5,14 @@
 A plataforma possui o verificador independente, o bootstrap root fechado, a
 renovação das identidades Kubernetes e os alertas necessários para instalar as
 releases assinadas dos três controladores SaferWPP. Esses artefatos ainda não
-foram executados no host.
+foram executados como root nem instalados no host. O commit de plataforma
+`a8127c90757e2f62340ee814881374488060816e`, a release dos controladores e a
+release da aplicação estão no staging user-owned
+`/home/apiadmin/saferwpp-platform-bootstrap-a8127c9-5e8b21d`.
+
+Hashes, assinatura, evidências, sudoers, regras Prometheus, ferramentas e
+contratos passaram novamente no Linux. O staging não possui kubeconfig, Secret
+ou chave privada e não concede acesso ao K3s.
 
 A instalação não suspende o APIWPP, não reserva o slot, não cria banco, não lê
 Secret, não inicia workload SaferWPP e não executa deploy. Ela recusa começar
