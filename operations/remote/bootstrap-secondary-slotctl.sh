@@ -34,7 +34,7 @@ fail() {
 
 [[ "${EUID}" -eq 0 ]] || fail 'execute como root'
 [[ "$(hostname)" == "$EXPECTED_HOSTNAME" ]] || fail 'hostname inesperado'
-for command in python3 visudo promtool systemd-analyze systemd-tmpfiles k3s install cp diff sha256sum sudo systemctl tr; do
+for command in python3 visudo promtool systemd-analyze systemd-tmpfiles k3s install cp diff sha256sum sleep sudo systemctl tr; do
   command -v "$command" >/dev/null || fail "dependência ausente: ${command}"
 done
 for source in \
@@ -201,6 +201,15 @@ fi
     == success ]] || fail 'coleta inicial de métricas falhou'
 systemctl enable --now secondary-slot-metrics.timer >/dev/null
 systemctl reload prometheus.service
+for _ in {1..30}; do
+  if ! systemctl is-active --quiet secondary-slot-metrics.service; then
+    break
+  fi
+  sleep 1
+done
+if systemctl is-active --quiet secondary-slot-metrics.service; then
+  fail 'coleta de métricas não liberou o lock em trinta segundos'
+fi
 sudo -u apiadmin sudo -n "$CONTROLLER_TARGET" status >/dev/null
 rollback_needed=false
 printf 'secondary_slotctl_bootstrap=installed backup=%s\n' "$backup_directory"

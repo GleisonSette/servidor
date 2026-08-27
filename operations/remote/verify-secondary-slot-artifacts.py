@@ -313,6 +313,7 @@ for invariant in (
     'direct_metrics_output="$("$CONTROLLER_TARGET" metrics 2>&1)"',
     "--property=ExecMainStatus",
     "systemctl reset-failed secondary-slot-metrics.service",
+    "coleta de métricas não liberou o lock em trinta segundos",
 ):
     if invariant not in bootstrap:
         fail(f"diagnóstico ou rollback de métricas ausente: {invariant}")
