@@ -105,6 +105,9 @@ readonly ADDITIONAL_SUPERADMIN_IDENTITY='larissa-spezzia'
 readonly ADDITIONAL_SUPERADMIN_EMAIL='larissa.spezzia@gmail.com'
 readonly ADDITIONAL_SUPERADMIN_NAME='Larissa Spezzia'
 readonly ADDITIONAL_SUPERADMIN_TENANT='Blindou - Larissa Spezzia'
+readonly ADDITIONAL_SUPERADMIN_USER_ID='b5eb786d-7f3c-48df-bb76-e45edc49cdf5'
+readonly ADDITIONAL_SUPERADMIN_TENANT_ID='fa01d196-3186-4a89-a556-51c7f944b600'
+readonly ADDITIONAL_SUPERADMIN_RESET_CONFIRMATION='blindou-reset-additional-superadmin-password'
 
 exec 9>/run/lock/blindou-deployctl.lock
 if ! flock --nonblock 9; then
@@ -3267,6 +3270,44 @@ bootstrap_additional_superadmin() {
   pass 'superadmin adicional criado e auditado'
 }
 
+reset_additional_superadmin_password() {
+  local release_id="$1" identity="$2" confirmation="$3"
+  local encoded_password password
+  [[ "$confirmation" == "$ADDITIONAL_SUPERADMIN_RESET_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${ADDITIONAL_SUPERADMIN_RESET_CONFIRMATION}"
+  [[ "$identity" == "$ADDITIONAL_SUPERADMIN_IDENTITY" ]] \
+    || fail 'identidade adicional não autorizada pelo controlador'
+  [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
+  [[ ! -t 0 ]] || fail 'senha do superadmin deve chegar por stdin não interativo'
+  require_platform_preconditions
+  [[ -f "$CURRENT_RELEASE" && "$(<"$CURRENT_RELEASE")" == "$release_id" ]] \
+    || fail 'release implantada diverge da release confirmada'
+  grep -Fxq "release_id=${release_id}" "$RELEASE_GATE_RECEIPT" \
+    || fail 'recibo do gate da release está ausente'
+  kube -n "$APP_NAMESPACE" rollout status deployment/blindou-backend --timeout=120s >/dev/null
+  [[ "$(kube -n "$APP_NAMESPACE" get deployment blindou-backend \
+    -o jsonpath='{.spec.template.metadata.annotations.blindou\.io/release}')" == "$release_id" ]] \
+    || fail 'backend Ready diverge da release confirmada'
+  kube -n "$APP_NAMESPACE" exec deployment/blindou-backend -c backend -- \
+    /usr/bin/test -x /usr/local/bin/blindou-reset-user-password \
+    || fail 'release não contém o operador de redefinição de senha'
+  IFS= read -r encoded_password || fail 'senha do superadmin não foi recebida'
+  [[ "$encoded_password" =~ ^[A-Za-z0-9+/=]{16,1024}$ ]] \
+    || fail 'senha codificada do superadmin possui formato inválido'
+  password="$(printf '%s' "$encoded_password" | base64 -d)" \
+    || fail 'senha codificada do superadmin é inválida'
+  unset encoded_password
+  [[ ${#password} -le 256 && "$password" != *$'\n'* && "$password" != *$'\r'* ]] \
+    || { unset password; fail 'senha do superadmin excede o contrato de entrada'; }
+  printf '%s' "$password" | kube -n "$APP_NAMESPACE" exec -i deployment/blindou-backend -c backend -- \
+    /usr/bin/env "RESET_USER_ID=${ADDITIONAL_SUPERADMIN_USER_ID}" \
+    "RESET_USER_TENANT_ID=${ADDITIONAL_SUPERADMIN_TENANT_ID}" \
+    "RESET_USER_EMAIL=${ADDITIONAL_SUPERADMIN_EMAIL}" \
+    /usr/local/bin/blindou-reset-user-password
+  unset password
+  pass 'senha do superadmin adicional redefinida, sessões revogadas e operação auditada'
+}
+
 require_release_gates() {
   local release_id="$1"
   verify_data_foundation >/dev/null
@@ -3791,6 +3832,11 @@ case "${1:-}" in
       || fail 'uso: blindou-deployctl bootstrap-additional-superadmin RELEASE_ID IDENTIDADE CONFIRMAÇÃO'
     bootstrap_additional_superadmin "$2" "$3" "$4"
     ;;
+  reset-additional-superadmin-password)
+    [[ $# -eq 4 ]] \
+      || fail 'uso: blindou-deployctl reset-additional-superadmin-password RELEASE_ID IDENTIDADE CONFIRMAÇÃO'
+    reset_additional_superadmin_password "$2" "$3" "$4"
+    ;;
   rollback)
     [[ $# -eq 3 ]] || fail 'uso: blindou-deployctl rollback RELEASE_ID CONFIRMAÇÃO'
     require_root_and_host
@@ -3801,6 +3847,6 @@ case "${1:-}" in
     metrics
     ;;
   *)
-    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-r2-runtime-credential|verify-pagarme-credential|verify-pagarme-plans|verify-marketplaces-runtime|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|provision-r2-runtime-credential CONFIRMAÇÃO|provision-pagarme-credential CONFIRMAÇÃO|rotate-pagarme-webhook-secret CONFIRMAÇÃO|provision-pagarme-plans CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|provision-runtime-secrets CONFIRMAÇÃO|provision-ui-review-runtime CONFIRMAÇÃO|activate-pagarme-runtime RELEASE_ID CONFIRMAÇÃO|activate-marketplaces-runtime RELEASE_ID CONFIRMAÇÃO|confirm-alert-delivery CONFIRMAÇÃO|confirm-offsite-backup BACKUP_ID SHA256 CONFIRMAÇÃO|activate-release-gates RELEASE_ID CONFIRMAÇÃO|validate-release RELEASE_ID|apply RELEASE_ID|bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO|bootstrap-additional-superadmin RELEASE_ID IDENTIDADE CONFIRMAÇÃO|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
+    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-r2-runtime-credential|verify-pagarme-credential|verify-pagarme-plans|verify-marketplaces-runtime|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|provision-r2-runtime-credential CONFIRMAÇÃO|provision-pagarme-credential CONFIRMAÇÃO|rotate-pagarme-webhook-secret CONFIRMAÇÃO|provision-pagarme-plans CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|provision-runtime-secrets CONFIRMAÇÃO|provision-ui-review-runtime CONFIRMAÇÃO|activate-pagarme-runtime RELEASE_ID CONFIRMAÇÃO|activate-marketplaces-runtime RELEASE_ID CONFIRMAÇÃO|confirm-alert-delivery CONFIRMAÇÃO|confirm-offsite-backup BACKUP_ID SHA256 CONFIRMAÇÃO|activate-release-gates RELEASE_ID CONFIRMAÇÃO|validate-release RELEASE_ID|apply RELEASE_ID|bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO|bootstrap-additional-superadmin RELEASE_ID IDENTIDADE CONFIRMAÇÃO|reset-additional-superadmin-password RELEASE_ID IDENTIDADE CONFIRMAÇÃO|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
     ;;
 esac

@@ -5,6 +5,8 @@ param(
     [string]$ReleaseId,
 
     [switch]$ConfirmCreation,
+    [switch]$ResetPassword,
+    [switch]$ConfirmReset,
     [switch]$ControllerOnly,
     [switch]$ControllerAlreadyUpdated,
     [switch]$PauseOnExit,
@@ -19,6 +21,7 @@ $OutputEncoding = $utf8Encoding
 $targetIdentity = 'larissa-spezzia'
 $targetEmail = 'larissa.spezzia@gmail.com'
 $confirmation = 'blindou-additional-superadmin'
+$resetConfirmation = 'blindou-reset-additional-superadmin-password'
 $server = 'apiadmin@192.168.100.59'
 $identity = Join-Path $env:LOCALAPPDATA 'apiwpp\ssh\apiwpp_admin_ed25519'
 $knownHosts = Join-Path $env:LOCALAPPDATA 'apiwpp\ssh\known_hosts'
@@ -135,10 +138,10 @@ function Invoke-ClosedSshInput {
         if ($process.ExitCode -eq 0) { return }
         if ($process.ExitCode -ne 2) {
             if ($stderr) { Write-Host $stderr.TrimEnd() -ForegroundColor Red }
-            throw 'A criação fechada no servidor falhou.'
+            throw 'A operação fechada no servidor falhou.'
         }
         if ($attempt -eq 12) {
-            throw 'A criação não obteve o lock do controlador em um minuto.'
+            throw 'A operação não obteve o lock do controlador em um minuto.'
         }
         Write-Host 'O coletor de métricas está usando o controlador; nova tentativa em 5 segundos.' `
             -ForegroundColor Yellow
@@ -206,7 +209,8 @@ chmod 0755 $remoteRoot/operations/remote/bootstrap-blindou-deployctl.sh
 if ($SelfTest) {
     if ($targetIdentity -cne 'larissa-spezzia' -or
         $targetEmail -cne 'larissa.spezzia@gmail.com' -or
-        $confirmation -cne 'blindou-additional-superadmin') {
+        $confirmation -cne 'blindou-additional-superadmin' -or
+        $resetConfirmation -cne 'blindou-reset-additional-superadmin-password') {
         throw 'Self-test encontrou identidade ou confirmação divergente.'
     }
     $fixture = 'BlindouSelfTest1!'
@@ -224,8 +228,19 @@ if ((@($ControllerOnly.IsPresent, $ControllerAlreadyUpdated.IsPresent,
         $TransportSelfTest.IsPresent) | Where-Object { $_ }).Count -gt 1) {
     throw 'ControllerOnly, ControllerAlreadyUpdated e TransportSelfTest são mutuamente exclusivos.'
 }
-if (-not $ControllerOnly -and -not $TransportSelfTest -and -not $ConfirmCreation) {
-    throw 'Informe -ConfirmCreation somente após autorização explícita da criação.'
+if ($ResetPassword -and $ConfirmCreation) {
+    throw 'ConfirmCreation não pode ser usado durante a redefinição.'
+}
+if (-not $ResetPassword -and $ConfirmReset) {
+    throw 'ConfirmReset exige ResetPassword.'
+}
+if (-not $ControllerOnly -and -not $TransportSelfTest) {
+    if ($ResetPassword -and -not $ConfirmReset) {
+        throw 'Informe -ConfirmReset somente após autorização explícita da redefinição.'
+    }
+    if (-not $ResetPassword -and -not $ConfirmCreation) {
+        throw 'Informe -ConfirmCreation somente após autorização explícita da criação.'
+    }
 }
 
 foreach ($required in @($identity, $knownHosts)) {
@@ -256,7 +271,11 @@ $meResponse = $null
 $operationError = $null
 
 try {
-    $Host.UI.RawUI.WindowTitle = 'Blindou - segundo acesso superadmin'
+    $Host.UI.RawUI.WindowTitle = if ($ResetPassword) {
+        'Blindou - redefinir senha da Larissa'
+    } else {
+        'Blindou - segundo acesso superadmin'
+    }
     if (-not $ControllerAlreadyUpdated) {
         Write-Host 'Atualizando o controlador fechado do Blindou.' -ForegroundColor Cyan
         Install-ClosedController
@@ -270,7 +289,8 @@ try {
         exit 0
     }
 
-    Write-Host 'Validando os gates antes da criação.' -ForegroundColor Cyan
+    $operationLabel = if ($ResetPassword) { 'redefinição' } else { 'criação' }
+    Write-Host "Validando os gates antes da $operationLabel." -ForegroundColor Cyan
     Invoke-RemoteDeployControl `
         -RemoteCommand 'sudo -n /usr/local/sbin/blindou-deployctl verify-foundation' `
         -FailureMessage 'A fundação Blindou não passou.'
@@ -282,7 +302,11 @@ try {
         -FailureMessage 'A contenção do host não passou.'
 
     Write-Host ''
-    Write-Host "Criação do superadmin $targetEmail." -ForegroundColor Cyan
+    if ($ResetPassword) {
+        Write-Host "Redefinição da senha de $targetEmail." -ForegroundColor Cyan
+    } else {
+        Write-Host "Criação do superadmin $targetEmail." -ForegroundColor Cyan
+    }
     Write-Host 'A senha precisa ter pelo menos 12 caracteres, com maiúscula, minúscula, número e símbolo.' `
         -ForegroundColor Yellow
     $password = Read-Host 'Senha da Larissa' -AsSecureString
@@ -301,8 +325,13 @@ try {
     }
     $plainConfirmation = $null
     $encodedPassword = ConvertTo-Base64Utf8 $plainPassword
+    $closedCommand = if ($ResetPassword) {
+        "sudo -n /usr/local/sbin/blindou-deployctl reset-additional-superadmin-password $ReleaseId $targetIdentity $resetConfirmation"
+    } else {
+        "sudo -n /usr/local/sbin/blindou-deployctl bootstrap-additional-superadmin $ReleaseId $targetIdentity $confirmation"
+    }
     Invoke-ClosedSshInput `
-        -RemoteCommand "sudo -n /usr/local/sbin/blindou-deployctl bootstrap-additional-superadmin $ReleaseId $targetIdentity $confirmation" `
+        -RemoteCommand $closedCommand `
         -Payload $encodedPassword
     $encodedPassword = $null
 
@@ -349,19 +378,23 @@ try {
 
     Invoke-RemoteDeployControl `
         -RemoteCommand 'sudo -n /usr/local/sbin/blindou-deployctl verify-foundation' `
-        -FailureMessage 'A fundação Blindou falhou depois da criação.'
+        -FailureMessage "A fundação Blindou falhou depois da $operationLabel."
     Invoke-RemoteDeployControl `
         -RemoteCommand 'sudo -n /usr/local/sbin/blindou-deployctl verify-data' `
-        -FailureMessage 'A fundação de dados falhou depois da criação.'
+        -FailureMessage "A fundação de dados falhou depois da $operationLabel."
     Invoke-RemoteDeployControl `
         -RemoteCommand 'sudo -n /usr/local/sbin/apiwpp-deployctl verify' `
-        -FailureMessage 'O APIWPP falhou depois da criação.'
+        -FailureMessage "O APIWPP falhou depois da $operationLabel."
     Invoke-RemoteDeployControl `
         -RemoteCommand 'sudo -n /usr/local/sbin/blindou-hostctl verify' `
-        -FailureMessage 'A contenção do host falhou depois da criação.'
+        -FailureMessage "A contenção do host falhou depois da $operationLabel."
 
     Write-Host ''
-    Write-Host "Acesso criado e validado para $targetEmail." -ForegroundColor Green
+    if ($ResetPassword) {
+        Write-Host "Senha redefinida e acesso validado para $targetEmail." -ForegroundColor Green
+    } else {
+        Write-Host "Acesso criado e validado para $targetEmail." -ForegroundColor Green
+    }
     Write-Host 'Acesse: https://app.blindou.com' -ForegroundColor Green
 }
 catch {

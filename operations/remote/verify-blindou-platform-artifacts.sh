@@ -563,6 +563,28 @@ grep -Fq 'Read-Host' "$ADDITIONAL_SUPERADMIN_SCRIPT" \
   && grep -Fq 'bootstrap-additional-superadmin' "$ADDITIONAL_SUPERADMIN_SCRIPT" \
   && grep -Fq 'isSuperAdmin' "$ADDITIONAL_SUPERADMIN_SCRIPT" \
   || fail 'orquestrador adicional não protege a senha e não valida a autoridade pública'
+reset_superadmin_function="$(sed -n '/^reset_additional_superadmin_password()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+grep -Fq 'ADDITIONAL_SUPERADMIN_RESET_CONFIRMATION' <<<"$reset_superadmin_function" \
+  && grep -Fq 'ADDITIONAL_SUPERADMIN_USER_ID' <<<"$reset_superadmin_function" \
+  && grep -Fq 'ADDITIONAL_SUPERADMIN_TENANT_ID' <<<"$reset_superadmin_function" \
+  && grep -Fq 'RESET_USER_EMAIL' <<<"$reset_superadmin_function" \
+  && grep -Fq '/usr/local/bin/blindou-reset-user-password' <<<"$reset_superadmin_function" \
+  && grep -Fq 'require_platform_preconditions' <<<"$reset_superadmin_function" \
+  || fail 'reset do superadmin adicional não está fechado à identidade e aos gates aprovados'
+grep -Fq "readonly ADDITIONAL_SUPERADMIN_USER_ID='b5eb786d-7f3c-48df-bb76-e45edc49cdf5'" \
+  "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq "readonly ADDITIONAL_SUPERADMIN_TENANT_ID='fa01d196-3186-4a89-a556-51c7f944b600'" \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'IDs aprovados da Larissa não estão fixados no controlador'
+grep -Fq 'reset-additional-superadmin-password * larissa-spezzia blindou-reset-additional-superadmin-password' \
+  "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  || fail 'sudoers não limita o reset à identidade aprovada'
+grep -Fq '[switch]$ResetPassword' "$ADDITIONAL_SUPERADMIN_SCRIPT" \
+  && grep -Fq '[switch]$ConfirmReset' "$ADDITIONAL_SUPERADMIN_SCRIPT" \
+  && grep -Fq 'reset-additional-superadmin-password' "$ADDITIONAL_SUPERADMIN_SCRIPT" \
+  && grep -Fq 'blindou-reset-additional-superadmin-password' "$ADDITIONAL_SUPERADMIN_SCRIPT" \
+  || fail 'orquestrador da Larissa não expõe a redefinição fechada autorizada'
 apply_release_function="$(sed -n '/^apply_release()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 apply_cached_release_function="$(sed -n '/^apply_cached_release()/,/^}/p' \

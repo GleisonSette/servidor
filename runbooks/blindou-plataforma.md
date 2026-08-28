@@ -430,6 +430,25 @@ Larissa, executar:
   -ReleaseId <release-sha40> -ConfirmCreation
 ```
 
+Se a senha desse acesso for perdida enquanto a recuperação por e-mail estiver
+desligada, não excluir nem recriar usuário ou tenant. Depois de implantar uma
+release que contenha `blindou-reset-user-password`, use o mesmo orquestrador em
+modo de redefinição:
+
+```powershell
+.\operations\Invoke-BlindouAdditionalSuperadmin.ps1 `
+  -ReleaseId '<SHA_COMPLETO_IMPLANTADO>' `
+  -ResetPassword `
+  -ConfirmReset `
+  -PauseOnExit
+```
+
+A janela recebe a senha duas vezes em campos ocultos, o controlador fixa os
+IDs e o e-mail da Larissa e o backend troca o hash, incrementa as versões de
+sessão/MFA, revoga sessões e tokens anteriores e grava auditoria na mesma
+transação. O comando falha fechado se release, gate, identidade, ownership,
+papéis ou binário divergirem.
+
 O orquestrador solicita e confirma a senha em campos protegidos, transmite-a
 somente por `stdin`, cria uma conta central administrativa própria para fornecer
 o contexto autenticado inicial e grava a role global `super_admin`. Depois,
