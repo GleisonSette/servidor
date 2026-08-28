@@ -292,14 +292,12 @@ try {
     $operationLabel = if ($ResetPassword) { 'redefinição' } else { 'criação' }
     Write-Host "Validando os gates antes da $operationLabel." -ForegroundColor Cyan
     Invoke-RemoteDeployControl `
-        -RemoteCommand 'sudo -n /usr/local/sbin/blindou-deployctl verify-foundation' `
-        -FailureMessage 'A fundação Blindou não passou.'
-    Invoke-RemoteDeployControl `
-        -RemoteCommand 'sudo -n /usr/local/sbin/blindou-deployctl verify-data' `
-        -FailureMessage 'A fundação de dados Blindou não passou.'
-    Invoke-RemoteDeployControl `
-        -RemoteCommand 'sudo -n /usr/local/sbin/blindou-hostctl verify' `
-        -FailureMessage 'A contenção do host não passou.'
+        -RemoteCommand (
+            'sudo -n /usr/local/sbin/blindou-deployctl verify-foundation && ' +
+            'sudo -n /usr/local/sbin/blindou-deployctl verify-data && ' +
+            'sudo -n /usr/local/sbin/blindou-hostctl verify'
+        ) `
+        -FailureMessage 'Os gates da fundação, dos dados ou do host não passaram.'
 
     Write-Host ''
     if ($ResetPassword) {
@@ -377,17 +375,13 @@ try {
     $plainPassword = $null
 
     Invoke-RemoteDeployControl `
-        -RemoteCommand 'sudo -n /usr/local/sbin/blindou-deployctl verify-foundation' `
-        -FailureMessage "A fundação Blindou falhou depois da $operationLabel."
-    Invoke-RemoteDeployControl `
-        -RemoteCommand 'sudo -n /usr/local/sbin/blindou-deployctl verify-data' `
-        -FailureMessage "A fundação de dados falhou depois da $operationLabel."
-    Invoke-RemoteDeployControl `
-        -RemoteCommand 'sudo -n /usr/local/sbin/apiwpp-deployctl verify' `
-        -FailureMessage "O APIWPP falhou depois da $operationLabel."
-    Invoke-RemoteDeployControl `
-        -RemoteCommand 'sudo -n /usr/local/sbin/blindou-hostctl verify' `
-        -FailureMessage "A contenção do host falhou depois da $operationLabel."
+        -RemoteCommand (
+            'sudo -n /usr/local/sbin/blindou-deployctl verify-foundation && ' +
+            'sudo -n /usr/local/sbin/blindou-deployctl verify-data && ' +
+            'sudo -n /usr/local/sbin/apiwpp-deployctl verify && ' +
+            'sudo -n /usr/local/sbin/blindou-hostctl verify'
+        ) `
+        -FailureMessage "Um gate final falhou depois da $operationLabel."
 
     Write-Host ''
     if ($ResetPassword) {

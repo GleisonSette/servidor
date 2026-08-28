@@ -585,6 +585,11 @@ grep -Fq '[switch]$ResetPassword' "$ADDITIONAL_SUPERADMIN_SCRIPT" \
   && grep -Fq 'reset-additional-superadmin-password' "$ADDITIONAL_SUPERADMIN_SCRIPT" \
   && grep -Fq 'blindou-reset-additional-superadmin-password' "$ADDITIONAL_SUPERADMIN_SCRIPT" \
   || fail 'orquestrador da Larissa não expõe a redefinição fechada autorizada'
+[[ "$(grep -Fc "'sudo -n /usr/local/sbin/blindou-deployctl verify-foundation && '" \
+  "$ADDITIONAL_SUPERADMIN_SCRIPT")" -eq 2 ]] \
+  && [[ "$(grep -Fc "'sudo -n /usr/local/sbin/blindou-deployctl verify-data && '" \
+    "$ADDITIONAL_SUPERADMIN_SCRIPT")" -eq 2 ]] \
+  || fail 'gates da Larissa não compartilham uma conexão SSH por etapa'
 apply_release_function="$(sed -n '/^apply_release()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 apply_cached_release_function="$(sed -n '/^apply_cached_release()/,/^}/p' \

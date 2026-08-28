@@ -449,6 +449,11 @@ sessão/MFA, revoga sessões e tokens anteriores e grava auditoria na mesma
 transação. O comando falha fechado se release, gate, identidade, ownership,
 papéis ou binário divergirem.
 
+Os gates anteriores e posteriores à operação compartilham uma conexão SSH em
+cada etapa. Isso preserva todas as verificações e evita que a limitação de
+conexões administrativas do host bloqueie a conexão separada que transporta a
+senha por `stdin`.
+
 O orquestrador solicita e confirma a senha em campos protegidos, transmite-a
 somente por `stdin`, cria uma conta central administrativa própria para fornecer
 o contexto autenticado inicial e grava a role global `super_admin`. Depois,
