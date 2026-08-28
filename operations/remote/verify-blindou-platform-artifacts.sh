@@ -6,6 +6,7 @@ readonly REMOTE_DIR="${REPOSITORY_ROOT}/operations/remote"
 readonly PULL_PROOF_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouGhcrCandidatePullProof.ps1"
 readonly SUDO_BOOTSTRAP_MODULE="${REPOSITORY_ROOT}/operations/Blindou.SudoBootstrap.psm1"
 readonly FIRST_RELEASE_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouFirstRelease.ps1"
+readonly ADDITIONAL_SUPERADMIN_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouAdditionalSuperadmin.ps1"
 readonly R2_RUNTIME_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouR2RuntimeCredential.ps1"
 readonly PAGARME_CREDENTIAL_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouPagarmeCredential.ps1"
 readonly PAGARME_ACTIVATION_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouPagarmeActivation.ps1"
@@ -25,6 +26,8 @@ fail() {
   || fail 'módulo fechado de bootstrap sudo ausente ou simbólico'
 [[ -f "$FIRST_RELEASE_SCRIPT" && ! -L "$FIRST_RELEASE_SCRIPT" ]] \
   || fail 'orquestrador fechado da primeira release ausente ou simbólico'
+[[ -f "$ADDITIONAL_SUPERADMIN_SCRIPT" && ! -L "$ADDITIONAL_SUPERADMIN_SCRIPT" ]] \
+  || fail 'orquestrador fechado do superadmin adicional ausente ou simbólico'
 [[ -f "$R2_RUNTIME_SCRIPT" && ! -L "$R2_RUNTIME_SCRIPT" ]] \
   || fail 'orquestrador fechado da credencial R2 ausente ou simbólico'
 [[ -f "$PAGARME_CREDENTIAL_SCRIPT" && ! -L "$PAGARME_CREDENTIAL_SCRIPT" ]] \
@@ -221,7 +224,8 @@ for powershell_script in \
   "$PAGARME_CREDENTIAL_SCRIPT" \
   "$PAGARME_PLANS_SCRIPT" \
   "$PAGARME_ACTIVATION_SCRIPT" \
-  "$MARKETPLACES_ACTIVATION_SCRIPT"; do
+  "$MARKETPLACES_ACTIVATION_SCRIPT" \
+  "$ADDITIONAL_SUPERADMIN_SCRIPT"; do
   bom="$(od -An -tx1 -N3 "$powershell_script" | tr -d ' \n')"
   [[ "$bom" == 'efbbbf' ]] \
     || fail "script administrativo não possui UTF-8 BOM para Windows PowerShell 5.1: ${powershell_script}"
@@ -254,7 +258,8 @@ for orchestrator in \
   Invoke-BlindouGhcrPullCredential.ps1 \
   Invoke-BlindouR2RuntimeCredential.ps1 \
   Invoke-BlindouPagarmeCredential.ps1 \
-  Invoke-BlindouGhcrCandidatePullProof.ps1; do
+  Invoke-BlindouGhcrCandidatePullProof.ps1 \
+  Invoke-BlindouAdditionalSuperadmin.ps1; do
   orchestrator_path="${REPOSITORY_ROOT}/operations/${orchestrator}"
   for required_source in \
     operations/remote/blindou-release-emergencyctl \
@@ -537,6 +542,27 @@ grep -Fq "grep -Fxq 'status=confirmed' \"\$ALERT_RECEIPT\"" \
   || fail 'gate de release não preserva alerta confirmado nem o adiamento Pagar.me-first autorizado'
 grep -Fq 'bootstrap-superadmin)' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'bootstrap fechado do superadmin ausente'
+additional_superadmin_function="$(sed -n '/^bootstrap_additional_superadmin()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+grep -Fq "identity=\"\$2\"" <<<"$additional_superadmin_function" \
+  && grep -Fq 'ADDITIONAL_SUPERADMIN_IDENTITY' <<<"$additional_superadmin_function" \
+  && grep -Fq 'BOOTSTRAP_USER_ROLE=super_admin' <<<"$additional_superadmin_function" \
+  && grep -Fq '/usr/local/bin/blindou-bootstrap-user' <<<"$additional_superadmin_function" \
+  && grep -Fq 'require_platform_preconditions' <<<"$additional_superadmin_function" \
+  || fail 'bootstrap do superadmin adicional não está fechado à identidade e aos gates aprovados'
+grep -Fq "readonly ADDITIONAL_SUPERADMIN_EMAIL='larissa.spezzia@gmail.com'" \
+  "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'e-mail aprovado do superadmin adicional não está fixado'
+grep -Fq 'bootstrap-additional-superadmin * larissa-spezzia blindou-additional-superadmin' \
+  "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  || fail 'sudoers não limita o superadmin adicional à identidade aprovada'
+grep -Fq 'Read-Host' "$ADDITIONAL_SUPERADMIN_SCRIPT" \
+  && grep -Fq -- '-AsSecureString' "$ADDITIONAL_SUPERADMIN_SCRIPT" \
+  && grep -Fq 'StandardInput.NewLine = "`n"' "$ADDITIONAL_SUPERADMIN_SCRIPT" \
+  && grep -Fq 'StandardInput.WriteLine($Payload)' "$ADDITIONAL_SUPERADMIN_SCRIPT" \
+  && grep -Fq 'bootstrap-additional-superadmin' "$ADDITIONAL_SUPERADMIN_SCRIPT" \
+  && grep -Fq 'isSuperAdmin' "$ADDITIONAL_SUPERADMIN_SCRIPT" \
+  || fail 'orquestrador adicional não protege a senha e não valida a autoridade pública'
 apply_release_function="$(sed -n '/^apply_release()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 apply_cached_release_function="$(sed -n '/^apply_cached_release()/,/^}/p' \

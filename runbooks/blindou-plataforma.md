@@ -420,6 +420,24 @@ token. A configuração posterior de cada provedor exige nova autorização e um
 release compatível; não reutilizar o modo de revisão como estado operacional
 definitivo.
 
+Superadmins adicionais usam uma operação distinta e fechada. O comando
+`bootstrap-additional-superadmin` aceita somente identidades previamente
+versionadas no controlador e liberadas com argumentos exatos no sudoers. Para
+Larissa, executar:
+
+```powershell
+.\operations\Invoke-BlindouAdditionalSuperadmin.ps1 `
+  -ReleaseId <release-sha40> -ConfirmCreation
+```
+
+O orquestrador solicita e confirma a senha em campos protegidos, transmite-a
+somente por `stdin`, cria uma conta central administrativa própria para fornecer
+o contexto autenticado inicial e grava a role global `super_admin`. Depois,
+valida o login e `isSuperAdmin` pela API pública sem imprimir senha ou tokens.
+Repetição com o mesmo e-mail falha antes de criar outro tenant. Adicionar outra
+identidade exige nova autorização e nova versão do controlador; e-mail livre em
+argumento, SQL manual e kubeconfig administrativo permanecem proibidos.
+
 ### Pagar.me-first depois da aprovação da interface
 
 Por D020, a UI já foi aprovada e a próxima integração é Pagar.me. UAZAPI e
