@@ -24,7 +24,10 @@
   `operations/Blindou.SudoBootstrap.psm1` e
   `operations/SecondarySlot.SudoBootstrap.psm1` podem carregar
   `KEY_SERVIDOR` do arquivo local ignorado `.env`. O primeiro continua restrito
-  aos bootstraps fechados do Blindou; o segundo aceita exclusivamente a
+  aos bootstraps fechados `blindou-hostctl`, `blindou-deployctl` e
+  `blindou-datactl`; este último exige o conjunto `DataController`, staging e
+  commit fixos e instala somente o controlador e a quarentena vazia. O segundo
+  aceita exclusivamente a
   materialização autenticada de `secondary-slotctl`, no host, staging, commit e
   SHA-256 fixados pelo orquestrador versionado. O valor nunca pode ser aberto
   manualmente, impresso, registrado, indexado, persistido, colocado em argumento

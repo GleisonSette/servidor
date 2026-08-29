@@ -54,6 +54,12 @@
       "query": "D024 Blindou redirector not found PostgreSQL FORCE RLS papel dedicado blindou_redirector migration 0012 menor privilégio",
       "top": 5,
       "expected_source_ids": ["decisoes", "arquitetura-plataforma", "estado-atual", "plano-implementacao"]
+    },
+    {
+      "id": "qa-010-postgresql-dedicado-blindou",
+      "query": "D028 PostgreSQL dedicado Blindou datactl pull proof direto sem PVC Secret Pod I2 bloqueada",
+      "top": 6,
+      "expected_source_ids": ["decisoes", "plano-implementacao", "estado-atual", "arquitetura-plataforma"]
     }
   ]
 }

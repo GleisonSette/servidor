@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-plano-implementacao
   source_path: memory/canon/plano-implementacao.md
   generated_from: plano aprovado pelo usuário em 2026-08-15
-  updated_at: 2026-08-27
+  updated_at: 2026-08-29
   status: canonical
 
 ## Regra de continuidade
@@ -262,6 +262,40 @@ Objetivos:
 - executar degraus de carga e soak com margem, observando HDD, memória, swap e
   Fast Ethernet;
 - registrar o limite que dispara expansão e posterior cutover para Vultr.
+
+## Fase 2F - PostgreSQL dedicado do Blindou
+
+Status: I0 aprovada e I1 aprovada para publicação controlada em 2026-08-29.
+O pacote `platform/blindou-data/` nasce bloqueado; imagem privada, supply chain,
+bundle, `blindou-datactl`, backup, restore-base e gates descartáveis estão
+preparados. O PostgreSQL nativo continua autoridade.
+
+Ordem:
+
+1. publicar a imagem privada do SHA Blindou exato e obter scan, SBOM,
+   proveniência e identidade OCI;
+2. gerar o bundle assinado e commitar/publicar o controlador separado da
+   plataforma;
+3. instalar somente o `blindou-datactl` e a quarentena vazia;
+4. executar `pull-proof` direto pelo cofre GHCR do host, mantendo gate
+   `blocked` e zero Secret, PVC, Job, Pod ou workload de banco;
+5. parar novamente para autorização: `foundation`, I2, dados e cutover não são
+   consequência da prova.
+
+Aceite I1 operacional limitado:
+
+- imagem privada `linux/amd64` acessível integralmente por digest;
+- bundle aceito pela assinatura `blindou-data` e evidência vinculada ao mesmo
+  sujeito OCI;
+- controlador instalado por bootstrap exato, sem `sudo` genérico;
+- namespace `blindou-data` bloqueado, com quarentena/admissão e zero objeto
+  operacional;
+- host, APIWPP, Blindou ativo, portas e autoridade PostgreSQL anterior
+  preservados.
+
+I2 permanece uma operação separada: exige backup offsite, pausa de escritores,
+restore final, comparação, troca de DSNs/rede, rollout e smoke. Remoção do
+database, logins ou HBA nativos exige autorização posterior própria.
 
 ## Fase 3 - Slot alternável APIWPP/SaferWPP
 

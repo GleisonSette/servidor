@@ -32,6 +32,7 @@ $required = @(
     'platform/base/project-spaces.yaml',
     'platform/base/service-exposure-policy.yaml',
     'platform/blindou/20-production-workload-policy.yaml',
+    'platform/blindou-data/kustomization.yaml',
     'platform/saferwpp/foundation.yaml',
     'platform/saferwpp/backup-preflight.schema.json',
     'platform/saferwpp/kustomization.yaml',
@@ -43,6 +44,14 @@ $required = @(
     'operations/remote/verify-platform.sh',
     'operations/remote/verify-blindou-isolation.sh',
     'operations/remote/verify-saferwpp-foundation-artifacts.py',
+    'operations/Blindou.SudoBootstrap.psm1',
+    'operations/Invoke-BlindouDataControllerBootstrap.ps1',
+    'operations/Invoke-BlindouDataPullProof.ps1',
+    'operations/remote/blindou-datactl',
+    'operations/remote/blindou-datactl.sudoers',
+    'operations/remote/blindou-data-ghcr-pull-verify.py',
+    'operations/remote/bootstrap-blindou-datactl.sh',
+    'operations/remote/verify-blindou-data-artifacts.py',
     'runbooks/blindou-contencao.md'
 )
 
@@ -57,6 +66,10 @@ if ($null -eq $pythonCommand) {
     $pythonCommand = Get-Command python3 -ErrorAction Stop
 }
 & $pythonCommand.Source -B (Join-Path $root 'operations/remote/verify-saferwpp-foundation-artifacts.py')
+& $pythonCommand.Source -B (Join-Path $root 'operations/remote/verify-blindou-data-artifacts.py') $root
+& $pythonCommand.Source -B (Join-Path $root 'operations/remote/test-blindou-data-release-verify.py')
+& $pythonCommand.Source -B (Join-Path $root 'operations/remote/test-blindou-data-secret-verify.py')
+& $pythonCommand.Source -B (Join-Path $root 'operations/remote/test-blindou-data-ghcr-pull-verify.py')
 
 $namespaceManifest = Get-Content -Raw -LiteralPath (Join-Path $root 'platform/base/namespaces.yaml')
 if ($namespaceManifest.Contains('platform.servidor.local/deployment-gate: passed')) {

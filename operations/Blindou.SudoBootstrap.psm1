@@ -50,7 +50,7 @@ function Invoke-BlindouSudoBootstrap {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet('DeployController', 'HostAndDeployControllers')]
+        [ValidateSet('DeployController', 'HostAndDeployControllers', 'DataController')]
         [string]$ControllerSet,
 
         [Parameter(Mandatory = $true)]
@@ -66,8 +66,14 @@ function Invoke-BlindouSudoBootstrap {
     if ($Server -cne 'apiadmin@192.168.100.59') {
         throw 'O bootstrap automatizado aceita somente o servidor físico aprovado.'
     }
-    if ($RemoteRoot -notmatch '^/home/apiadmin/blindou-platform-bootstrap(?:-[a-z0-9-]+)?(?:/[0-9a-f]{40})?$') {
-        throw 'Diretório remoto fora do staging fechado do Blindou.'
+    $remoteRootPattern = if ($ControllerSet -ceq 'DataController') {
+        '^/home/apiadmin/blindou-data-bootstrap/[0-9a-f]{40}$'
+    }
+    else {
+        '^/home/apiadmin/blindou-platform-bootstrap(?:-[a-z0-9-]+)?(?:/[0-9a-f]{40})?$'
+    }
+    if ($RemoteRoot -notmatch $remoteRootPattern) {
+        throw 'Diretório remoto fora do staging fechado do controlador selecionado.'
     }
     foreach ($requiredOption in @('IdentitiesOnly=yes', 'StrictHostKeyChecking=yes')) {
         if ($SshArguments -notcontains $requiredOption) {
@@ -83,6 +89,9 @@ function Invoke-BlindouSudoBootstrap {
             "cd $RemoteRoot && " +
             "sudo -S -p '' -- ./operations/remote/bootstrap-blindou-hostctl.sh && " +
             "sudo -S -p '' -- ./operations/remote/bootstrap-blindou-deployctl.sh"
+        }
+        'DataController' {
+            "cd $RemoteRoot && sudo -S -p '' -- ./operations/remote/bootstrap-blindou-datactl.sh"
         }
     }
 

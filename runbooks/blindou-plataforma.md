@@ -16,11 +16,107 @@ e backup lógico próprios. A candidata D052 acrescenta o grupo mínimo
 continua cobrindo o cluster PostgreSQL inteiro; ele não substitui a cópia lógica
 isolada do Blindou.
 
+## Destino PostgreSQL exclusivo preparado por D028/D063
+
+O parágrafo anterior descreve o estado vivo. D028 neste repositório, alinhada à
+D063 do Blindou, prepara sem aplicar um
+destino PostgreSQL 18 exclusivo no namespace `blindou-data`. A quarentena está
+versionada em `platform/blindou-data/`; o StatefulSet, Service, PVCs e
+NetworkPolicies pertencem ao repositório Blindou. Esta fase não criou o
+namespace no host: nenhum manifest foi aplicado, e o `blindou-deployctl` atual
+não o administra.
+
+Não aplicar esse diretório com `kubectl`, não anexá-lo ao controlador atual e
+não criar Secret manualmente. I1 entregou, mas não instalou, um
+`blindou-datactl` separado, um verificador de bundle fechado e operações de
+bootstrap, backup e restore-base. Fundação e StatefulSet ficam em arquivos
+distintos: o controlador deve provar o pull da imagem privada por digest antes
+de criar o workload. A admissão exclui `blindou-data` da regra geral da
+aplicação e usa uma regra própria: `pull-only` admite apenas o Job de prova;
+`candidate-foundation` admite somente o singleton e Jobs de dados fechados. A
+imagem e o bundle ainda não foram publicados.
+
+O controlador aceita apenas `status`, `verify-quarantine`, `validate-release`,
+`pull-proof`, `foundation`, `secrets`, `bootstrap`, `backup` e `restore-base`;
+não existe comando de
+cutover e o arquivo `20-application-egress.yaml` nunca é aplicado em I1.
+Segredos entram por envelope tar em `stdin`. A fundação exige ao menos 140 GiB
+livres, 4 GiB de memória disponível e dois CPUs lógicos antes dos PVCs. O
+backup lógico, o base backup e o WAL chegam cifrados ao PVC de staging; o
+restore usa um terceiro PVC e nunca o volume da autoridade.
+Jobs de bootstrap, backup e restore usam a identidade de rede exata
+`blindou.io/data-access=postgresql`. Eles resolvem o DNS estável do singleton
+para a conexão, mas conservam o nome do Service em `PGHOST` para a validação
+TLS `verify-full`; a aplicação futura continua usando o endpoint normal.
+`archive_timeout=0` evita geração recorrente em repouso; intervalo, retenção,
+RPO e offsite precisam ser aprovados juntos antes de I2.
+Se `foundation` for interrompido, a repetição aceita apenas subconjuntos
+fechados dos objetos esperados e reconcilia a mesma release. Recibos impedem
+que `secrets` ou `bootstrap` recriem credenciais transitórias já removidas.
+
+`pull-proof` é anterior e independente de `foundation`. Ele lê o PAT GHCR
+`read:packages` já custodiado em `/etc/blindou/ghcr/pull-token`, entrega-o por
+`stdin` a um verificador root-only, baixa e confere índice, manifesto, config e
+todas as camadas do digest assinado e apaga os bytes temporários. Só o recibo
+sem credencial permanece. Antes e depois, o comando exige gate `blocked` e zero
+Deployment, StatefulSet, DaemonSet, Job, CronJob, Pod, Service, Secret e PVC em
+`blindou-data`; não chama operações mutáveis do Kubernetes.
+
+Instalar `blindou-datactl`, publicar imagem/bundle ou executar qualquer desses
+comandos exige autorização operacional própria. I2 fará a pausa de escritores,
+restauração final, troca de DSNs/rede e smoke em outra autorização. Até esse
+recibo, o database nativo é a única autoridade; depois da primeira escrita no
+destino, retornar ao nativo e criar duas autoridades é proibido.
+
+Gate offline do pacote de quarentena:
+
+```bash
+python3 operations/remote/verify-blindou-data-artifacts.py .
+```
+
+Esse comando não acessa K3s, PostgreSQL, host ou segredo.
+
+Os contratos adicionais de I1 são verificados por:
+
+```bash
+python3 operations/remote/test-blindou-data-release-verify.py
+operations/remote/verify-blindou-platform-artifacts.sh
+```
+
+Esses gates também são offline; testam arquivo extra, path traversal, link,
+evidência, imagem e namespace de assinatura divergentes.
+
+O único bootstrap aceito é
+`operations/Invoke-BlindouDataControllerBootstrap.ps1`, que transporta um
+archive seletivo do commit exato e chama
+`operations/remote/bootstrap-blindou-datactl.sh` pelo helper autorizado. Ele
+restringe a admissão geral aos papéis
+`application`/`edge`, instala a política específica de dados e cria, quando
+ausente, somente a quarentena `blocked`. Reinstalação nunca rebaixa um gate de
+dados já avançado. O helper aceita apenas `DataController`, host, staging,
+commit e bootstrap fixos; não oferece `sudo` genérico.
+
+Depois da publicação e da criação do bundle assinado, a prova sem objetos
+Kubernetes usa:
+
+```powershell
+.\operations\Invoke-BlindouDataPullProof.ps1 `
+  -ReleaseId <sha-blindou-40> `
+  -BundleDirectory <diretório-dos-três-artefatos> `
+  -Confirmation 'PROVAR PULL POSTGRESQL'
+```
+
+O orquestrador transporta exatamente os três artefatos, prepara o cache
+assinado e executa somente `pull-proof`, `verify-quarantine`, `status` e os
+gates preservados de host/APIWPP. Não executar `foundation` nessa etapa.
+
 ## Autoridades e arquivos
 
 - `/usr/local/sbin/blindou-hostctl`: contenção temporária do host;
 - `/usr/local/sbin/blindou-deployctl`: única interface sem senha da plataforma
   Blindou;
+- `/usr/local/sbin/blindou-datactl`: interface futura e separada para o
+  PostgreSQL dedicado; artefato preparado, ainda não instalado;
 - `/usr/local/lib/blindou-platform/`: manifests e verificador root-owned;
 - `/etc/blindou/`: chaves, certificados, URLs e identidades root-only;
 - `/var/lib/blindou-platform/`: estado e cache de releases assinadas;
@@ -29,9 +125,11 @@ isolada do Blindou.
 - `/home/apiadmin/blindou-backup-outbox/`: somente envelopes criptografados
   exportados para leitura.
 
-A chave privada de assinatura e a chave privada de recuperação nunca entram no
-servidor ou neste repositório. Somente a chave pública de assinatura e o
-certificado público de recuperação são instalados.
+A chave privada de assinatura nunca entra no servidor ou neste repositório. A
+chave privada de recuperação do banco dedicado só poderá entrar por `stdin`
+durante um `restore-base` autorizado, em staging root-only e Secret efêmero;
+ela é removida ao terminar. O bundle contém somente a chave pública de
+assinatura e o certificado público de recuperação.
 
 ## Instalação do controlador
 
@@ -95,8 +193,11 @@ Os orquestradores versionados usam exclusivamente
 `operations/Blindou.SudoBootstrap.psm1` para instalar ou atualizar os
 controladores. O helper carrega `KEY_SERVIDOR` do `.env` ignorado na raiz deste
 repositório, sem exibir seu conteúdo, e envia o valor apenas por `stdin` para
-`sudo -S`. Ele fixa o host aprovado, o staging Blindou e os instaladores
-`bootstrap-blindou-hostctl.sh` e `bootstrap-blindou-deployctl.sh`.
+`sudo -S`. Ele fixa o host aprovado, o staging e exatamente os instaladores
+`bootstrap-blindou-hostctl.sh`, `bootstrap-blindou-deployctl.sh` e
+`bootstrap-blindou-datactl.sh`; o último só é aceito pelo conjunto
+`DataController` e por um caminho contendo o SHA completo do commit da
+plataforma.
 
 O helper não aceita comando `sudo` livre, outro host, rollback destrutivo ou
 operação de outro projeto. O arquivo `.env` é temporário e deve ser apagado pelo

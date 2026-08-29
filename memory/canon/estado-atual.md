@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-estado-atual
   source_path: memory/canon/estado-atual.md
   generated_from: auditoria SSH, runtime K3s, Prometheus e repositórios locais
-  updated_at: 2026-08-27
+  updated_at: 2026-08-29
   status: canonical
 
 ## Escopo e data da evidência
@@ -28,6 +28,21 @@ SaferWPP continua vazio e o Blindou permanece ativo.
   `5cd4b2ecfbf4199feb3509791b8602d786bef87e14f117132afafe4e2653bfcd`.
 - Fundação PostgreSQL, controladores e workloads SaferWPP continuam ausentes.
   O próximo gate permanece a fundação vazia exclusiva do produto.
+
+## PostgreSQL dedicado Blindou I1 autorizado em 2026-08-29
+
+- O processo PostgreSQL nativo continua sendo a única autoridade do Blindou;
+  nenhum DSN, migration, dado, writer ou HBA foi alterado.
+- A plataforma prepara `blindou-datactl` e a quarentena `blindou-data`
+  `blocked`, sem Secret, PVC, Job, Pod, Service ou workload de banco.
+- A imagem privada, o bundle assinado e o bootstrap fechado receberam
+  autorização operacional, mas a conclusão viva será registrada somente após
+  os respectivos recibos.
+- `pull-proof` baixa integralmente o digest pelo PAT GHCR root-only já existente
+  e preserva somente recibo. Ele não modifica o cluster e recusa executar se a
+  quarentena contiver objeto operacional.
+- `foundation`, Secrets Kubernetes, PVCs, backup/restore operacional,
+  migration, DSN, StatefulSet, I2 e cutover permanecem bloqueados.
 
 ## Operação Blindou concluída em 2026-08-27
 
@@ -58,7 +73,8 @@ SaferWPP continua vazio e o Blindou permanece ativo.
   alterada nessa operação.
 - Por D025, o `.env` ignorado da estação será retido até a entrada do primeiro
   cliente. Somente o helper fechado pode ler `KEY_SERVIDOR` em memória para os
-  dois bootstraps permitidos; o valor não foi aberto, exibido ou indexado.
+  bootstraps Blindou explicitamente fixados, incluindo `DataController`; o
+  valor não foi aberto, exibido ou indexado.
 - D026 está preparada somente no repositório: o controlador ganhou ativação
   Shopee posterior ao deploy, com chave interna root-only, compatibilidade da
   release, journal, rollback, probes, recibo, status e métrica. Nada dessa etapa

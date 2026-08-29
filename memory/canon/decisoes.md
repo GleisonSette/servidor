@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-decisoes
   source_path: memory/canon/decisoes.md
   generated_from: decisões do usuário e limites observados do laboratório
-  updated_at: 2026-08-27
+  updated_at: 2026-08-29
   status: canonical
 
 ## Resolvida D001 - Projetos admitidos pela plataforma
@@ -445,6 +445,14 @@ host ou outro projeto continuam proibidos. Na entrada do primeiro cliente, ou
 antes diante de suspeita de exposição, o arquivo deve ser removido e a
 credencial rotacionada.
 
+Em 2026-08-29, o usuário ampliou essa permissão somente para a instalação do
+`blindou-datactl`. `operations/Blindou.SudoBootstrap.psm1` aceita o conjunto
+`DataController` apenas no host aprovado, sob
+`/home/apiadmin/blindou-data-bootstrap/<sha40>`, e executa exclusivamente
+`bootstrap-blindou-datactl.sh`. A ampliação não alcança `foundation`, Secret,
+PVC, Pod, backup, restore, migration, DSN, cutover, shell ou `sudo` genérico;
+depois do bootstrap, o sudoers próprio é a única interface operacional.
+
 ## Resolvida D026 - Ativação fechada da Shopee após release compatível
 
 Em 2026-08-27, o usuário autorizou prosseguir com Marketplaces depois do link
@@ -489,3 +497,51 @@ senha, shell livre, fundação PostgreSQL, controladores SaferWPP, suspensão do
 APIWPP, deploy, rollback destrutivo ou qualquer recurso Blindou. Depois da
 instalação, inicialização e operação usam somente o sudoers restrito do próprio
 `secondary-slotctl`.
+
+## Resolvida D028 - PostgreSQL Blindou será exclusivo em namespace de dados
+
+Em 2026-08-29, o usuário substituiu o destino da D014 que permitia ao Blindou
+compartilhar o processo PostgreSQL 18 nativo com o APIWPP. Até um cutover
+aprovado, o database `blindou` no processo nativo continua sendo a única
+autoridade.
+
+O destino é um único StatefulSet PostgreSQL 18 exclusivo do Blindou no
+namespace K3s `blindou-data`, com Service ClusterIP, dois PVCs iniciais de 40
+GiB, roles/logins, certificados, Secrets, NetworkPolicies, orçamento e backup
+próprios. Não há `hostNetwork`, `hostPort`, `NodePort`, `LoadBalancer` ou rota
+pública. Depois do cutover, nenhum login, database, HBA ou rota Blindou
+permanece no processo nativo.
+
+O teto inicial é 24 conexões: 16 runtime, uma migration, uma backup, duas para
+Debezium futuro, três reservadas a superuser/operação e uma margem ordinária.
+O servidor prepara `wal_level=logical`, duas senders e dois slots, mas não cria
+publication ou slot antes da fase correspondente do Blindou.
+
+O namespace nasce em pacote separado, `blocked`, com Pod Security `restricted`,
+quota zero, ServiceAccount default sem token e default deny. Ele não integra o
+`blindou-deployctl`. O `blindou-datactl` é uma autoridade separada, com bundle
+assinado, scan/SBOM/proveniência, materialização fechada de Secrets, backup e
+restore-base. Isso impede que um deploy comum altere ou reverta a autoridade de
+dados.
+
+Container no mesmo host é isolamento lógico e de recursos, não isolamento de
+kernel, disco, domínio de falha ou comprometimento `root`. A migração Vultr
+continua sendo a fronteira física definitiva. Antes do cutover, backup offsite,
+restore em destino novo, pausa dos escritores e comparação de
+migrations/RLS/grants/contagens/checksums são obrigatórios. Depois da primeira
+escrita no destino, voltar ao banco nativo e criar dual-write é proibido.
+
+I1 usa imagem privada derivada minimamente da mesma base PostgreSQL 18.6
+imutável, sem `gosu` ou snakeoil e como UID/GID 999. Fundação e StatefulSet são
+separados, backups chegam cifrados ao staging e restore-base usa PVC novo. A
+prova inicialmente prevista em `foundation` criaria PVCs, Services, Secret de
+pull e Job; ao explicitar esse conflito, o usuário aprovou uma prova anterior e
+direta. `pull-proof` usa o PAT GHCR root-only já existente, baixa e valida todos
+os blobs do digest assinado, remove o staging e preserva somente recibo. O gate
+fica `blocked` e zero objeto operacional Kubernetes é criado.
+
+Em 2026-08-29, o usuário aprovou o recibo I1, o risco residual do mesmo host,
+os commits/pushes, a publicação da imagem e bundle, a instalação restrita do
+controlador e essa prova direta. Secret Kubernetes, PVC, Job, Pod,
+`foundation`, backup/restore operacional, migration, DSN, workload PostgreSQL,
+I2 e cutover continuam sem autorização.

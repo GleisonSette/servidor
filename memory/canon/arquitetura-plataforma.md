@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-arquitetura-plataforma
   source_path: memory/canon/arquitetura-plataforma.md
   generated_from: decisão do usuário, auditoria e requisitos de apiwpp/Blindou/SaferWPP
-  updated_at: 2026-08-27
+  updated_at: 2026-08-29
   status: canonical
 
 ## Objetivo e limite
@@ -204,11 +204,38 @@ políticas de quarentena pertencem à plataforma; contas, PVCs e políticas dos
 workloads continuam pertencendo ao repositório Blindou e só entram depois do
 gate completo.
 
+`blindou-data` é uma terceira fronteira Blindou, de papel `data`, governada
+separadamente. O bootstrap cria apenas namespace `blocked`, quota zero,
+ServiceAccount default sem token, Pod Security `restricted`, default deny e
+admissão própria. A política geral da aplicação seleciona somente papéis
+`application` e `edge`, portanto não pode decidir Pods de dados.
+
+`blindou-datactl` é o único controlador dessa fronteira. Seu `pull-proof`
+valida o bundle assinado e baixa integralmente a imagem privada usando o PAT
+GHCR root-only por `stdin`, mas não modifica Kubernetes. Antes e depois exige
+gate `blocked` e zero Deployment, StatefulSet, DaemonSet, Job, CronJob, Pod,
+Service, Secret e PVC. `foundation` permanece outro comando e outra
+autorização, pois materializa a base candidata e a prova via Job.
+
 ## Dados no host
 
 O mesmo processo PostgreSQL 18 do host continua atendendo somente `apiwpp` e
 Blindou. A suspensão do APIWPP preserva integralmente o banco `clone_wpp` e seu
 backup. A D023 proíbe ligar o SaferWPP a esse processo ou à porta 5432.
+
+D028 substitui essa topologia somente como destino do Blindou. Até I2, o banco
+nativo permanece autoridade. O destino é um PostgreSQL 18 singleton em
+`blindou-data`, com dois PVCs de 40 GiB, TLS, roles, Secrets, backup e rede
+exclusivos, `max_connections=24`, WAL lógico, duas senders e dois slots. A
+imagem deriva da base oficial 18.6 imutável, remove somente `gosu` e snakeoil e
+roda como UID/GID 999. Container não isola kernel, HDD, energia ou `root`; a
+migração Vultr continua sendo a fronteira física final.
+
+Dump lógico, base backup e WAL chegam cifrados ao PVC de staging; restore-base
+usa um terceiro PVC e nunca o volume da autoridade. `archive_timeout=0` evita
+custo recorrente antes de fechar RPO, retenção e offsite. Nenhum desses volumes,
+Secrets ou workloads é criado pela instalação do controlador ou por
+`pull-proof`.
 
 O laboratório SaferWPP usará, no mesmo servidor físico, um segundo
 cluster/processo PostgreSQL 18 exclusivo `saferwpp-lab` na porta 55432, com

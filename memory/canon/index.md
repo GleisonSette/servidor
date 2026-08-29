@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-indice-canonico
   source_path: memory/canon/index.md
   generated_from: decisão do usuário e auditoria do servidor em 2026-08-15
-  updated_at: 2026-08-27
+  updated_at: 2026-08-29
   status: canonical
 
 ## Regra de entrada
@@ -50,6 +50,11 @@ corpus por padrão.
   em `go.guiadoconsumo.com` redirecionou preservando o identificador de
   afiliado, registrou Analytics e códigos desconhecidos continuaram em 404.
   Pagar.me permaneceu ativo; UAZAPI e Resend continuam adiados.
+- D028 prepara o PostgreSQL 18 exclusivo em `blindou-data`. I1 foi aprovada
+  para publicar a imagem/bundle, instalar somente `blindou-datactl` e executar
+  `pull-proof` direto pelo cofre GHCR. A prova mantém gate `blocked` e zero
+  Secret, PVC, Job, Pod ou workload; o banco nativo continua autoridade e I2
+  permanece bloqueada.
 - D026 prepara, ainda sem instalação no host, a ativação separada da Shopee
   Open API. A release compatível entra com a flag desligada; depois o
   controlador gera a chave interna root-only e só conclui após backend e 16

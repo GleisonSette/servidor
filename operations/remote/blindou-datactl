@@ -1,0 +1,637 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+umask 077
+
+readonly EXPECTED_HOSTNAME='apiwpp'
+readonly NODE_NAME='apiwpp'
+readonly DATA_NAMESPACE='blindou-data'
+readonly APP_NAMESPACE='blindou-production'
+readonly INBOX_ROOT='/home/apiadmin/blindou-data-inbox'
+readonly STATE_ROOT='/var/lib/blindou-data'
+readonly CACHE_ROOT="${STATE_ROOT}/releases"
+readonly RECEIPT_ROOT="${STATE_ROOT}/receipts"
+readonly LIBRARY_ROOT='/usr/local/lib/blindou-data'
+readonly RELEASE_VERIFIER="${LIBRARY_ROOT}/blindou-data-release-verify.py"
+readonly SECRET_VERIFIER="${LIBRARY_ROOT}/blindou-data-secret-verify.py"
+readonly GHCR_PULL_VERIFIER="${LIBRARY_ROOT}/blindou-data-ghcr-pull-verify.py"
+readonly GHCR_PULL_TOKEN_FILE='/etc/blindou/ghcr/pull-token'
+readonly ALLOWED_SIGNERS='/etc/blindou/deploy/allowed_signers'
+readonly RELEASE_PATTERN='^[0-9a-f]{40}$'
+readonly MINIMUM_FREE_BYTES='150323855360'
+readonly FOUNDATION_CONFIRMATION='blindou-data-foundation'
+readonly PULL_PROOF_CONFIRMATION='blindou-data-pull-proof'
+readonly SECRETS_CONFIRMATION='blindou-data-secrets'
+readonly BOOTSTRAP_CONFIRMATION='blindou-data-bootstrap'
+readonly BACKUP_CONFIRMATION='blindou-data-backup'
+readonly RESTORE_CONFIRMATION='blindou-data-restore-base'
+
+exec 9>/run/lock/blindou-datactl.lock
+if ! flock --nonblock 9; then
+  printf '%s\n' '[blindou-datactl] ERRO: outra operação de dados está em andamento' >&2
+  exit 2
+fi
+
+cleanup_paths=()
+cleanup_restore_secret='false'
+cleanup() {
+  local path resolved
+  for path in "${cleanup_paths[@]:-}"; do
+    [[ -n "$path" ]] || continue
+    resolved="$(readlink -m "$path")"
+    case "$resolved" in
+      "${CACHE_ROOT}"/.verify.*|"${STATE_ROOT}"/.secret.*|"${STATE_ROOT}"/pull-proofs/.*)
+        rm -rf -- "$resolved"
+        ;;
+    esac
+  done
+  if [[ "$cleanup_restore_secret" == 'true' ]] && command -v k3s >/dev/null 2>&1; then
+    kube -n "$DATA_NAMESPACE" delete secret blindou-postgres-restore-recovery-key \
+      --ignore-not-found >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+
+fail() {
+  printf '[blindou-datactl] ERRO: %s\n' "$*" >&2
+  exit 1
+}
+
+pass() {
+  printf '[blindou-datactl] OK: %s\n' "$*"
+}
+
+kube() {
+  k3s kubectl "$@"
+}
+
+require_host() {
+  [[ "${EUID}" -eq 0 ]] || fail 'execute pelo sudo restrito do controlador'
+  [[ "$(hostname)" == "$EXPECTED_HOSTNAME" ]] || fail 'hostname inesperado'
+  systemctl is-active --quiet k3s.service || fail 'K3s não está ativo'
+  [[ "$(kube config current-context)" == 'default' ]] \
+    || fail 'contexto K3s inesperado'
+  [[ "$(kube get node "$NODE_NAME" -o jsonpath='{.metadata.name}')" == "$NODE_NAME" ]] \
+    || fail 'nó físico esperado ausente'
+  [[ "$(kube get namespace "$DATA_NAMESPACE" -o jsonpath='{.metadata.labels.platform\.servidor\.local/project}')" == 'blindou' \
+      && "$(kube get namespace "$DATA_NAMESPACE" -o jsonpath='{.metadata.labels.platform\.servidor\.local/role}')" == 'data' \
+      && "$(kube get namespace "$DATA_NAMESPACE" -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}')" == 'restricted' ]] \
+    || fail 'identidade ou Pod Security do namespace de dados diverge'
+  kube get validatingadmissionpolicy blindou-data-workload-baseline >/dev/null \
+    || fail 'admissão do namespace de dados ausente'
+  kube get validatingadmissionpolicybinding blindou-data-workload-baseline >/dev/null \
+    || fail 'binding da admissão do namespace de dados ausente'
+  /usr/local/sbin/blindou-hostctl verify >/dev/null \
+    || fail 'contenção temporária do host não passou'
+  /usr/local/sbin/apiwpp-deployctl verify >/dev/null \
+    || fail 'APIWPP preservado não passou'
+  [[ "$(kube get namespace "$APP_NAMESPACE" -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}')" == 'passed' ]] \
+    || fail 'namespace da aplicação não passou no gate da plataforma'
+  [[ "$(kube get namespace blindou-edge -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}')" == 'passed' ]] \
+    || fail 'namespace EDGE não passou no gate da plataforma'
+}
+
+require_release() {
+  [[ "${1:-}" =~ $RELEASE_PATTERN ]] || fail 'release deve ser SHA Git completo'
+}
+
+manifest_value() {
+  local manifest="$1" key="$2"
+  awk -F= -v expected="$key" '$1 == expected { print substr($0, index($0, "=") + 1) }' "$manifest"
+}
+
+prepare_release() {
+  local release="$1" inbox archive manifest signature temp cache
+  require_release "$release"
+  inbox="${INBOX_ROOT}/${release}"
+  archive="${inbox}/blindou-data.tar.gz"
+  manifest="${inbox}/data-release.manifest"
+  signature="${manifest}.sig"
+  [[ -d "$inbox" && ! -L "$inbox" ]] || fail 'inbox da release ausente ou simbólico'
+  [[ "$(find "$inbox" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)" == $'blindou-data.tar.gz\ndata-release.manifest\ndata-release.manifest.sig' ]] \
+    || fail 'inbox não contém exatamente os três artefatos esperados'
+  for path in "$archive" "$manifest" "$signature"; do
+    [[ -f "$path" && ! -L "$path" ]] || fail 'artefato ausente ou simbólico'
+  done
+  ssh-keygen -Y verify -f "$ALLOWED_SIGNERS" -I blindou-local -n blindou-data \
+    -s "$signature" < "$manifest" >/dev/null \
+    || fail 'assinatura do bundle de dados inválida'
+  install -d -o root -g root -m 0700 "$CACHE_ROOT" "$RECEIPT_ROOT"
+  temp="$(mktemp -d "${CACHE_ROOT}/.verify.XXXXXX")"
+  cleanup_paths+=("$temp")
+  python3 "$RELEASE_VERIFIER" \
+    --manifest "$manifest" \
+    --archive "$archive" \
+    --extract-dir "$temp" \
+    --expect-release "$release" >/dev/null
+  ssh-keygen -Y verify -f "$ALLOWED_SIGNERS" -I blindou-local \
+    -n blindou-data-image -s "$temp/image.manifest.sig" \
+    < "$temp/image.manifest" >/dev/null \
+    || fail 'assinatura do digest PostgreSQL inválida'
+  openssl x509 -in "$temp/recovery/recipient.crt" -noout -purpose \
+    | grep -Fq 'S/MIME encryption : Yes' \
+    || fail 'certificado público de recuperação não aceita CMS'
+  cache="${CACHE_ROOT}/${release}"
+  if [[ -d "$cache" && ! -L "$cache" ]]; then
+    diff -qr "$temp" "$cache" >/dev/null || fail 'cache da release diverge do bundle'
+  elif [[ -e "$cache" ]]; then
+    fail 'cache da release possui tipo inesperado'
+  else
+    mv "$temp" "$cache"
+    cleanup_paths=("${cleanup_paths[@]/$temp/}")
+  fi
+  PREPARED_ROOT="$cache"
+  PREPARED_IMAGE="$(manifest_value "$manifest" image)"
+}
+
+write_receipt() {
+  local name="$1" release="$2" status="$3" target temp
+  target="${RECEIPT_ROOT}/${name}.state"
+  temp="${target}.tmp"
+  {
+    printf 'schema=1\n'
+    printf 'release=%s\n' "$release"
+    printf 'status=%s\n' "$status"
+    printf 'recorded_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } > "$temp"
+  install -o root -g root -m 0600 "$temp" "$target"
+  rm -f -- "$temp"
+}
+
+require_receipt() {
+  local name="$1" release="$2" path="${RECEIPT_ROOT}/${name}.state"
+  [[ -f "$path" && ! -L "$path" ]] || fail "recibo ${name} ausente"
+  [[ "$(manifest_value "$path" release)" == "$release" ]] \
+    || fail "recibo ${name} pertence a outra release"
+  [[ "$(manifest_value "$path" status)" == 'passed' ]] \
+    || fail "recibo ${name} não passou"
+}
+
+receipt_passes() {
+  local name="$1" release="$2" path="${RECEIPT_ROOT}/${name}.state"
+  [[ -f "$path" && ! -L "$path" \
+      && "$(manifest_value "$path" release)" == "$release" \
+      && "$(manifest_value "$path" status)" == 'passed' ]]
+}
+
+check_capacity() {
+  local available memory cpu
+  available="$(df -B1 --output=avail /var/lib/rancher/k3s/storage | tail -n 1 | tr -d ' ')"
+  [[ "$available" =~ ^[0-9]+$ && "$available" -ge "$MINIMUM_FREE_BYTES" ]] \
+    || fail 'menos de 140 GiB livres para dados, staging, restore e margem'
+  memory="$(awk '/^MemAvailable:/ { print $2 * 1024 }' /proc/meminfo | cut -d. -f1)"
+  [[ "$memory" =~ ^[0-9]+$ && "$memory" -ge 4294967296 ]] \
+    || fail 'menos de 4 GiB de memória disponível'
+  cpu="$(getconf _NPROCESSORS_ONLN)"
+  [[ "$cpu" =~ ^[0-9]+$ && "$cpu" -ge 2 ]] || fail 'menos de dois CPUs lógicos'
+}
+
+assert_blocked_quarantine() {
+  local gate objects
+  gate="$(kube get namespace "$DATA_NAMESPACE" \
+    -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}')"
+  [[ "$gate" == 'blocked' ]] || fail 'prova direta exige namespace de dados bloqueado'
+  objects="$(kube -n "$DATA_NAMESPACE" get \
+    deployment,statefulset,daemonset,job,cronjob,pod,service,secret,pvc \
+    -o json | jq '.items | length')"
+  [[ "$objects" == '0' ]] \
+    || fail 'quarentena de dados contém objeto operacional'
+}
+
+verify_quarantine() {
+  require_host
+  assert_blocked_quarantine
+  pass 'namespace de dados bloqueado e sem objeto operacional'
+}
+
+pull_proof() {
+  local release="$1" confirmation="${2:-}" proof_root proof temp image
+  [[ "$confirmation" == "$PULL_PROOF_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${PULL_PROOF_CONFIRMATION}"
+  require_host
+  prepare_release "$release"
+  assert_blocked_quarantine
+  [[ -f "$GHCR_PULL_TOKEN_FILE" && ! -L "$GHCR_PULL_TOKEN_FILE" ]] \
+    || fail 'credencial GHCR root-only ausente'
+  [[ "$(stat -c '%U:%G:%a' "$GHCR_PULL_TOKEN_FILE")" == 'root:root:600' ]] \
+    || fail 'credencial GHCR possui ownership ou modo inesperado'
+  [[ -f "$GHCR_PULL_VERIFIER" && ! -L "$GHCR_PULL_VERIFIER" ]] \
+    || fail 'verificador de pull dedicado ausente'
+  proof_root="${STATE_ROOT}/pull-proofs"
+  install -d -o root -g root -m 0700 "$proof_root"
+  proof="${proof_root}/${release}.state"
+  image="$PREPARED_IMAGE"
+  if receipt_passes pull-proof "$release"; then
+    [[ -f "$proof" && ! -L "$proof" \
+        && "$(manifest_value "$proof" release_id)" == "$release" \
+        && "$(manifest_value "$proof" postgres_image)" == "$image" ]] \
+      || fail 'recibo de pull existe, mas a prova integral diverge'
+    assert_blocked_quarantine
+    pass "pull privado já comprovado para ${release}; zero objeto Kubernetes criado"
+    return
+  fi
+  [[ ! -e "$proof" ]] || fail 'prova de pull preexistente sem recibo válido'
+  temp="$(mktemp "${proof_root}/.${release}.XXXXXX")"
+  cleanup_paths+=("$temp")
+  python3 "$GHCR_PULL_VERIFIER" \
+    --release-id "$release" --image "$image" --output "$temp" \
+    < "$GHCR_PULL_TOKEN_FILE"
+  mv "$temp" "$proof"
+  cleanup_paths=("${cleanup_paths[@]/$temp/}")
+  write_receipt pull-proof "$release" passed
+  assert_blocked_quarantine
+  pass "pull privado comprovado para ${release}; zero objeto Kubernetes criado"
+}
+
+copy_pull_secret() {
+  kube -n "$APP_NAMESPACE" get secret blindou-ghcr-pull -o json \
+    | jq 'del(.metadata.annotations,.metadata.creationTimestamp,.metadata.managedFields,.metadata.ownerReferences,.metadata.resourceVersion,.metadata.uid) | .metadata.namespace="blindou-data"' \
+    | kube apply -f - >/dev/null
+  [[ "$(kube -n "$DATA_NAMESPACE" get secret blindou-ghcr-pull -o jsonpath='{.type}')" == 'kubernetes.io/dockerconfigjson' ]] \
+    || fail 'credencial pull-only não foi materializada corretamente'
+}
+
+assert_resource_name_subset() {
+  local resource="$1"; shift
+  local name allowed expected
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    allowed='false'
+    for expected in "$@"; do
+      if [[ "$name" == "$expected" ]]; then
+        allowed='true'
+        break
+      fi
+    done
+    [[ "$allowed" == 'true' ]] \
+      || fail "pull-only contém ${resource} inesperado: ${name}"
+  done < <(kube -n "$DATA_NAMESPACE" get "$resource" -o json \
+    | jq -r '.items[].metadata.name' | sort)
+}
+
+assert_resumable_pull_only_foundation() {
+  local expected_short="$1" job pods
+  job="blindou-postgresql-pull-proof-${expected_short}"
+  [[ "$(kube -n "$DATA_NAMESPACE" get deployment,statefulset,daemonset,cronjob \
+    -o json | jq '.items | length')" == '0' ]] \
+    || fail 'pull-only contém workload persistente'
+  assert_resource_name_subset service \
+    blindou-postgresql blindou-postgresql-internal
+  assert_resource_name_subset pvc \
+    blindou-postgresql-backup blindou-postgresql-data
+  assert_resource_name_subset secret blindou-ghcr-pull
+  assert_resource_name_subset configmap \
+    kube-root-ca.crt "blindou-postgresql-config-${expected_short}" \
+    blindou-postgres-recovery-recipient
+  assert_resource_name_subset serviceaccount default blindou-postgresql
+  assert_resource_name_subset resourcequota \
+    platform-quarantine blindou-data-runtime-budget
+  assert_resource_name_subset limitrange \
+    platform-quarantine-defaults blindou-data-runtime-defaults
+  assert_resource_name_subset networkpolicy \
+    platform-default-deny default-deny allow-postgresql-from-application \
+    allow-postgresql-from-data-operations allow-data-operations-dns \
+    allow-data-operations-postgresql
+  assert_resource_name_subset job "$job"
+  pods="$(kube -n "$DATA_NAMESPACE" get pod -o json | jq --arg job "$job" \
+    '([.items[] | select(.metadata.ownerReferences[]?.name == $job)] | length) == (.items | length) and (.items | length) <= 1')"
+  [[ "$pods" == 'true' ]] || fail 'pull-only contém Pod inesperado'
+}
+
+assert_pull_only_foundation() {
+  local expected_short="$1" workloads services pvcs secrets jobs pods job
+  job="blindou-postgresql-pull-proof-${expected_short}"
+  workloads="$(kube -n "$DATA_NAMESPACE" get deployment,statefulset,daemonset,cronjob \
+    -o json | jq '.items | length')"
+  [[ "$workloads" == '0' ]] || fail 'pull-only contém workload persistente'
+  services="$(kube -n "$DATA_NAMESPACE" get service -o json | jq -r \
+    '[.items[].metadata.name] | sort | join("\n")')"
+  [[ "$services" == $'blindou-postgresql\nblindou-postgresql-internal' ]] \
+    || fail 'pull-only contém Service inesperado'
+  pvcs="$(kube -n "$DATA_NAMESPACE" get pvc -o json | jq -r \
+    '[.items[].metadata.name] | sort | join("\n")')"
+  [[ "$pvcs" == $'blindou-postgresql-backup\nblindou-postgresql-data' ]] \
+    || fail 'pull-only contém PVC inesperado'
+  secrets="$(kube -n "$DATA_NAMESPACE" get secret -o json | jq -r \
+    '[.items[].metadata.name] | sort | join("\n")')"
+  [[ "$secrets" == 'blindou-ghcr-pull' ]] || fail 'pull-only contém Secret inesperado'
+  jobs="$(kube -n "$DATA_NAMESPACE" get job -o json | jq -r \
+    '[.items[].metadata.name] | sort | join("\n")')"
+  [[ -z "$jobs" || "$jobs" == "blindou-postgresql-pull-proof-${expected_short}" ]] \
+    || fail 'pull-only contém Job inesperado'
+  pods="$(kube -n "$DATA_NAMESPACE" get pod -o json | jq --arg job "$job" \
+    '([.items[] | select(.metadata.ownerReferences[]?.name == $job)] | length) == (.items | length) and (.items | length) <= 1')"
+  [[ "$pods" == 'true' ]] || fail 'pull-only contém Pod inesperado'
+}
+
+foundation() {
+  local release="$1" confirmation="${2:-}" short job gate
+  [[ "$confirmation" == "$FOUNDATION_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${FOUNDATION_CONFIRMATION}"
+  require_host
+  prepare_release "$release"
+  check_capacity
+  short="${release:0:12}"
+  job="blindou-postgresql-pull-proof-${short}"
+  gate="$(kube get namespace "$DATA_NAMESPACE" -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}')"
+  if [[ "$gate" == 'candidate-foundation' ]]; then
+    require_receipt foundation "$release"
+    pass "fundação candidata já validada para ${release}; sem rota da aplicação"
+    return
+  fi
+  if [[ "$gate" == 'blocked' ]]; then
+    [[ "$(kube -n "$DATA_NAMESPACE" get statefulset,job,pod,service,secret,pvc -o json | jq '.items | length')" == '0' ]] \
+      || fail 'namespace de dados não está vazio'
+    kube label namespace "$DATA_NAMESPACE" \
+      platform.servidor.local/deployment-gate=pull-only --overwrite >/dev/null
+    kube annotate namespace "$DATA_NAMESPACE" \
+      platform.servidor.local/gate-reason=preparing-dedicated-postgres-foundation --overwrite >/dev/null
+  elif [[ "$gate" == 'pull-only' ]]; then
+    assert_resumable_pull_only_foundation "$short"
+  else
+    fail 'namespace de dados não está em blocked, pull-only ou candidate-foundation'
+  fi
+  kube apply -f "$PREPARED_ROOT/manifests/10-network-policies.yaml" >/dev/null
+  kube -n "$DATA_NAMESPACE" delete resourcequota platform-quarantine --ignore-not-found >/dev/null
+  kube -n "$DATA_NAMESPACE" delete limitrange platform-quarantine-defaults --ignore-not-found >/dev/null
+  kube -n "$DATA_NAMESPACE" delete networkpolicy platform-default-deny --ignore-not-found >/dev/null
+  kube apply -f "$PREPARED_ROOT/manifests/00-postgresql.yaml" >/dev/null
+  kube -n "$DATA_NAMESPACE" create configmap blindou-postgres-recovery-recipient \
+    --from-file="recipient.crt=$PREPARED_ROOT/recovery/recipient.crt" \
+    --dry-run=client -o yaml | kube apply -f - >/dev/null
+  copy_pull_secret
+  kube label node "$NODE_NAME" blindou.io/node-role=physical --overwrite >/dev/null
+  kube annotate namespace "$DATA_NAMESPACE" \
+    platform.servidor.local/gate-reason=awaiting-dedicated-postgres-pull-proof --overwrite >/dev/null
+  assert_pull_only_foundation "$short"
+  kube -n "$DATA_NAMESPACE" delete job "$job" --ignore-not-found >/dev/null
+  kube apply -f "$PREPARED_ROOT/manifests/operations/25-pull-proof.yaml" >/dev/null
+  kube -n "$DATA_NAMESPACE" wait --for=condition=complete "job/${job}" --timeout=300s >/dev/null \
+    || fail 'prova de pull/identidade da imagem falhou'
+  [[ "$(kube -n "$DATA_NAMESPACE" get statefulset --ignore-not-found -o name)" == '' ]] \
+    || fail 'workload foi criado antes da prova de pull'
+  write_receipt foundation "$release" passed
+  kube label namespace "$DATA_NAMESPACE" \
+    platform.servidor.local/deployment-gate=candidate-foundation --overwrite >/dev/null
+  kube annotate namespace "$DATA_NAMESPACE" \
+    platform.servidor.local/gate-reason=awaiting-dedicated-postgres-secrets --overwrite >/dev/null
+  pass "fundação candidata validada para ${release}; sem rota da aplicação"
+}
+
+read_envelope() {
+  local mode="$1" archive extract
+  archive="$(mktemp "${STATE_ROOT}/.secret.XXXXXX.tar")"
+  extract="$(mktemp -d "${STATE_ROOT}/.secret.XXXXXX")"
+  cleanup_paths+=("$archive" "$extract")
+  dd of="$archive" bs=65536 count=9 status=none
+  python3 "$SECRET_VERIFIER" --mode "$mode" --archive "$archive" \
+    --extract-dir "$extract" >/dev/null
+  SECRET_ROOT="$extract"
+}
+
+public_key_hash_from_key() {
+  openssl pkey -in "$1" -pubout -outform DER 2>/dev/null | sha256sum | awk '{print $1}'
+}
+
+public_key_hash_from_certificate() {
+  openssl x509 -in "$1" -pubkey -noout 2>/dev/null \
+    | openssl pkey -pubin -outform DER 2>/dev/null \
+    | sha256sum | awk '{print $1}'
+}
+
+validate_foundation_pki() {
+  local root="$1" hostname='blindou-postgresql.blindou-data.svc.cluster.local'
+  openssl verify -CAfile "$root/server-tls/server-ca.crt" \
+    "$root/server-tls/tls.crt" >/dev/null || fail 'certificado servidor inválido'
+  openssl x509 -in "$root/server-tls/tls.crt" -checkhost "$hostname" -noout >/dev/null \
+    || fail 'certificado servidor não cobre o Service dedicado'
+  [[ "$(public_key_hash_from_key "$root/server-tls/tls.key")" == \
+      "$(public_key_hash_from_certificate "$root/server-tls/tls.crt")" ]] \
+    || fail 'chave servidor não corresponde ao certificado'
+  [[ "$(sha256sum "$root/server-tls/server-ca.crt" | awk '{print $1}')" != \
+      "$(sha256sum "$root/server-tls/client-ca.crt" | awk '{print $1}')" ]] \
+    || fail 'CAs de servidor e cliente precisam ser distintas'
+  local identity
+  for identity in bootstrap-client backup-client; do
+    openssl verify -purpose sslclient -CAfile "$root/server-tls/client-ca.crt" \
+      "$root/${identity}/tls.crt" >/dev/null || fail "certificado ${identity} inválido"
+    cmp -s "$root/${identity}/ca.crt" "$root/server-tls/server-ca.crt" \
+      || fail "${identity} não confia exclusivamente na CA do servidor"
+    [[ "$(public_key_hash_from_key "$root/${identity}/tls.key")" == \
+        "$(public_key_hash_from_certificate "$root/${identity}/tls.crt")" ]] \
+      || fail "chave ${identity} não corresponde ao certificado"
+  done
+}
+
+apply_secret() {
+  local name="$1"; shift
+  kube -n "$DATA_NAMESPACE" create secret generic "$name" "$@" \
+    --dry-run=client -o yaml | kube apply -f - >/dev/null
+}
+
+provision_secrets() {
+  local release="$1" confirmation="${2:-}" root persistent_secret
+  [[ "$confirmation" == "$SECRETS_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${SECRETS_CONFIRMATION}"
+  require_host
+  prepare_release "$release"
+  require_receipt foundation "$release"
+  if receipt_passes secrets "$release"; then
+    [[ "$(kube -n "$DATA_NAMESPACE" get statefulset blindou-postgresql -o jsonpath='{.status.readyReplicas}')" == '1' \
+        && "$(kube -n "$DATA_NAMESPACE" get statefulset blindou-postgresql -o jsonpath='{.spec.template.spec.containers[0].image}')" == "$PREPARED_IMAGE" ]] \
+      || fail 'recibo de Secrets existe, mas o StatefulSet diverge'
+    for persistent_secret in blindou-postgres-server-tls \
+      blindou-postgres-superuser blindou-postgres-backup-client; do
+      kube -n "$DATA_NAMESPACE" get secret "$persistent_secret" >/dev/null \
+        || fail "recibo de Secrets existe, mas ${persistent_secret} está ausente"
+    done
+    pass "Secrets e PostgreSQL já estão prontos para ${release}"
+    return
+  fi
+  read_envelope foundation
+  root="$SECRET_ROOT"
+  validate_foundation_pki "$root"
+  apply_secret blindou-postgres-server-tls \
+    --from-file="server-ca.crt=$root/server-tls/server-ca.crt" \
+    --from-file="client-ca.crt=$root/server-tls/client-ca.crt" \
+    --from-file="tls.crt=$root/server-tls/tls.crt" \
+    --from-file="tls.key=$root/server-tls/tls.key"
+  apply_secret blindou-postgres-superuser \
+    --from-file="password=$root/superuser/password"
+  apply_secret blindou-postgres-bootstrap-client \
+    --from-file="ca.crt=$root/bootstrap-client/ca.crt" \
+    --from-file="tls.crt=$root/bootstrap-client/tls.crt" \
+    --from-file="tls.key=$root/bootstrap-client/tls.key"
+  apply_secret blindou-postgres-role-passwords \
+    --from-file="migration=$root/role-passwords/migration" \
+    --from-file="runtime=$root/role-passwords/runtime" \
+    --from-file="redirector=$root/role-passwords/redirector" \
+    --from-file="ml=$root/role-passwords/ml" \
+    --from-file="backup=$root/role-passwords/backup" \
+    --from-file="debezium=$root/role-passwords/debezium"
+  apply_secret blindou-postgres-backup-client \
+    --from-file="ca.crt=$root/backup-client/ca.crt" \
+    --from-file="tls.crt=$root/backup-client/tls.crt" \
+    --from-file="tls.key=$root/backup-client/tls.key" \
+    --from-file="backup=$root/role-passwords/backup"
+  kube apply -f "$PREPARED_ROOT/manifests/05-postgresql-workload.yaml" >/dev/null
+  kube -n "$DATA_NAMESPACE" wait --for=jsonpath='{.status.readyReplicas}'=1 \
+    statefulset/blindou-postgresql --timeout=600s >/dev/null \
+    || fail 'PostgreSQL dedicado não ficou Ready'
+  write_receipt secrets "$release" passed
+  pass "Secrets exclusivos recebidos por stdin e PostgreSQL Ready para ${release}"
+}
+
+run_signed_job() {
+  local manifest="$1" job="$2" timeout="$3"
+  kube -n "$DATA_NAMESPACE" delete job "$job" --ignore-not-found >/dev/null
+  kube apply -f "$manifest" >/dev/null
+  local deadline complete failed
+  deadline=$((SECONDS + timeout))
+  while (( SECONDS < deadline )); do
+    complete="$(kube -n "$DATA_NAMESPACE" get job "$job" \
+      -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}')"
+    failed="$(kube -n "$DATA_NAMESPACE" get job "$job" \
+      -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}')"
+    [[ "$complete" == 'True' ]] && return 0
+    [[ "$failed" != 'True' ]] || fail "Job ${job} terminou em Failed"
+    sleep 2
+  done
+  fail "Job ${job} excedeu ${timeout}s"
+}
+
+bootstrap_database() {
+  local release="$1" confirmation="${2:-}" short job
+  [[ "$confirmation" == "$BOOTSTRAP_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${BOOTSTRAP_CONFIRMATION}"
+  require_host
+  prepare_release "$release"
+  require_receipt secrets "$release"
+  if receipt_passes bootstrap "$release"; then
+    kube -n "$DATA_NAMESPACE" delete secret \
+      blindou-postgres-bootstrap-client blindou-postgres-role-passwords \
+      --ignore-not-found >/dev/null
+    pass "database, roles e logins dedicados já foram provisionados para ${release}"
+    return
+  fi
+  short="${release:0:12}"
+  job="blindou-postgresql-bootstrap-${short}"
+  run_signed_job "$PREPARED_ROOT/manifests/operations/30-bootstrap.yaml" "$job" 600
+  write_receipt bootstrap "$release" passed
+  kube -n "$DATA_NAMESPACE" delete secret \
+    blindou-postgres-bootstrap-client blindou-postgres-role-passwords \
+    --ignore-not-found >/dev/null
+  pass "database, roles e logins dedicados provisionados para ${release}"
+}
+
+backup_database() {
+  local release="$1" confirmation="${2:-}" short job backup_id
+  [[ "$confirmation" == "$BACKUP_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${BACKUP_CONFIRMATION}"
+  require_host
+  prepare_release "$release"
+  require_receipt bootstrap "$release"
+  short="${release:0:12}"
+  job="blindou-postgresql-backup-${short}"
+  run_signed_job "$PREPARED_ROOT/manifests/operations/40-backup.yaml" "$job" 3600
+  backup_id="$(kube -n "$DATA_NAMESPACE" exec statefulset/blindou-postgresql \
+    -c postgresql -- /bin/bash -ceu 'id="$(cat /var/lib/blindou-postgres-backup/latest)"; test -s "/var/lib/blindou-postgres-backup/${id}/logical.dump.cms"; test -s "/var/lib/blindou-postgres-backup/${id}/physical.base.tar.cms"; test -s "/var/lib/blindou-postgres-backup/${id}/manifest.json"; printf "%s" "$id"')"
+  [[ "$backup_id" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}$ ]] \
+    || fail 'identidade do backup divergente'
+  write_receipt backup "$release" passed
+  pass "backup lógico e físico cifrado concluído; id=${backup_id}"
+}
+
+restore_base() {
+  local release="$1" confirmation="${2:-}" short job root
+  [[ "$confirmation" == "$RESTORE_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${RESTORE_CONFIRMATION}"
+  require_host
+  prepare_release "$release"
+  require_receipt backup "$release"
+  [[ "$(kube -n "$DATA_NAMESPACE" get pvc blindou-postgresql-restore-data --ignore-not-found -o name)" == '' ]] \
+    || fail 'PVC de restore já existe; remoção exige operação separada'
+  read_envelope recovery
+  root="$SECRET_ROOT"
+  cmp -s "$root/recipient.crt" "$PREPARED_ROOT/recovery/recipient.crt" \
+    || fail 'certificado do envelope não corresponde ao bundle assinado'
+  [[ "$(public_key_hash_from_key "$root/recipient.key")" == \
+      "$(public_key_hash_from_certificate "$root/recipient.crt")" ]] \
+    || fail 'chave de recuperação não corresponde ao certificado'
+  apply_secret blindou-postgres-restore-recovery-key \
+    --from-file="recipient.crt=$root/recipient.crt" \
+    --from-file="recipient.key=$root/recipient.key"
+  cleanup_restore_secret='true'
+  kube apply -f "$PREPARED_ROOT/manifests/operations/50-restore-foundation.yaml" >/dev/null
+  short="${release:0:12}"
+  job="blindou-postgresql-restore-prepare-${short}"
+  run_signed_job "$PREPARED_ROOT/manifests/operations/60-restore-workloads.yaml" "$job" 3600
+  kube -n "$DATA_NAMESPACE" delete secret blindou-postgres-restore-recovery-key \
+    --ignore-not-found >/dev/null
+  cleanup_restore_secret='false'
+  write_receipt restore-base "$release" passed
+  pass "restore-base provado em PVC novo para ${release}; nenhuma autoridade mudou"
+}
+
+status() {
+  require_host
+  local gate stateful ready pvc image pull_proofs
+  gate="$(kube get namespace "$DATA_NAMESPACE" -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}')"
+  stateful="$(kube -n "$DATA_NAMESPACE" get statefulset blindou-postgresql --ignore-not-found -o name)"
+  ready='0'
+  image='none'
+  if [[ -n "$stateful" ]]; then
+    ready="$(kube -n "$DATA_NAMESPACE" get statefulset blindou-postgresql -o jsonpath='{.status.readyReplicas}')"
+    image="$(kube -n "$DATA_NAMESPACE" get statefulset blindou-postgresql -o jsonpath='{.spec.template.spec.containers[0].image}')"
+  fi
+  pvc="$(kube -n "$DATA_NAMESPACE" get pvc -l app.kubernetes.io/name=blindou-postgresql --no-headers 2>/dev/null | wc -l)"
+  pull_proofs="$(find "${STATE_ROOT}/pull-proofs" -maxdepth 1 -type f -name '*.state' 2>/dev/null | wc -l)"
+  printf 'namespace=%s gate=%s ready=%s pvc=%s image=%s pull_proofs=%s cutover=false\n' \
+    "$DATA_NAMESPACE" "$gate" "${ready:-0}" "$pvc" "$image" "$pull_proofs"
+}
+
+case "${1:-}" in
+  status)
+    [[ $# -eq 1 ]] || fail 'status não aceita argumentos'
+    status
+    ;;
+  validate-release)
+    [[ $# -eq 2 ]] || fail 'uso: validate-release SHA40'
+    require_host
+    prepare_release "$2"
+    pass "bundle e assinaturas válidos para $2"
+    ;;
+  verify-quarantine)
+    [[ $# -eq 1 ]] || fail 'verify-quarantine não aceita argumentos'
+    verify_quarantine
+    ;;
+  pull-proof)
+    [[ $# -eq 3 ]] || fail 'uso: pull-proof SHA40 CONFIRMACAO'
+    pull_proof "$2" "$3"
+    ;;
+  foundation)
+    [[ $# -eq 3 ]] || fail 'uso: foundation SHA40 CONFIRMACAO'
+    foundation "$2" "$3"
+    ;;
+  secrets)
+    [[ $# -eq 3 ]] || fail 'uso: secrets SHA40 CONFIRMACAO < envelope.tar'
+    provision_secrets "$2" "$3"
+    ;;
+  bootstrap)
+    [[ $# -eq 3 ]] || fail 'uso: bootstrap SHA40 CONFIRMACAO'
+    bootstrap_database "$2" "$3"
+    ;;
+  backup)
+    [[ $# -eq 3 ]] || fail 'uso: backup SHA40 CONFIRMACAO'
+    backup_database "$2" "$3"
+    ;;
+  restore-base)
+    [[ $# -eq 3 ]] || fail 'uso: restore-base SHA40 CONFIRMACAO < recovery.tar'
+    restore_base "$2" "$3"
+    ;;
+  *)
+    fail 'comando permitido: status|verify-quarantine|validate-release|pull-proof|foundation|secrets|bootstrap|backup|restore-base'
+    ;;
+esac

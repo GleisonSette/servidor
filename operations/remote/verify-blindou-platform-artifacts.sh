@@ -5,6 +5,8 @@ readonly REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 readonly REMOTE_DIR="${REPOSITORY_ROOT}/operations/remote"
 readonly PULL_PROOF_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouGhcrCandidatePullProof.ps1"
 readonly SUDO_BOOTSTRAP_MODULE="${REPOSITORY_ROOT}/operations/Blindou.SudoBootstrap.psm1"
+readonly DATA_BOOTSTRAP_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouDataControllerBootstrap.ps1"
+readonly DATA_PULL_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouDataPullProof.ps1"
 readonly FIRST_RELEASE_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouFirstRelease.ps1"
 readonly ADDITIONAL_SUPERADMIN_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouAdditionalSuperadmin.ps1"
 readonly R2_RUNTIME_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouR2RuntimeCredential.ps1"
@@ -24,6 +26,10 @@ fail() {
   || fail 'orquestrador da prova GHCR ausente ou simbólico'
 [[ -f "$SUDO_BOOTSTRAP_MODULE" && ! -L "$SUDO_BOOTSTRAP_MODULE" ]] \
   || fail 'módulo fechado de bootstrap sudo ausente ou simbólico'
+[[ -f "$DATA_BOOTSTRAP_SCRIPT" && ! -L "$DATA_BOOTSTRAP_SCRIPT" ]] \
+  || fail 'orquestrador do bootstrap de dados ausente ou simbólico'
+[[ -f "$DATA_PULL_SCRIPT" && ! -L "$DATA_PULL_SCRIPT" ]] \
+  || fail 'orquestrador da prova PostgreSQL ausente ou simbólico'
 [[ -f "$FIRST_RELEASE_SCRIPT" && ! -L "$FIRST_RELEASE_SCRIPT" ]] \
   || fail 'orquestrador fechado da primeira release ausente ou simbólico'
 [[ -f "$ADDITIONAL_SUPERADMIN_SCRIPT" && ! -L "$ADDITIONAL_SUPERADMIN_SCRIPT" ]] \
@@ -68,7 +74,7 @@ grep -Fq 'EMERGENCY_CONTROLLER_SOURCE' "${REMOTE_DIR}/bootstrap-blindou-deployct
   || fail 'bootstrap não instala o controlador emergencial'
 grep -Fq "'operations/remote/blindou-release-emergencyctl'" "$PULL_PROOF_SCRIPT" \
   || fail 'bootstrap administrativo não transporta o controlador emergencial'
-grep -Fq "[ValidateSet('DeployController', 'HostAndDeployControllers')]" \
+grep -Fq "[ValidateSet('DeployController', 'HostAndDeployControllers', 'DataController')]" \
   "$SUDO_BOOTSTRAP_MODULE" || fail 'bootstrap sudo aceita conjunto não fechado'
 grep -Fq "if (\$Server -cne 'apiadmin@192.168.100.59')" \
   "$SUDO_BOOTSTRAP_MODULE" || fail 'bootstrap sudo não fixa o servidor aprovado'
@@ -76,6 +82,10 @@ grep -Fq "sudo -S -p '' -- ./operations/remote/bootstrap-blindou-deployctl.sh" \
   "$SUDO_BOOTSTRAP_MODULE" || fail 'bootstrap sudo do deployctl não usa stdin'
 grep -Fq "sudo -S -p '' -- ./operations/remote/bootstrap-blindou-hostctl.sh" \
   "$SUDO_BOOTSTRAP_MODULE" || fail 'bootstrap sudo do hostctl não usa stdin'
+grep -Fq "sudo -S -p '' -- ./operations/remote/bootstrap-blindou-datactl.sh" \
+  "$SUDO_BOOTSTRAP_MODULE" || fail 'bootstrap sudo do datactl não usa stdin'
+grep -Fq "'^/home/apiadmin/blindou-data-bootstrap/[0-9a-f]{40}$'" \
+  "$SUDO_BOOTSTRAP_MODULE" || fail 'bootstrap sudo do datactl não fixa staging e commit'
 grep -Fq "Join-Path \$repositoryRoot '.env'" \
   "$SUDO_BOOTSTRAP_MODULE" || fail 'bootstrap sudo não fixa o arquivo temporário local'
 if grep -Eq 'Write-(Host|Output|Verbose|Debug).*(password|KEY_SERVIDOR)' \
@@ -221,6 +231,8 @@ grep -Fq '"PUT",' "$PAGARME_PLAN_PROVISIONER" \
   && grep -Fq 'repair_existing=create_missing' "$PAGARME_PLAN_PROVISIONER" \
   || fail 'provisionador não corrige plano canônico divergente antes de criar outro'
 for powershell_script in \
+  "$DATA_BOOTSTRAP_SCRIPT" \
+  "$DATA_PULL_SCRIPT" \
   "$PAGARME_CREDENTIAL_SCRIPT" \
   "$PAGARME_PLANS_SCRIPT" \
   "$PAGARME_ACTIVATION_SCRIPT" \
@@ -298,6 +310,7 @@ source = Path(sys.argv[1]).read_text(encoding="utf-8")
 compile(source, sys.argv[1], "exec")
 PY
 "$python_command" "${REMOTE_DIR}/test-blindou-ghcr-pull-verify.py"
+"$python_command" "${REMOTE_DIR}/verify-blindou-data-artifacts.py" "$REPOSITORY_ROOT"
 "$python_command" - "$REPOSITORY_ROOT" <<'PY'
 from pathlib import Path
 import sys
@@ -832,8 +845,86 @@ if grep -RInE --exclude-dir=__pycache__ \
   fail 'possível segredo encontrado nos artefatos'
 fi
 
+for data_script in blindou-datactl bootstrap-blindou-datactl.sh; do
+  [[ -f "${REMOTE_DIR}/${data_script}" && ! -L "${REMOTE_DIR}/${data_script}" ]] \
+    || fail "controlador de dados ausente ou simbólico: ${data_script}"
+  bash -n "${REMOTE_DIR}/${data_script}"
+done
+for data_verifier in blindou-data-release-verify.py blindou-data-secret-verify.py \
+  blindou-data-ghcr-pull-verify.py; do
+  [[ -f "${REMOTE_DIR}/${data_verifier}" && ! -L "${REMOTE_DIR}/${data_verifier}" ]] \
+    || fail "verificador de dados ausente ou simbólico: ${data_verifier}"
+  "$python_command" - "${REMOTE_DIR}/${data_verifier}" <<'PY'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+compile(source, sys.argv[1], "exec")
+PY
+done
+"$python_command" "${REMOTE_DIR}/test-blindou-data-release-verify.py"
+"$python_command" "${REMOTE_DIR}/test-blindou-data-secret-verify.py"
+"$python_command" "${REMOTE_DIR}/test-blindou-data-ghcr-pull-verify.py"
+grep -Fq "readonly EXPECTED_HOSTNAME='apiwpp'" "${REMOTE_DIR}/blindou-datactl" \
+  && grep -Fq "readonly DATA_NAMESPACE='blindou-data'" "${REMOTE_DIR}/blindou-datactl" \
+  && grep -Fq "blindou.io/cutover-only" \
+    "${REMOTE_DIR}/blindou-data-release-verify.py" \
+  && grep -Fq "comando permitido: status|verify-quarantine|validate-release|pull-proof|foundation|secrets|bootstrap|backup|restore-base" \
+    "${REMOTE_DIR}/blindou-datactl" \
+  || fail 'interface fechada do controlador de dados diverge'
+grep -Fq "readonly GHCR_PULL_TOKEN_FILE='/etc/blindou/ghcr/pull-token'" \
+  "${REMOTE_DIR}/blindou-datactl" \
+  && grep -Fq "readonly PULL_PROOF_CONFIRMATION='blindou-data-pull-proof'" \
+    "${REMOTE_DIR}/blindou-datactl" \
+  && grep -Fq 'pull-proof * blindou-data-pull-proof' \
+    "${REMOTE_DIR}/blindou-datactl.sudoers" \
+  && grep -Fq 'GHCR_PULL_VERIFIER_SOURCE' \
+    "${REMOTE_DIR}/bootstrap-blindou-datactl.sh" \
+  && grep -Fq '/var/lib/blindou-data/pull-proofs' \
+    "${REMOTE_DIR}/bootstrap-blindou-datactl.sh" \
+  || fail 'prova direta ou instalação do verificador GHCR diverge'
+pull_proof_function="$(sed -n '/^pull_proof()/,/^}/p' "${REMOTE_DIR}/blindou-datactl")"
+grep -Fq 'assert_blocked_quarantine' <<<"$pull_proof_function" \
+  && grep -Fq '< "$GHCR_PULL_TOKEN_FILE"' <<<"$pull_proof_function" \
+  && [[ "$(grep -Fc 'assert_blocked_quarantine' <<<"$pull_proof_function")" -eq 3 ]] \
+  || fail 'pull direto não prova quarentena antes, durante retomada e depois'
+if grep -Eq 'kube .*(apply|create|delete|label|annotate)' <<<"$pull_proof_function"; then
+  fail 'pull direto não pode criar ou alterar objeto Kubernetes'
+fi
+grep -Fq 'ProxyHandler({})' "${REMOTE_DIR}/blindou-data-ghcr-pull-verify.py" \
+  && grep -Fq 'redirected.remove_header("Authorization")' \
+    "${REMOTE_DIR}/blindou-data-ghcr-pull-verify.py" \
+  && grep -Fq 'TemporaryDirectory(prefix="blindou-data-pull."' \
+    "${REMOTE_DIR}/blindou-data-ghcr-pull-verify.py" \
+  && grep -Fq 'Path("/var/lib/blindou-data/pull-proofs")' \
+    "${REMOTE_DIR}/blindou-data-ghcr-pull-verify.py" \
+  || fail 'verificador direto não fecha proxy, redirect, staging e recibo'
+grep -Fq '[ValidateSet('\''INSTALAR BLINDOU DATACTL'\'')]' "$DATA_BOOTSTRAP_SCRIPT" \
+  && grep -Fq -- '-ControllerSet DataController' "$DATA_BOOTSTRAP_SCRIPT" \
+  && grep -Fq 'verify-quarantine' "$DATA_BOOTSTRAP_SCRIPT" \
+  || fail 'orquestrador do bootstrap de dados diverge'
+grep -Fq '[ValidateSet('\''PROVAR PULL POSTGRESQL'\'')]' "$DATA_PULL_SCRIPT" \
+  && grep -Fq "pull-proof '\$ReleaseId' blindou-data-pull-proof" "$DATA_PULL_SCRIPT" \
+  && grep -Fq 'verify-quarantine' "$DATA_PULL_SCRIPT" \
+  || fail 'orquestrador da prova PostgreSQL diverge'
+grep -Fq 'platform.servidor.local/deployment-gate=pull-only' \
+  "${REMOTE_DIR}/blindou-datactl" \
+  && grep -Fq '20-workload-policy.yaml' \
+    "${REMOTE_DIR}/bootstrap-blindou-datactl.sh" \
+  || fail 'sequência de admissão/pull do controlador de dados diverge'
+grep -Fq 'assert_resumable_pull_only_foundation "$short"' \
+  "${REMOTE_DIR}/blindou-datactl" \
+  && grep -Fq 'receipt_passes secrets "$release"' \
+    "${REMOTE_DIR}/blindou-datactl" \
+  && grep -Fq 'receipt_passes bootstrap "$release"' \
+    "${REMOTE_DIR}/blindou-datactl" \
+  || fail 'retomada ou idempotência do controlador de dados diverge'
+if grep -Fq '20-application-egress.yaml" >/dev/null' "${REMOTE_DIR}/blindou-datactl"; then
+  fail 'controlador I1 não pode aplicar a rota cutover-only'
+fi
+
 if command -v visudo >/dev/null 2>&1; then
   visudo -cf "${REMOTE_DIR}/blindou-deployctl.sudoers" >/dev/null
+  visudo -cf "${REMOTE_DIR}/blindou-datactl.sudoers" >/dev/null
 fi
 
 printf '%s\n' 'blindou_platform_artifacts=passed'

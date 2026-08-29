@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-historico-execucao
   source_path: memory/canon/historico-execucao.md
   generated_from: auditorias e implementações autorizadas no laboratório
-  updated_at: 2026-08-27
+  updated_at: 2026-08-29
   status: canonical
 
 ## Regra de registro
@@ -1414,3 +1414,35 @@ APIWPP ativo e SaferWPP vazio; Blindou permaneceu íntegro.
   privado; `blindou-deployctl status` e `blindou-hostctl verify` passaram. Não
   houve suspensão, fundação PostgreSQL, Secret, migration, controlador ou
   workload SaferWPP.
+
+## 2026-08-29 - PostgreSQL dedicado Blindou I0/I1 preparado offline
+
+Resultado: contratos e ensaios aprovados; operação externa ainda não executada
+neste registro.
+
+- D028 substituiu o destino compartilhado por `blindou-data`, mantendo o banco
+  nativo como autoridade até cutover;
+- a quarentena declara gate `blocked`, quota zero, Pod Security `restricted`,
+  ServiceAccount sem token, default deny e admissão específica;
+- a imagem privada deriva do PostgreSQL 18.6 fixo, roda como UID/GID 999 e
+  remove `gosu` e snakeoil sem instalar pacotes;
+- bundle, controladores e testes recusam extra, traversal, link, evidência,
+  imagem, assinatura e envelope de segredo divergentes;
+- o laboratório K3s descartável passou TLS+SCRAM, seis logins limitados,
+  backup lógico/físico/WAL cifrado, restore-base em PVC novo e recusa de rede;
+- nenhuma publicação, instalação, Secret, PVC, workload, backup, restore,
+  migration, DSN ou mudança de host foi executada por este registro.
+
+## 2026-08-29 - Fronteira da prova viva I1 corrigida
+
+Resultado: desenho corrigido antes da operação e ampliação mínima autorizada.
+
+- o comando `foundation` existente foi rejeitado para a prova inicial porque
+  criaria PVCs, Services, Secret de pull e Job, contrariando o limite aprovado;
+- o usuário autorizou `pull-proof`, que usa o PAT GHCR root-only existente,
+  baixa todos os blobs do digest assinado e não altera objetos Kubernetes;
+- D025 passou a permitir `DataController` somente para o staging por SHA e o
+  bootstrap exato de `blindou-datactl`; não há `sudo` genérico;
+- publicação, instalação e prova direta foram autorizadas. `foundation`,
+  Secrets Kubernetes, PVCs, Pods, backup/restore operacional, migration, DSN,
+  workload PostgreSQL, I2 e cutover permaneceram bloqueados.

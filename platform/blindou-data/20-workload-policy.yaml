@@ -1,0 +1,66 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: blindou-data-workload-baseline
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods", "pods/ephemeralcontainers"]
+        scope: Namespaced
+  validations:
+    - expression: >-
+        has(namespaceObject.metadata.labels) &&
+        namespaceObject.metadata.name == 'blindou-data' &&
+        has(object.metadata.labels) &&
+        ((namespaceObject.metadata.labels['platform.servidor.local/deployment-gate'] == 'pull-only' &&
+          object.metadata.labels['blindou.io/component'] == 'postgres-pull-proof' &&
+          object.metadata.name.startsWith('blindou-postgresql-pull-proof-')) ||
+         (namespaceObject.metadata.labels['platform.servidor.local/deployment-gate'] == 'candidate-foundation' &&
+          ((object.metadata.labels['blindou.io/component'] == 'database' &&
+            object.metadata.name == 'blindou-postgresql-0') ||
+           (object.metadata.labels['blindou.io/component'] in
+              ['postgres-bootstrap', 'postgres-backup', 'postgres-restore'] &&
+            object.metadata.labels['blindou.io/data-access'] == 'postgresql' &&
+            object.metadata.name.startsWith('blindou-postgresql-')))))
+      message: "O namespace de dados aceita somente a etapa e o Pod PostgreSQL assinados."
+    - expression: "!has(object.spec.hostNetwork) || object.spec.hostNetwork == false"
+      message: "hostNetwork é proibido no namespace de dados."
+    - expression: "!has(object.spec.hostPID) || object.spec.hostPID == false"
+      message: "hostPID é proibido no namespace de dados."
+    - expression: "!has(object.spec.hostIPC) || object.spec.hostIPC == false"
+      message: "hostIPC é proibido no namespace de dados."
+    - expression: "has(object.spec.automountServiceAccountToken) && object.spec.automountServiceAccountToken == false"
+      message: "O token da ServiceAccount deve permanecer desabilitado."
+    - expression: "object.spec.containers.all(c, c.image.matches('^ghcr.io/gleisonsette/blindou-postgres@sha256:[0-9a-f]{64}$'))"
+      message: "Todo container deve usar o digest privado PostgreSQL aprovado."
+    - expression: "!has(object.spec.initContainers) || object.spec.initContainers.all(c, c.image.matches('^ghcr.io/gleisonsette/blindou-postgres@sha256:[0-9a-f]{64}$'))"
+      message: "Todo init container deve usar o digest privado PostgreSQL aprovado."
+    - expression: "!has(object.spec.ephemeralContainers) || object.spec.ephemeralContainers.all(c, c.image.matches('^ghcr.io/gleisonsette/blindou-postgres@sha256:[0-9a-f]{64}$'))"
+      message: "Todo container efêmero deve usar o digest privado PostgreSQL aprovado."
+    - expression: "object.spec.containers.all(c, has(c.resources) && has(c.resources.requests) && has(c.resources.limits) && 'cpu' in c.resources.requests && 'memory' in c.resources.requests && 'cpu' in c.resources.limits && 'memory' in c.resources.limits)"
+      message: "Todo container deve declarar requests e limits."
+    - expression: "!has(object.spec.initContainers) || object.spec.initContainers.all(c, has(c.resources) && has(c.resources.requests) && has(c.resources.limits) && 'cpu' in c.resources.requests && 'memory' in c.resources.requests && 'cpu' in c.resources.limits && 'memory' in c.resources.limits)"
+      message: "Todo init container deve declarar requests e limits."
+    - expression: "object.spec.containers.all(c, has(c.securityContext) && c.securityContext.allowPrivilegeEscalation == false && c.securityContext.readOnlyRootFilesystem == true && 'ALL' in c.securityContext.capabilities.drop)"
+      message: "Todo container deve usar o baseline de segurança fechado."
+    - expression: "!has(object.spec.initContainers) || object.spec.initContainers.all(c, has(c.securityContext) && c.securityContext.allowPrivilegeEscalation == false && c.securityContext.readOnlyRootFilesystem == true && 'ALL' in c.securityContext.capabilities.drop)"
+      message: "Todo init container deve usar o baseline de segurança fechado."
+    - expression: "!has(object.spec.ephemeralContainers) || object.spec.ephemeralContainers.all(c, has(c.securityContext) && c.securityContext.allowPrivilegeEscalation == false && c.securityContext.readOnlyRootFilesystem == true && 'ALL' in c.securityContext.capabilities.drop)"
+      message: "Todo container efêmero deve usar o baseline de segurança fechado."
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: blindou-data-workload-baseline
+spec:
+  policyName: blindou-data-workload-baseline
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        platform.servidor.local/environment: production
+        platform.servidor.local/role: data

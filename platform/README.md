@@ -9,6 +9,8 @@ repositórios.
 - `base/`: espaços de projeto, cotas, limites, políticas de rede e admissão.
 - `blindou/`: namespaces exclusivos que nascem vazios, em quarentena e com o
   gate de deploy bloqueado.
+- `blindou-data/`: quarentena independente do futuro PostgreSQL dedicado do
+  Blindou; nenhum PVC, Secret ou workload é criado pelo pacote base.
 - `saferwpp/`: contrato ainda não aplicado do PostgreSQL, backup,
   observabilidade, quota e dependências exclusivas do laboratório SaferWPP.
 - `secondary-slot/`: fonte de verdade, admissão e alertas da exclusão mútua
@@ -38,6 +40,10 @@ A fundação SaferWPP possui procedimento próprio em
 `runbooks/saferwpp-foundation.md`. Ela não integra o `platform/base` e não pode
 ser aplicada por implicação: exige uma janela operacional autorizada e provas
 de que APIWPP e Blindou não foram alterados.
+
+O destino PostgreSQL dedicado do Blindou possui procedimento próprio em
+`runbooks/blindou-plataforma.md`. O bootstrap instala somente o controlador e
+a quarentena vazia; a prova direta do GHCR não altera objetos Kubernetes.
 
 O slot alternável possui procedimento próprio em `runbooks/secondary-slot.md`.
 O bootstrap instala seu controlador, mas somente a operação fechada de

@@ -58,3 +58,7 @@ spec:
     namespaceSelector:
       matchLabels:
         platform.servidor.local/environment: production
+      matchExpressions:
+        - key: platform.servidor.local/role
+          operator: In
+          values: [application, edge]
