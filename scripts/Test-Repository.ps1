@@ -61,6 +61,20 @@ foreach ($relative in $required) {
     }
 }
 
+$dataBootstrap = Get-Content -Raw -LiteralPath (
+    Join-Path $root 'operations/Invoke-BlindouDataControllerBootstrap.ps1'
+)
+if ($dataBootstrap -cnotmatch '\$postInstall = @''\r?\nset -eu\r?\n') {
+    throw 'O pós-bootstrap de dados não propaga falhas remotas.'
+}
+$dataPullProof = Get-Content -Raw -LiteralPath (
+    Join-Path $root 'operations/Invoke-BlindouDataPullProof.ps1'
+)
+if (-not $dataPullProof.Contains('$matchingImages = @(') -or
+    -not $dataPullProof.Contains('if ($matchingImages.Count -ne 1)')) {
+    throw 'A prova de pull não preserva cardinalidade no StrictMode.'
+}
+
 $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
 if ($null -eq $pythonCommand) {
     $pythonCommand = Get-Command python3 -ErrorAction Stop

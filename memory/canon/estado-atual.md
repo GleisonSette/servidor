@@ -40,9 +40,10 @@ SaferWPP continua vazio e o Blindou permanece ativo.
 - O bundle assinado foi validado nos namespaces `blindou-data` e
   `blindou-data-image`, com SHA-256
   `729d1caafd1691c3d9bd3ea15cacec791cd97e081f5cc1573ea33b2737ad85d7`.
-  A instalação do controlador e o `pull-proof` ainda não foram executados.
-- A plataforma prepara `blindou-datactl` e a quarentena `blindou-data`
-  `blocked`, sem Secret, PVC, Job, Pod, Service ou workload de banco.
+  O `pull-proof` ainda não foi concluído.
+- O commit de plataforma `3194252bb5a2f732994b7e8a897cf8aadb45610a`
+  instalou `blindou-datactl` e criou a quarentena `blindou-data` `blocked`, sem
+  Secret, PVC, Job, Pod, Service ou workload de banco.
 - A imagem privada, o bundle assinado e o bootstrap fechado receberam
   autorização operacional, mas a conclusão viva será registrada somente após
   os respectivos recibos.

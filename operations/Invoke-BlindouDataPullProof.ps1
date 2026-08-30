@@ -66,9 +66,12 @@ foreach ($requiredLine in @(
         throw "Manifesto de dados não contém: $requiredLine"
     }
 }
-if (($manifest | Where-Object {
-            $_ -cmatch '^image=ghcr\.io/gleisonsette/blindou-postgres@sha256:[0-9a-f]{64}$'
-        }).Count -ne 1) {
+$matchingImages = @(
+    $manifest | Where-Object {
+        $_ -cmatch '^image=ghcr\.io/gleisonsette/blindou-postgres@sha256:[0-9a-f]{64}$'
+    }
+)
+if ($matchingImages.Count -ne 1) {
     throw 'Manifesto não contém exatamente uma imagem PostgreSQL privada por digest.'
 }
 

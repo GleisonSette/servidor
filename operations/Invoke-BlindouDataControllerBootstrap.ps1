@@ -105,6 +105,7 @@ chmod 0755 '$remoteRoot/operations/remote/bootstrap-blindou-datactl.sh'
         -RemoteRoot $remoteRoot
 
     $postInstall = @'
+set -eu
 sudo -n /usr/local/sbin/blindou-datactl status
 sudo -n /usr/local/sbin/blindou-datactl verify-quarantine
 sudo -n /usr/local/sbin/blindou-hostctl verify

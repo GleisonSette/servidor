@@ -1483,3 +1483,23 @@ neste registro e helper corrigido antes de acessar a credencial.
   o gate passou a recusar regressão para caminho relativo ao worktree. Até a
   execução posterior, `blindou-datactl`, namespace, Secret, PVC, Job, Pod,
   migration e banco dedicado continuavam ausentes.
+
+## 2026-08-29 - Bootstrap I1 instalado e prova local corrigida
+
+Resultado: controlador e quarentena instalados; prova de pull interrompida
+localmente antes do transporte e correções fail-closed preparadas.
+
+- O bootstrap do commit de plataforma
+  `3194252bb5a2f732994b7e8a897cf8aadb45610a` instalou `blindou-datactl` e
+  criou `blindou-data` com gate `blocked`, zero PVC, zero Pod pronto, nenhuma
+  imagem e zero prova de pull. Host, K3s, Blindou e APIWPP foram validados
+  separadamente depois que seus locks periódicos ficaram livres.
+- O bloco pós-bootstrap não usava `set -eu` e podia imprimir `passed` depois de
+  um lock transitório do `blindou-deployctl`. A correção passa a propagar a
+  primeira falha remota ao orquestrador.
+- A primeira chamada de `pull-proof` foi recusada ainda na estação, antes de
+  archive, upload ou acesso ao host: com `StrictMode`, uma única linha de imagem
+  era escalar e não expunha `.Count`. A correção materializa explicitamente o
+  array e continua exigindo exatamente um digest PostgreSQL privado.
+- Nenhum Secret, PVC, Job, Pod, Service, workload PostgreSQL, migration, DSN,
+  backup, restore, I2 ou cutover foi criado por essas tentativas.

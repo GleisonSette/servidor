@@ -35,7 +35,8 @@ de criar o workload. A admissão exclui `blindou-data` da regra geral da
 aplicação e usa uma regra própria: `pull-only` admite apenas o Job de prova;
 `candidate-foundation` admite somente o singleton e Jobs de dados fechados. A
 imagem privada por digest e o bundle assinado já foram publicados e validados;
-o controlador e a quarentena ainda não foram instalados neste ponto.
+o controlador e a quarentena vazia já foram instalados. `pull-proof` ainda não
+foi concluído neste ponto.
 
 Por D031 neste repositório, alinhada à D064 do Blindou, a publicação da imagem
 PostgreSQL pode usar temporariamente o servidor apenas como executor efêmero de
