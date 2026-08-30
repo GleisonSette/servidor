@@ -1630,3 +1630,29 @@ corrigida na fonte do controlador sob D032.
 - a reconciliação, publicação e instalação do controlador corrigido foram
   autorizadas sem ampliar o escopo para credenciais, Secret, migration,
   workload, origem HTTPS ou dado financeiro.
+
+## 2026-08-30 - Controlador DRE D032 reconciliado e instalado
+
+Resultado: fonte canônica publicada, controlador corrigido instalado e release
+anterior preservada, ainda sem Secrets ou ativação.
+
+- o trabalho local divergente do repositório `servidor` foi preservado sem
+  mistura; a reconciliação partiu de `origin/main` e conservou integralmente a
+  entrega D031 do PostgreSQL Blindou;
+- os commits `b1cdb26` e `ae7d5c9` publicaram respectivamente o controlador e a
+  memória operacional em `origin/main`;
+- o bundle fechado de 16 arquivos, SHA-256
+  `85063b55e3a0325616bba69d28362a3aac1a175768a7c3394bebbc97efcceb2d`,
+  coincidiu byte a byte com as fontes e foi instalado pelo helper D030;
+- o bootstrap produziu backup transacional em
+  `/var/backups/servidor-local/dre-controller-bootstrap/20260830T035453Z` e o
+  contrato passou a declarar `secret_input_schema=1` e
+  `bridge_token_source=orchestrator-stdin`;
+- a release `dre-20260830T010200Z-29aeeb82d5bc` foi reverificada pelo caminho
+  idempotente e já existia no cache com o mesmo digest. A release corrente
+  permaneceu `none`, gate `blocked`, PVC ausente e Ready `0/0/0`;
+- APIWPP, Blindou, slot, timers, métricas e zero units falhas passaram. Os
+  listeners não mudaram: 443/8080 ausentes, 8443 somente em `10.203.0.2` e o
+  PostgreSQL nativo preexistente em 5432 também exposto na LAN administrativa;
+- nenhum Secret, PVC, Service, Pod, workload, migration, backup de dados,
+  restore, origem HTTPS ou dado financeiro foi criado ou alterado.

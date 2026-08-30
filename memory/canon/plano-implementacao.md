@@ -440,7 +440,7 @@ Ordem obrigatória:
    servidor e instalação somente do controlador/fundação vazia;
 5. concluído em 2026-08-30: publicar imagens examinadas e importar a release
    assinada sem criar Secret ou workload;
-6. autorizado em 2026-08-30 sob D032: corrigir, publicar e instalar o contrato
+6. concluído em 2026-08-30 sob D032: corrigir, publicar e instalar o contrato
    para que o token da ponte seja coordenado em memória com o Cloudflare antes
    da inicialização, sem criar Secrets;
 7. em trabalho separado, criar credenciais mínimas GHCR/R2, gravar o token da
@@ -468,7 +468,7 @@ Aceite operacional:
   zero porta DRE e projetos protegidos íntegros;
 - concluído: release assinada aceita no cache sem alterar gate, PVC, workload ou
   o ocupante do slot secundário;
-- pendente nesta janela: controlador instalado declara
+- concluído: controlador instalado declara
   `bridge_token_source=orchestrator-stdin` e preserva o cache da release;
 - backup offsite e restore descartável comprovados com a release implantada;
 - API, worker e PostgreSQL saudáveis sem exposição pública ou acesso cruzado.

@@ -67,9 +67,11 @@ corpus por padrão.
   sudoers, timers, alertas e métricas estão instalados. Em 2026-08-30, imagens
   privadas foram publicadas e a release assinada
   `dre-20260830T010200Z-29aeeb82d5bc` foi importada no cache. A release corrente
-  continua `none`, gate `blocked`, PVC/workloads/Secrets/portas estão ausentes.
-  D032 corrige a coordenação do token da ponte; credenciais, Secrets, migration,
-  backup/restore de dados, HTTPS e deploy continuam gates separados.
+  continua `none`, gate `blocked`, e PVC/workloads/Secrets/Services/portas DRE
+  estão ausentes.
+  D032 corrigiu e instalou a coordenação do token da ponte; a release foi
+  reverificada no cache e permanece sem ativação. Credenciais, Secrets,
+  migration, backup/restore de dados, HTTPS e deploy continuam gates separados.
 - A execução I1 publicou o digest PostgreSQL final, instalou somente o
   `blindou-datactl`/quarentena e comprovou uma imagem, 15 blobs e 157.256.746
   bytes. O estado permanece `blocked`, sem objeto operacional, aguardando

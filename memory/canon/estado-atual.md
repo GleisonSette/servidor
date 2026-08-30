@@ -52,14 +52,20 @@ SaferWPP continua vazio e o Blindou permanece ativo.
   operacional, Secret, Service ou volume DRE. Nenhuma imagem foi puxada no host
   e nenhuma migration, banco, backup de dados, restore, rota HTTPS ou
   implantação foi executada.
-- A verificação posterior à importação confirmou APIWPP, Blindou e slot
-  íntegros, com APIWPP como único ocupante do slot; as portas 443, 5432, 8080 e
-  8443 continuaram fechadas na LAN administrativa.
+- A verificação posterior confirmou APIWPP, Blindou e slot íntegros, com
+  APIWPP como único ocupante do slot. Não há listener em 443 ou 8080; 8443 está
+  restrita à interface privada `10.203.0.2`. A porta 5432 do PostgreSQL nativo
+  preexistente escuta também em `192.168.100.59`; essa exposição pertence ao
+  banco compartilhado anterior usado por Blindou/clone_wpp, não ao DRE, e exige
+  avaliação corretiva separada.
 - D032 corrige o contrato que antes gerava o token da ponte dentro do servidor
   sem caminho seguro para o Pages. A fonte recebe o mesmo token forte por
-  `stdin`; a instalação dessa correção pertence à janela autorizada de
-  2026-08-30. Credenciais e Secrets continuam gates separados; migration e
-  deploy permanecem sem autorização.
+  `stdin`. O controlador corrigido foi instalado pelo bundle SHA-256
+  `85063b55e3a0325616bba69d28362a3aac1a175768a7c3394bebbc97efcceb2d` e
+  declara `bridge_token_source=orchestrator-stdin`. A release anterior foi
+  reverificada no cache com o mesmo digest e permaneceu sem ativação.
+  Credenciais e Secrets continuam gates separados; migration e deploy
+  permanecem sem autorização.
 
 ## PostgreSQL dedicado Blindou I1 autorizado em 2026-08-29
 
