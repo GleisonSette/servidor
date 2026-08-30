@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+readonly LC_ALL='C'
+export LC_ALL
+umask 077
+
+readonly EXPECTED_HOSTNAME='apiwpp'
+readonly K3S='/usr/local/bin/k3s'
+readonly CONFIG_ROOT='/etc/dre-deployctl'
+readonly CLIENT_KEY="${CONFIG_ROOT}/client.key"
+readonly CLIENT_CERT="${CONFIG_ROOT}/client.crt"
+readonly KUBECONFIG_FILE="${CONFIG_ROOT}/kubeconfig"
+readonly CLIENT_CA_CERT='/var/lib/rancher/k3s/server/tls/client-ca.crt'
+readonly CLIENT_CA_KEY='/var/lib/rancher/k3s/server/tls/client-ca.key'
+readonly RENEW_BEFORE_SECONDS=$((45 * 24 * 60 * 60))
+
+fail() {
+  printf '[dre-kube-identityctl] ERRO: %s\n' "$*" >&2
+  exit 1
+}
+
+require_root() {
+  [[ "${EUID}" -eq 0 ]] || fail 'execute como root'
+  [[ "$(hostname)" == "$EXPECTED_HOSTNAME" ]] || fail 'hostname inesperado'
+}
+
+verify_identity() {
+  [[ -f "$CLIENT_KEY" && ! -L "$CLIENT_KEY" && "$(stat -c '%a:%U:%G' "$CLIENT_KEY")" == 600:root:root ]] \
+    || fail 'chave cliente ausente ou insegura'
+  [[ -f "$CLIENT_CERT" && ! -L "$CLIENT_CERT" && "$(stat -c '%a:%U:%G' "$CLIENT_CERT")" == 600:root:root ]] \
+    || fail 'certificado cliente ausente ou inseguro'
+  [[ -f "$KUBECONFIG_FILE" && ! -L "$KUBECONFIG_FILE" && "$(stat -c '%a:%U:%G' "$KUBECONFIG_FILE")" == 600:root:root ]] \
+    || fail 'kubeconfig ausente ou inseguro'
+  openssl verify -CAfile "$CLIENT_CA_CERT" "$CLIENT_CERT" >/dev/null \
+    || fail 'certificado não pertence à CA cliente do K3s'
+  [[ "$(openssl x509 -in "$CLIENT_CERT" -noout -subject -nameopt RFC2253)" == 'subject=O=dre-deployers,CN=dre-deployctl' ]] \
+    || fail 'subject do certificado diverge'
+  openssl x509 -in "$CLIENT_CERT" -noout -ext extendedKeyUsage \
+    | grep -F 'TLS Web Client Authentication' >/dev/null \
+    || fail 'certificado não possui clientAuth'
+  KUBECONFIG="$KUBECONFIG_FILE" "$K3S" kubectl auth whoami -o json \
+    | jq -e '.status.userInfo.username == "dre-deployctl" and (.status.userInfo.groups | index("dre-deployers")) != null and (.status.userInfo.groups | index("system:masters")) == null' \
+    >/dev/null || fail 'API Server não reconheceu a identidade DRE mínima'
+}
+
+write_kubeconfig() {
+  local destination="$1" server ca_data
+  server="$($K3S kubectl config view --raw -o jsonpath='{.clusters[0].cluster.server}')"
+  ca_data="$($K3S kubectl config view --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')"
+  [[ "$server" == https://127.0.0.1:6443 || "$server" == https://localhost:6443 ]] \
+    || fail 'endpoint administrativo K3s inesperado'
+  [[ "$ca_data" =~ ^[A-Za-z0-9+/=]+$ ]] || fail 'CA Kubernetes embutida inválida'
+  cat >"$destination" <<EOF
+apiVersion: v1
+kind: Config
+clusters:
+  - name: local-k3s
+    cluster:
+      server: ${server}
+      certificate-authority-data: ${ca_data}
+users:
+  - name: dre-deployctl
+    user:
+      client-certificate: ${CLIENT_CERT}
+      client-key: ${CLIENT_KEY}
+contexts:
+  - name: dre-deployctl@local-k3s
+    context:
+      cluster: local-k3s
+      user: dre-deployctl
+current-context: dre-deployctl@local-k3s
+EOF
+}
+
+reconcile_identity() {
+  local renew=true temporary backup timestamp serial
+  if [[ -f "$CLIENT_CERT" && ! -L "$CLIENT_CERT" ]] \
+      && openssl x509 -checkend "$RENEW_BEFORE_SECONDS" -noout -in "$CLIENT_CERT" >/dev/null 2>&1; then
+    renew=false
+  fi
+  if ! $renew; then
+    verify_identity
+    printf 'dre_kube_identity=reused\n'
+    return
+  fi
+  temporary="$(mktemp -d "${CONFIG_ROOT}/.identity.XXXXXX")"
+  trap 'rm -rf -- "$temporary"' RETURN
+  cat >"${temporary}/client.ext" <<'EOF'
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature
+extendedKeyUsage=clientAuth
+EOF
+  openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 \
+    -out "${temporary}/client.key" >/dev/null 2>&1
+  openssl req -new -key "${temporary}/client.key" \
+    -subj '/CN=dre-deployctl/O=dre-deployers' -out "${temporary}/client.csr" >/dev/null 2>&1
+  serial="$(openssl rand -hex 16)"
+  openssl x509 -req -in "${temporary}/client.csr" \
+    -CA "$CLIENT_CA_CERT" -CAkey "$CLIENT_CA_KEY" -set_serial "0x${serial}" \
+    -days 365 -sha256 -extfile "${temporary}/client.ext" \
+    -out "${temporary}/client.crt" >/dev/null 2>&1
+  chmod 0600 "${temporary}/client.key" "${temporary}/client.crt"
+  write_kubeconfig "${temporary}/kubeconfig"
+  chmod 0600 "${temporary}/kubeconfig"
+  timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  backup="${CONFIG_ROOT}/identity-backup-${timestamp}"
+  mkdir -m 0700 "$backup"
+  for current in "$CLIENT_KEY" "$CLIENT_CERT" "$KUBECONFIG_FILE"; do
+    if [[ -f "$current" && ! -L "$current" ]]; then
+      cp -a -- "$current" "$backup/"
+    fi
+  done
+  install -m 0600 -o root -g root "${temporary}/client.key" "$CLIENT_KEY"
+  install -m 0600 -o root -g root "${temporary}/client.crt" "$CLIENT_CERT"
+  install -m 0600 -o root -g root "${temporary}/kubeconfig" "$KUBECONFIG_FILE"
+  if ! "$0" verify >/dev/null 2>&1; then
+    for name in client.key client.crt kubeconfig; do
+      if [[ -f "${backup}/${name}" ]]; then
+        install -m 0600 -o root -g root "${backup}/${name}" "${CONFIG_ROOT}/${name}"
+      else
+        rm -f -- "${CONFIG_ROOT}/${name}"
+      fi
+    done
+    fail 'nova identidade falhou e a anterior foi restaurada'
+  fi
+  find "$CONFIG_ROOT" -maxdepth 1 -type d -name 'identity-backup-*' -printf '%T@ %p\n' \
+    | sort -nr | awk 'NR > 2 {print $2}' | while IFS= read -r old; do
+        [[ "$old" == "${CONFIG_ROOT}/identity-backup-"* ]] || fail 'backup de identidade fora do escopo'
+        rm -rf -- "$old"
+      done
+  rm -rf -- "$temporary"
+  trap - RETURN
+  printf 'dre_kube_identity=rotated expires=%s\n' \
+    "$(openssl x509 -in "$CLIENT_CERT" -noout -enddate | cut -d= -f2)"
+}
+
+main() {
+  require_root
+  [[ "$#" -eq 1 ]] || fail 'uso: dre-kube-identityctl {reconcile|verify}'
+  [[ -f "$CLIENT_CA_CERT" && ! -L "$CLIENT_CA_CERT" ]] || fail 'CA cliente do K3s ausente'
+  [[ -f "$CLIENT_CA_KEY" && ! -L "$CLIENT_CA_KEY" ]] || fail 'chave da CA cliente do K3s ausente'
+  mkdir -p "$CONFIG_ROOT"
+  chmod 0700 "$CONFIG_ROOT"
+  chown root:root "$CONFIG_ROOT"
+  case "$1" in
+    reconcile) reconcile_identity ;;
+    verify) verify_identity; printf 'dre_kube_identity=passed\n' ;;
+    *) fail 'ação não permitida' ;;
+  esac
+}
+
+main "$@"

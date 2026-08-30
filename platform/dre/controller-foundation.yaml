@@ -1,0 +1,496 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dre-production
+  labels:
+    app.kubernetes.io/name: dre-familiar
+    app.kubernetes.io/part-of: dre-familiar
+    platform.servidor.local/project: dre
+    platform.servidor.local/deployment-gate: blocked
+    dre.familiar/lifecycle: always-active
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: v1.36
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: v1.36
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: v1.36
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dre-restore-drill
+  labels:
+    app.kubernetes.io/name: dre-restore-drill
+    app.kubernetes.io/part-of: dre-familiar
+    platform.servidor.local/project: dre
+    platform.servidor.local/deployment-gate: restore-only
+    dre.familiar/lifecycle: disposable-restore
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: v1.36
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: v1.36
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: v1.36
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: dre-local-retain
+  labels:
+    app.kubernetes.io/part-of: dre-familiar
+    platform.servidor.local/project: dre
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: rancher.io/local-path
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: false
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: dre-local-delete-drill
+  labels:
+    app.kubernetes.io/part-of: dre-familiar
+    platform.servidor.local/project: dre
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: rancher.io/local-path
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dre-restore
+  namespace: dre-restore-drill
+  labels:
+    app.kubernetes.io/part-of: dre-familiar
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: dre-restore-drill-quota
+  namespace: dre-restore-drill
+spec:
+  hard:
+    requests.cpu: "750m"
+    requests.memory: 1536Mi
+    requests.storage: 24Gi
+    limits.cpu: "2"
+    limits.memory: 3Gi
+    persistentvolumeclaims: "1"
+    pods: "3"
+    services: "1"
+    configmaps: "3"
+    secrets: "3"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: dre-restore-drill-defaults
+  namespace: dre-restore-drill
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 100m
+        memory: 256Mi
+      default:
+        cpu: 750m
+        memory: 1Gi
+      max:
+        cpu: "2"
+        memory: 3Gi
+      min:
+        cpu: 10m
+        memory: 32Mi
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: dre-restore-drill
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-cluster-dns
+  namespace: dre-restore-drill
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-r2-https
+  namespace: dre-restore-drill
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: dre-restore-postgres
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dre-deployctl-cluster
+  labels:
+    app.kubernetes.io/part-of: dre-familiar
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    resourceNames:
+      - dre-production
+      - dre-restore-drill
+    verbs:
+      - get
+      - patch
+      - update
+  - apiGroups:
+      - storage.k8s.io
+    resources:
+      - storageclasses
+    resourceNames:
+      - dre-local-retain
+      - dre-local-delete-drill
+    verbs:
+      - get
+      - patch
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - metrics.k8s.io
+    resources:
+      - nodes
+    verbs:
+      - get
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dre-deployctl-cluster
+  labels:
+    app.kubernetes.io/part-of: dre-familiar
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: dre-deployctl-cluster
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: dre-deployctl
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dre-deployctl
+  namespace: dre-production
+  labels:
+    app.kubernetes.io/part-of: dre-familiar
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - limitranges
+      - persistentvolumeclaims
+      - pods
+      - resourcequotas
+      - secrets
+      - serviceaccounts
+      - services
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+      - statefulsets
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - batch
+    resources:
+      - jobs
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - networkpolicies
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - policy
+    resources:
+      - poddisruptionbudgets
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - pods/exec
+      - services/proxy
+    verbs:
+      - create
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dre-deployctl
+  namespace: dre-production
+  labels:
+    app.kubernetes.io/part-of: dre-familiar
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: dre-deployctl
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: dre-deployctl
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dre-deployctl
+  namespace: dre-restore-drill
+  labels:
+    app.kubernetes.io/part-of: dre-familiar
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - persistentvolumeclaims
+      - pods
+      - secrets
+      - services
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - pods/exec
+    verbs:
+      - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dre-deployctl
+  namespace: dre-restore-drill
+  labels:
+    app.kubernetes.io/part-of: dre-familiar
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: dre-deployctl
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: dre-deployctl
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: dre-controller-only
+  labels:
+    app.kubernetes.io/part-of: dre-familiar
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+          - DELETE
+        resources:
+          - configmaps
+          - limitranges
+          - namespaces
+          - persistentvolumeclaims
+          - pods
+          - resourcequotas
+          - secrets
+          - serviceaccounts
+          - services
+      - apiGroups:
+          - apps
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+          - DELETE
+        resources:
+          - deployments
+          - statefulsets
+      - apiGroups:
+          - batch
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+          - DELETE
+        resources:
+          - jobs
+      - apiGroups:
+          - networking.k8s.io
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+          - DELETE
+        resources:
+          - networkpolicies
+      - apiGroups:
+          - policy
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+          - DELETE
+        resources:
+          - poddisruptionbudgets
+      - apiGroups:
+          - storage.k8s.io
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+          - DELETE
+        resources:
+          - storageclasses
+  matchConditions:
+    - name: dre-scope-only
+      expression: >-
+        request.namespace in ['dre-production', 'dre-restore-drill'] ||
+        (request.resource.resource == 'namespaces' &&
+          request.name in ['dre-production', 'dre-restore-drill']) ||
+        (request.resource.resource == 'storageclasses' &&
+          request.name in ['dre-local-retain', 'dre-local-delete-drill'])
+  validations:
+    - expression: >-
+        request.userInfo.username == 'dre-deployctl' ||
+        request.userInfo.username == 'system:kube-controller-manager' ||
+        request.userInfo.username.startsWith('system:node:') ||
+        request.userInfo.username.startsWith('system:serviceaccount:kube-system:') ||
+        (request.userInfo.username == 'system:admin' &&
+          request.resource.resource in ['namespaces', 'storageclasses'])
+      message: recursos DRE só podem ser alterados pelo controlador fechado
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: dre-controller-only
+  labels:
+    app.kubernetes.io/part-of: dre-familiar
+spec:
+  policyName: dre-controller-only
+  validationActions:
+    - Deny

@@ -11,6 +11,8 @@ repositórios.
   gate de deploy bloqueado.
 - `blindou-data/`: quarentena independente do futuro PostgreSQL dedicado do
   Blindou; nenhum PVC, Secret ou workload é criado pelo pacote base.
+- `dre/`: fundação aplicada e vazia do controlador DRE, com namespaces de
+  produção/restauração, RBAC, admissão e alertas próprios.
 - `saferwpp/`: contrato ainda não aplicado do PostgreSQL, backup,
   observabilidade, quota e dependências exclusivas do laboratório SaferWPP.
 - `secondary-slot/`: fonte de verdade, admissão e alertas da exclusão mútua
@@ -47,6 +49,11 @@ a quarentena vazia; a prova direta do GHCR não altera objetos Kubernetes.
 Durante a exceção D031/D064, o host pode executar somente a derivação OCI e o
 scan dessa imagem em workspace não privilegiado e limitado. A publicação
 continua pertencendo à estação; nenhuma credencial de escrita entra no host.
+
+A fundação DRE possui procedimento próprio em `runbooks/dre-k3s.md` e foi
+aplicada em janela autorizada em 2026-08-29. Ela não integra o slot
+APIWPP/SaferWPP; qualquer reconciliação futura continua exigindo auditoria viva,
+chave pública Ed25519 e autorização operacional.
 
 O slot alternável possui procedimento próprio em `runbooks/secondary-slot.md`.
 O bootstrap instala seu controlador, mas somente a operação fechada de

@@ -1,0 +1,11 @@
+[Unit]
+Description=Renovação diária da identidade Kubernetes exclusiva do DRE
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+Persistent=true
+RandomizedDelaySec=900
+Unit=dre-kube-identity.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,11 @@
+Defaults!/usr/local/sbin/dre-deployctl env_reset
+Defaults!/usr/local/sbin/dre-deployctl !setenv
+apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl contract
+apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl status
+apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl import-release *
+apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl initialize-secrets *
+apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl plan *
+apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl deploy *
+apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl verify *
+apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl backup *
+apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl restore-drill *

@@ -1,0 +1,1008 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+readonly LC_ALL='C'
+export LC_ALL
+umask 077
+
+readonly EXPECTED_HOSTNAME='apiwpp'
+readonly K3S='/usr/local/bin/k3s'
+readonly KUBECONFIG_FILE='/etc/dre-deployctl/kubeconfig'
+readonly TRUST_KEY='/etc/dre-deployctl/release-signing.pub'
+readonly VERIFIER='/usr/local/lib/dre-deployctl/dre-release-verify.py'
+readonly SECRET_MATERIAL='/usr/local/lib/dre-deployctl/dre-secret-material.py'
+readonly RESTORE_RENDERER='/usr/local/lib/dre-deployctl/dre-restore-render.py'
+readonly STATE_ROOT='/var/lib/dre-deployctl'
+readonly RELEASE_CACHE="${STATE_ROOT}/releases"
+readonly RELEASE_INBOX='/home/apiadmin/dre-deploy-inbox'
+readonly PLAN_ROOT="${STATE_ROOT}/plans"
+readonly RECEIPT_ROOT="${STATE_ROOT}/receipts"
+readonly CURRENT_RELEASE="${STATE_ROOT}/current-release"
+readonly AUDIT_LOG="${STATE_ROOT}/audit.jsonl"
+readonly METRICS_FILE='/var/lib/prometheus/node-exporter/dre-controller.prom'
+readonly PROMETHEUS_RULES='/etc/prometheus/rules/dre-runtime.yml'
+readonly NAMESPACE='dre-production'
+readonly RESTORE_NAMESPACE='dre-restore-drill'
+readonly LOCK_FILE='/run/lock/dre-deployctl.lock'
+readonly BLINDOU_LOCK='/run/lock/blindou-deployctl.lock'
+readonly BLINDOU_DATA_LOCK='/run/lock/blindou-datactl.lock'
+readonly SECONDARY_SLOT_LOCK='/run/lock/servidor-local-secondary-slot.lock'
+readonly MIN_AVAILABLE_MEMORY_KIB=$((5 * 1024 * 1024))
+readonly MIN_AVAILABLE_DISK_KIB=$((45 * 1024 * 1024))
+readonly PLAN_TTL_SECONDS=1800
+readonly PLAN_RETENTION_DAYS=7
+readonly RELEASE_ID_PATTERN='^dre-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$'
+readonly SHA256_PATTERN='^[0-9a-f]{64}$'
+readonly OPERATION_ID_PATTERN='^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$'
+readonly -a REQUIRED_SECRETS=(
+  dre-registry-pull
+  dre-postgres-admin
+  dre-database-access
+  dre-api-runtime
+  dre-backup-runtime
+)
+
+fail() {
+  printf '[dre-deployctl] ERRO: %s\n' "$*" >&2
+  exit 1
+}
+
+pass() {
+  printf '[dre-deployctl] OK: %s\n' "$*"
+}
+
+require_root() {
+  [[ "${EUID}" -eq 0 ]] || fail 'execute como root pelo sudoers fechado'
+}
+
+require_release_id() {
+  [[ "${1:-}" =~ $RELEASE_ID_PATTERN ]] || fail 'release ID inválido'
+}
+
+require_sha256() {
+  [[ "${1:-}" =~ $SHA256_PATTERN ]] || fail 'SHA-256 inválido'
+}
+
+require_operation_id() {
+  [[ "${1:-}" =~ $OPERATION_ID_PATTERN ]] || fail 'operation ID inválido'
+}
+
+require_new_receipt() {
+  local kind="$1" operation_id="$2" receipt existing
+  receipt="${RECEIPT_ROOT}/${kind}-${operation_id}.json"
+  [[ ! -e "$receipt" && ! -L "$receipt" ]] \
+    || fail "operation ID já utilizado em ${kind}"
+  existing="$(find "$RECEIPT_ROOT" -mindepth 1 -maxdepth 1 \
+    \( -type f -o -type l \) -name "*-${operation_id}.json" -print -quit)"
+  [[ -z "$existing" ]] || fail 'operation ID já utilizado por outra operação DRE'
+}
+
+kube() {
+  KUBECONFIG="$KUBECONFIG_FILE" "$K3S" kubectl "$@"
+}
+
+admin_kube() {
+  "$K3S" kubectl "$@"
+}
+
+file_mode() {
+  stat -c '%a' -- "$1"
+}
+
+file_owner() {
+  stat -c '%U:%G' -- "$1"
+}
+
+require_root_file() {
+  local path="$1" allowed_mode="$2"
+  [[ -f "$path" && ! -L "$path" ]] || fail "arquivo ausente ou simbólico: ${path}"
+  [[ "$(file_owner "$path")" == 'root:root' ]] || fail "ownership inválido: ${path}"
+  [[ "$(file_mode "$path")" =~ $allowed_mode ]] || fail "modo inseguro: ${path}"
+}
+
+atomic_write() {
+  local destination="$1" mode="$2" temporary
+  temporary="$(mktemp "${destination}.tmp.XXXXXX")"
+  cat >"$temporary"
+  chmod "$mode" "$temporary"
+  chown root:root "$temporary"
+  mv -fT -- "$temporary" "$destination"
+}
+
+audit_event() {
+  local action="$1" result="$2" release_id="${3:-none}" operation_id="${4:-none}"
+  local now
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  jq -cn \
+    --arg timestamp "$now" \
+    --arg action "$action" \
+    --arg result "$result" \
+    --arg release_id "$release_id" \
+    --arg operation_id "$operation_id" \
+    '{schema:1,timestamp_utc:$timestamp,action:$action,result:$result,release_id:$release_id,operation_id:$operation_id}' \
+    >>"$AUDIT_LOG"
+  chmod 0600 "$AUDIT_LOG"
+  chown root:root "$AUDIT_LOG"
+}
+
+prune_expired_plans() {
+  [[ -d "$PLAN_ROOT" && ! -L "$PLAN_ROOT" ]] \
+    || fail 'diretório de planos ausente ou simbólico'
+  [[ "$(file_owner "$PLAN_ROOT")" == 'root:root' ]] \
+    || fail 'ownership inválido no diretório de planos'
+  find "$PLAN_ROOT" -mindepth 1 -maxdepth 1 -type f -name '*.json' \
+    -mtime "+${PLAN_RETENTION_DAYS}" -delete
+}
+
+acquire_controller_lock() {
+  exec 7>"$LOCK_FILE"
+  flock --nonblock 7 || fail 'outra operação DRE está em andamento'
+}
+
+acquire_shared_maintenance_locks() {
+  exec 8>"$BLINDOU_LOCK"
+  flock --nonblock 8 || fail 'operação Blindou em andamento'
+  [[ -f "$SECONDARY_SLOT_LOCK" && ! -L "$SECONDARY_SLOT_LOCK" ]] \
+    || fail 'lock do slot secundário ausente ou inseguro'
+  exec 9<>"$SECONDARY_SLOT_LOCK"
+  flock --nonblock 9 || fail 'transição APIWPP/SaferWPP em andamento'
+  if admin_kube get namespace blindou-data >/dev/null 2>&1; then
+    [[ -f "$BLINDOU_DATA_LOCK" && ! -L "$BLINDOU_DATA_LOCK" ]] \
+      || fail 'lock do PostgreSQL Blindou ausente ou inseguro'
+    exec 10<>"$BLINDOU_DATA_LOCK"
+    flock --nonblock 10 || fail 'operação PostgreSQL Blindou em andamento'
+  fi
+}
+
+release_directory() {
+  printf '%s/%s' "$RELEASE_CACHE" "$1"
+}
+
+release_file() {
+  printf '%s/%s/extracted/%s' "$RELEASE_CACHE" "$1" "$2"
+}
+
+require_cached_release() {
+  local release_id="$1" directory
+  require_release_id "$release_id"
+  directory="$(release_directory "$release_id")"
+  [[ -d "$directory" && ! -L "$directory" ]] || fail 'release não está no cache fechado'
+  require_root_file "${directory}/release.tar.gz" '^600$'
+  require_root_file "${directory}/release.tar.gz.sig" '^600$'
+  require_root_file "${directory}/receipt.json" '^600$'
+  [[ -d "${directory}/extracted" && ! -L "${directory}/extracted" ]] \
+    || fail 'conteúdo extraído da release ausente'
+  jq -e --arg release "$release_id" \
+    '.schema == 1 and .release_id == $release and (.archive_sha256 | test("^[0-9a-f]{64}$"))' \
+    "${directory}/receipt.json" >/dev/null || fail 'recibo da release inválido'
+}
+
+release_archive_sha() {
+  jq -r '.archive_sha256' "$(release_directory "$1")/receipt.json"
+}
+
+release_rust_image() {
+  jq -r '.rust_image' "$(release_file "$1" release.json)"
+}
+
+release_postgres_image() {
+  jq -r '.postgres_image' "$(release_file "$1" release.json)"
+}
+
+current_release_id() {
+  if [[ -f "$CURRENT_RELEASE" && ! -L "$CURRENT_RELEASE" ]]; then
+    local value
+    value="$(<"$CURRENT_RELEASE")"
+    require_release_id "$value"
+    printf '%s' "$value"
+  else
+    printf 'none'
+  fi
+}
+
+verify_protected_projects() {
+  local controller
+  for controller in \
+    /usr/local/sbin/apiwpp-deployctl \
+    /usr/local/sbin/blindou-deployctl \
+    /usr/local/sbin/secondary-slotctl; do
+    [[ -x "$controller" && ! -L "$controller" ]] \
+      || fail "controlador de proteção ausente: ${controller}"
+  done
+  /usr/local/sbin/apiwpp-deployctl verify >/dev/null \
+    || fail 'APIWPP não está íntegro'
+  /usr/local/sbin/blindou-deployctl verify >/dev/null \
+    || fail 'Blindou não está íntegro'
+  /usr/local/sbin/secondary-slotctl verify >/dev/null \
+    || fail 'slot APIWPP/SaferWPP não está íntegro'
+  if admin_kube get namespace blindou-data >/dev/null 2>&1; then
+    [[ -x /usr/local/sbin/blindou-datactl && ! -L /usr/local/sbin/blindou-datactl ]] \
+      || fail 'namespace blindou-data existe sem controlador próprio'
+  fi
+}
+
+protected_fingerprint() {
+  local temporary namespace
+  local -a namespaces=(apiwpp blindou-production blindou-edge)
+  temporary="$(mktemp)"
+  trap 'rm -f -- "$temporary"' RETURN
+  if admin_kube get namespace blindou-data >/dev/null 2>&1; then
+    namespaces+=(blindou-data)
+  fi
+  for namespace in "${namespaces[@]}"; do
+    admin_kube get namespace "$namespace" -o json \
+      | jq -cS '{kind,metadata:{name:.metadata.name,uid:.metadata.uid,labels:.metadata.labels}}' \
+      >>"$temporary"
+    admin_kube -n "$namespace" get deployment,statefulset,service,pvc -o json \
+      | jq -cS '[.items[]|{apiVersion,kind,metadata:{name:.metadata.name,uid:.metadata.uid},spec}]|sort_by(.kind,.metadata.name)' \
+      >>"$temporary"
+  done
+  sha256sum "$temporary" | cut -d' ' -f1
+  rm -f -- "$temporary"
+  trap - RETURN
+}
+
+secrets_encryption_enabled() {
+  "$K3S" secrets-encrypt status 2>/dev/null \
+    | grep -Eq 'Encryption Status:[[:space:]]+Enabled|Encryption Status:[[:space:]]+enabled'
+}
+
+verify_foundation() {
+  [[ "$(hostname)" == "$EXPECTED_HOSTNAME" ]] || fail 'hostname inesperado'
+  [[ "$(uname -m)" == 'x86_64' ]] || fail 'nó não é x86_64'
+  [[ "$($K3S --version | head -n 1)" == 'k3s version v1.36.2+k3s1 '* ]] \
+    || fail 'versão K3s diferente de v1.36.2+k3s1'
+  require_root_file "$KUBECONFIG_FILE" '^600$'
+  require_root_file "$TRUST_KEY" '^(600|644)$'
+  require_root_file "$VERIFIER" '^(500|700|755)$'
+  require_root_file "$SECRET_MATERIAL" '^(500|700|755)$'
+  require_root_file "$RESTORE_RENDERER" '^(500|700|755)$'
+  kube auth whoami -o json \
+    | jq -e '.status.userInfo.username == "dre-deployctl"' >/dev/null \
+    || fail 'kubeconfig não usa a identidade dre-deployctl'
+  [[ "$(kube get namespace "$NAMESPACE" -o jsonpath='{.metadata.labels.platform\.servidor\.local/project}')" == dre ]] \
+    || fail 'namespace de produção fora do projeto DRE'
+  [[ "$(kube get namespace "$RESTORE_NAMESPACE" -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}')" == restore-only ]] \
+    || fail 'namespace de restore não está fechado'
+  [[ "$(kube get storageclass dre-local-retain -o jsonpath='{.reclaimPolicy}')" == Retain ]] \
+    || fail 'StorageClass de produção não usa Retain'
+  [[ "$(kube get storageclass dre-local-delete-drill -o jsonpath='{.reclaimPolicy}')" == Delete ]] \
+    || fail 'StorageClass de restore não usa Delete'
+  admin_kube get validatingadmissionpolicy dre-controller-only -o name >/dev/null \
+    || fail 'admissão exclusiva do DRE ausente'
+  admin_kube get validatingadmissionpolicybinding dre-controller-only -o name >/dev/null \
+    || fail 'binding da admissão exclusiva do DRE ausente'
+  secrets_encryption_enabled || fail 'criptografia de Secrets do K3s não está habilitada'
+}
+
+secret_key_set() {
+  local secret="$1"
+  kube -n "$NAMESPACE" get secret "$secret" -o json \
+    | jq -r '.data | keys | sort | join(",")'
+}
+
+verify_secret_inventory() {
+  local secret
+  for secret in "${REQUIRED_SECRETS[@]}"; do
+    kube -n "$NAMESPACE" get secret "$secret" -o name >/dev/null \
+      || fail "Secret obrigatório ausente: ${secret}"
+  done
+  [[ "$(secret_key_set dre-registry-pull)" == '.dockerconfigjson' ]] \
+    || fail 'chaves do pull secret divergem'
+  [[ "$(secret_key_set dre-postgres-admin)" == 'database-url,password' ]] \
+    || fail 'chaves do Secret administrativo divergem'
+  [[ "$(secret_key_set dre-database-access)" == 'api-password,api-url,backup-password,worker-password,worker-url' ]] \
+    || fail 'chaves de acesso ao banco divergem'
+  [[ "$(secret_key_set dre-api-runtime)" == 'web-bridge-token' ]] \
+    || fail 'chaves do runtime API divergem'
+  [[ "$(secret_key_set dre-backup-runtime)" == 'cipher-pass,s3-key,s3-key-secret' ]] \
+    || fail 'chaves do backup divergem'
+}
+
+verify_release_secret_inventory() {
+  local release_id="$1" fcm_expected
+  verify_secret_inventory
+  fcm_expected="$(jq -r '.fcm_enabled' "$(release_file "$release_id" release.json)")"
+  if [[ "$fcm_expected" == true ]]; then
+    kube -n "$NAMESPACE" get secret dre-fcm-runtime -o name >/dev/null \
+      || fail 'release exige Secret FCM'
+    [[ "$(secret_key_set dre-fcm-runtime)" == 'service-account.json' ]] \
+      || fail 'chaves do Secret FCM divergem'
+  elif [[ "$fcm_expected" == false ]]; then
+    if kube -n "$NAMESPACE" get secret dre-fcm-runtime -o name >/dev/null 2>&1; then
+      fail 'Secret FCM existe para release com FCM desabilitado'
+    fi
+  else
+    fail 'contrato FCM inválido na release'
+  fi
+}
+
+secret_inventory_fingerprint() {
+  local secret temporary
+  temporary="$(mktemp)"
+  trap 'rm -f -- "$temporary"' RETURN
+  for secret in "${REQUIRED_SECRETS[@]}" dre-fcm-runtime; do
+    if kube -n "$NAMESPACE" get secret "$secret" -o json >"${temporary}.json" 2>/dev/null; then
+      jq -cS '{name:.metadata.name,uid:.metadata.uid,resourceVersion:.metadata.resourceVersion,type,keys:(.data|keys|sort)}' \
+        "${temporary}.json" >>"$temporary"
+    fi
+  done
+  sha256sum "$temporary" | cut -d' ' -f1
+  rm -f -- "$temporary" "${temporary}.json"
+  trap - RETURN
+}
+
+capacity_values() {
+  local memory_available disk_available cpu_count node_ready
+  memory_available="$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo)"
+  disk_available="$(df -Pk /var/lib/rancher/k3s/storage | awk 'NR == 2 {print $4}')"
+  cpu_count="$(nproc)"
+  node_ready="$(kube get nodes -o json | jq '[.items[]|select(any(.status.conditions[]; .type == "Ready" and .status == "True"))]|length')"
+  [[ "$memory_available" =~ ^[0-9]+$ ]] || fail 'MemAvailable inválido'
+  [[ "$disk_available" =~ ^[0-9]+$ ]] || fail 'capacidade de disco inválida'
+  [[ "$cpu_count" =~ ^[0-9]+$ ]] || fail 'contagem de CPU inválida'
+  [[ "$node_ready" == 1 ]] || fail 'cluster deve possuir exatamente um nó Ready'
+  ((memory_available >= MIN_AVAILABLE_MEMORY_KIB)) \
+    || fail 'menos de 5 GiB de memória disponível; capacidade DRE recusada'
+  ((disk_available >= MIN_AVAILABLE_DISK_KIB)) \
+    || fail 'menos de 45 GiB livres no armazenamento K3s; capacidade DRE recusada'
+  ((cpu_count >= 4)) || fail 'nó possui menos de quatro CPUs lógicas'
+  printf '%s %s %s' "$memory_available" "$disk_available" "$cpu_count"
+}
+
+verify_cached_release_again() {
+  local release_id="$1" directory archive_sha temporary
+  directory="$(release_directory "$release_id")"
+  archive_sha="$(release_archive_sha "$release_id")"
+  [[ "$(sha256sum "${directory}/release.tar.gz" | cut -d' ' -f1)" == "$archive_sha" ]] \
+    || fail 'archive no cache divergiu do recibo'
+  openssl pkeyutl -verify -pubin -inkey "$TRUST_KEY" -rawin \
+    -in "${directory}/release.tar.gz" -sigfile "${directory}/release.tar.gz.sig" \
+    >/dev/null 2>&1 || fail 'assinatura da release no cache divergiu'
+  temporary="$(mktemp -d "${STATE_ROOT}/.verify.${release_id}.XXXXXX")"
+  if ! python3 "$VERIFIER" "${directory}/release.tar.gz" "$temporary" \
+    "$release_id" "$archive_sha" >/dev/null; then
+    rm -rf -- "$temporary"
+    fail 'release no cache não passou na reverificação'
+  fi
+  diff -qr -- "$temporary" "${directory}/extracted" >/dev/null \
+    || { rm -rf -- "$temporary"; fail 'conteúdo extraído no cache divergiu'; }
+  rm -rf -- "$temporary"
+}
+
+import_release() {
+  [[ "$#" -eq 3 ]] || fail 'uso: import-release RELEASE_ID ARCHIVE_SHA256 SIGNATURE_SHA256'
+  local release_id="$1" archive_sha="$2" signature_sha="$3"
+  local inbox archive signature temporary cache receipt
+  require_release_id "$release_id"
+  require_sha256 "$archive_sha"
+  require_sha256 "$signature_sha"
+  verify_foundation
+  acquire_controller_lock
+  inbox="${RELEASE_INBOX}/${release_id}"
+  archive="${inbox}/release.tar.gz"
+  signature="${inbox}/release.tar.gz.sig"
+  [[ -d "$inbox" && ! -L "$inbox" ]] || fail 'inbox da release ausente'
+  [[ "$(file_owner "$inbox")" == 'apiadmin:apiadmin' && "$(file_mode "$inbox")" == 700 ]] \
+    || fail 'inbox deve pertencer a apiadmin:apiadmin e usar 0700'
+  for source in "$archive" "$signature"; do
+    [[ -f "$source" && ! -L "$source" ]] || fail 'artefato do inbox ausente ou simbólico'
+    [[ "$(file_owner "$source")" == 'apiadmin:apiadmin' ]] \
+      || fail 'artefato do inbox não pertence a apiadmin'
+    [[ "$(file_mode "$source")" =~ ^(400|600)$ ]] || fail 'modo inseguro no inbox'
+  done
+  [[ "$(sha256sum "$archive" | cut -d' ' -f1)" == "$archive_sha" ]] \
+    || fail 'SHA-256 do archive no inbox diverge'
+  [[ "$(sha256sum "$signature" | cut -d' ' -f1)" == "$signature_sha" ]] \
+    || fail 'SHA-256 da assinatura no inbox diverge'
+  temporary="$(mktemp -d "${STATE_ROOT}/.import.${release_id}.XXXXXX")"
+  trap 'rm -rf -- "$temporary"' RETURN
+  install -m 0600 -o root -g root "$archive" "${temporary}/release.tar.gz"
+  install -m 0600 -o root -g root "$signature" "${temporary}/release.tar.gz.sig"
+  [[ "$(sha256sum "${temporary}/release.tar.gz" | cut -d' ' -f1)" == "$archive_sha" ]] \
+    || fail 'cópia root-owned do archive diverge'
+  [[ "$(sha256sum "$archive" | cut -d' ' -f1)" == "$archive_sha" ]] \
+    || fail 'archive mudou durante a importação'
+  openssl pkeyutl -verify -pubin -inkey "$TRUST_KEY" -rawin \
+    -in "${temporary}/release.tar.gz" -sigfile "${temporary}/release.tar.gz.sig" \
+    >/dev/null 2>&1 || fail 'assinatura Ed25519 da release foi recusada'
+  mkdir -m 0700 "${temporary}/extracted"
+  python3 "$VERIFIER" "${temporary}/release.tar.gz" "${temporary}/extracted" \
+    "$release_id" "$archive_sha" >/dev/null
+  promtool check rules "${temporary}/extracted/monitoring/alerts-k3s.yml" >/dev/null
+  cache="$(release_directory "$release_id")"
+  if [[ -e "$cache" ]]; then
+    require_cached_release "$release_id"
+    [[ "$(release_archive_sha "$release_id")" == "$archive_sha" ]] \
+      || fail 'release ID já existe com outro archive'
+    rm -rf -- "$temporary"
+    trap - RETURN
+    pass "release ${release_id} já estava importada com o mesmo digest"
+    return
+  fi
+  receipt="${temporary}/receipt.json"
+  jq -cn \
+    --arg release_id "$release_id" \
+    --arg archive_sha256 "$archive_sha" \
+    --arg signature_sha256 "$signature_sha" \
+    --arg imported_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{schema:1,release_id:$release_id,archive_sha256:$archive_sha256,signature_sha256:$signature_sha256,imported_at_utc:$imported_at_utc}' \
+    | atomic_write "$receipt" 0600
+  chmod -R go-rwx "$temporary"
+  chown -R root:root "$temporary"
+  mv -T -- "$temporary" "$cache"
+  trap - RETURN
+  audit_event import-release passed "$release_id"
+  pass "release ${release_id} assinada, verificada e armazenada no cache fechado"
+}
+
+create_secret() {
+  local name="$1" type="$2" directory="$3"
+  local -a arguments=(create secret generic "$name" --namespace "$NAMESPACE")
+  local file
+  if [[ "$type" != opaque ]]; then
+    arguments+=(--type "$type")
+  fi
+  while IFS= read -r -d '' file; do
+    arguments+=(--from-file="$(basename "$file")=${file}")
+  done < <(find "$directory" -maxdepth 1 -type f -print0 | sort -z)
+  (umask 077; kube "${arguments[@]}" --dry-run=client -o yaml \
+    | kube apply --server-side --field-manager=dre-deployctl -f - >/dev/null)
+  kube -n "$NAMESPACE" label secret "$name" \
+    app.kubernetes.io/part-of=dre-familiar \
+    app.kubernetes.io/managed-by=dre-deployctl --overwrite >/dev/null
+}
+
+initialize_secrets() {
+  [[ "$#" -eq 1 ]] || fail 'uso: initialize-secrets RELEASE_ID (JSON protegido por stdin)'
+  local release_id="$1" temporary rust_image postgres_image fcm_expected fcm_project_id created=false
+  require_cached_release "$release_id"
+  verify_foundation
+  acquire_controller_lock
+  for secret in "${REQUIRED_SECRETS[@]}" dre-fcm-runtime; do
+    if kube -n "$NAMESPACE" get secret "$secret" >/dev/null 2>&1; then
+      fail 'inicialização recusada: já existe Secret DRE; rotação exige operação futura própria'
+    fi
+  done
+  rust_image="$(release_rust_image "$release_id")"
+  postgres_image="$(release_postgres_image "$release_id")"
+  fcm_expected="$(jq -r '.fcm_enabled' "$(release_file "$release_id" release.json)")"
+  fcm_project_id="$(jq -r '.fcm_project_id' "$(release_file "$release_id" release.json)")"
+  temporary="$(mktemp -d /run/dre-secrets.XXXXXX)"
+  trap 'rm -rf -- "$temporary"' RETURN
+  python3 "$SECRET_MATERIAL" "$temporary" "$rust_image" "$postgres_image" "$fcm_project_id"
+  if [[ "$fcm_expected" == true && ! -f "${temporary}/fcm-runtime/service-account.json" ]]; then
+    fail 'release exige FCM, mas a credencial não foi fornecida'
+  fi
+  if [[ "$fcm_expected" == false && -d "${temporary}/fcm-runtime" ]]; then
+    fail 'credencial FCM fornecida para release com FCM desabilitado'
+  fi
+  rollback_secret_creation() {
+    local code=$?
+    set +e
+    if $created; then
+      kube -n "$NAMESPACE" delete secret \
+        "${REQUIRED_SECRETS[@]}" dre-fcm-runtime --ignore-not-found >/dev/null 2>&1 || true
+    fi
+    rm -rf -- "$temporary"
+    audit_event initialize-secrets failed "$release_id"
+    exit "$code"
+  }
+  trap rollback_secret_creation EXIT
+  created=true
+  create_secret dre-registry-pull kubernetes.io/dockerconfigjson "${temporary}/registry"
+  create_secret dre-postgres-admin opaque "${temporary}/postgres-admin"
+  create_secret dre-database-access opaque "${temporary}/database-access"
+  create_secret dre-api-runtime opaque "${temporary}/api-runtime"
+  create_secret dre-backup-runtime opaque "${temporary}/backup-runtime"
+  if [[ -d "${temporary}/fcm-runtime" ]]; then
+    create_secret dre-fcm-runtime opaque "${temporary}/fcm-runtime"
+  fi
+  verify_release_secret_inventory "$release_id"
+  kube label namespace "$NAMESPACE" \
+    platform.servidor.local/deployment-gate=secrets-only --overwrite >/dev/null
+  trap - EXIT
+  rm -rf -- "$temporary"
+  trap - RETURN
+  audit_event initialize-secrets passed "$release_id"
+  pass 'Secrets DRE criados sem exibir valores; rotação automática permaneceu proibida'
+}
+
+create_plan() {
+  [[ "$#" -eq 1 ]] || fail 'uso: plan RELEASE_ID'
+  local release_id="$1" memory disk cpus protected secrets current generated expires temporary plan_sha
+  require_cached_release "$release_id"
+  verify_cached_release_again "$release_id"
+  verify_foundation
+  verify_release_secret_inventory "$release_id"
+  verify_protected_projects
+  acquire_controller_lock
+  read -r memory disk cpus < <(capacity_values)
+  protected="$(protected_fingerprint)"
+  secrets="$(secret_inventory_fingerprint)"
+  current="$(current_release_id)"
+  generated="$(date -u +%s)"
+  expires=$((generated + PLAN_TTL_SECONDS))
+  temporary="$(mktemp "${PLAN_ROOT}/.plan.XXXXXX")"
+  jq -cn \
+    --arg release_id "$release_id" \
+    --arg archive_sha256 "$(release_archive_sha "$release_id")" \
+    --arg current_release "$current" \
+    --arg protected_fingerprint "$protected" \
+    --arg secret_inventory_fingerprint "$secrets" \
+    --argjson memory_available_kib "$memory" \
+    --argjson disk_available_kib "$disk" \
+    --argjson cpu_count "$cpus" \
+    --argjson generated_at_epoch "$generated" \
+    --argjson expires_at_epoch "$expires" \
+    '{schema:1,release_id:$release_id,archive_sha256:$archive_sha256,current_release:$current_release,protected_fingerprint:$protected_fingerprint,secret_inventory_fingerprint:$secret_inventory_fingerprint,memory_available_kib:$memory_available_kib,disk_available_kib:$disk_available_kib,cpu_count:$cpu_count,generated_at_epoch:$generated_at_epoch,expires_at_epoch:$expires_at_epoch}' \
+    | atomic_write "$temporary" 0600
+  plan_sha="$(sha256sum "$temporary" | cut -d' ' -f1)"
+  mv -fT -- "$temporary" "${PLAN_ROOT}/${plan_sha}.json"
+  audit_event plan passed "$release_id"
+  printf 'status=passed release=%s plan_sha256=%s expires_at_epoch=%s\n' \
+    "$release_id" "$plan_sha" "$expires"
+}
+
+load_and_verify_plan() {
+  local release_id="$1" plan_sha="$2" plan
+  plan="${PLAN_ROOT}/${plan_sha}.json"
+  require_sha256 "$plan_sha"
+  require_root_file "$plan" '^600$'
+  [[ "$(sha256sum "$plan" | cut -d' ' -f1)" == "$plan_sha" ]] \
+    || fail 'hash do plano diverge'
+  jq -e --arg release "$release_id" --arg archive "$(release_archive_sha "$release_id")" \
+    '.schema == 1 and .release_id == $release and .archive_sha256 == $archive and .expires_at_epoch > now' \
+    "$plan" >/dev/null || fail 'plano expirado ou divergente da release'
+  [[ "$(jq -r '.protected_fingerprint' "$plan")" == "$(protected_fingerprint)" ]] \
+    || fail 'projetos protegidos mudaram desde o plano'
+  [[ "$(jq -r '.secret_inventory_fingerprint' "$plan")" == "$(secret_inventory_fingerprint)" ]] \
+    || fail 'inventário de Secrets mudou desde o plano'
+  capacity_values >/dev/null
+  printf '%s' "$plan"
+}
+
+verify_runtime_core() {
+  local release_id="$1" rust_image postgres_image containers migration_count gate
+  rust_image="$(release_rust_image "$release_id")"
+  postgres_image="$(release_postgres_image "$release_id")"
+  kube -n "$NAMESPACE" rollout status statefulset/dre-postgres --timeout=240s >/dev/null
+  kube -n "$NAMESPACE" rollout status deployment/dre-api --timeout=180s >/dev/null
+  kube -n "$NAMESPACE" rollout status deployment/dre-worker --timeout=180s >/dev/null
+  [[ "$(kube -n "$NAMESPACE" get deployment dre-api -o jsonpath='{.spec.template.spec.containers[0].image}')" == "$rust_image" ]] \
+    || fail 'API não usa a imagem Rust esperada'
+  [[ "$(kube -n "$NAMESPACE" get deployment dre-worker -o jsonpath='{.spec.template.spec.containers[0].image}')" == "$rust_image" ]] \
+    || fail 'worker não usa a imagem Rust esperada'
+  [[ "$(kube -n "$NAMESPACE" get statefulset dre-postgres -o jsonpath='{.spec.template.spec.containers[0].image}')" == "$postgres_image" ]] \
+    || fail 'PostgreSQL não usa a imagem esperada'
+  containers="$(
+    {
+      kube -n "$NAMESPACE" get deployment dre-api -o jsonpath='{range .spec.template.spec.containers[*]}{.name}{"\n"}{end}'
+      kube -n "$NAMESPACE" get deployment dre-worker -o jsonpath='{range .spec.template.spec.containers[*]}{.name}{"\n"}{end}'
+      kube -n "$NAMESPACE" get statefulset dre-postgres -o jsonpath='{range .spec.template.spec.containers[*]}{.name}{"\n"}{end}'
+    } | sort
+  )"
+  [[ "$containers" == $'api\npostgres\nworker' ]] \
+    || fail 'runtime permanente diverge de api, postgres e worker'
+  kube -n "$NAMESPACE" get service -o json \
+    | jq -e 'all(.items[]; (.spec.type // "ClusterIP") == "ClusterIP" and ((.spec.externalIPs // []) | length == 0) and all(.spec.ports[]; has("nodePort") | not))' \
+    >/dev/null || fail 'Service DRE possui exposição proibida'
+  [[ "$(kube -n "$NAMESPACE" get pvc dre-postgres-data -o jsonpath='{.status.phase}')" == Bound ]] \
+    || fail 'PVC PostgreSQL não está Bound'
+  migration_count="$(kube -n "$NAMESPACE" exec dre-postgres-0 -- \
+    psql --no-psqlrc --tuples-only --no-align -h /var/run/postgresql \
+    -U dre_postgres_admin -d dre \
+    --command='SELECT count(*) FROM _sqlx_migrations WHERE success')"
+  [[ "${migration_count//[[:space:]]/}" == 7 ]] \
+    || fail 'PostgreSQL não confirmou sete migrations'
+  kube -n "$NAMESPACE" exec dre-postgres-0 -- dre-pgbackrest check >/dev/null
+  kube -n "$NAMESPACE" exec dre-postgres-0 -- dre-pgbackrest info >/dev/null
+  kube get --raw "/api/v1/namespaces/${NAMESPACE}/services/http:dre-api:8080/proxy/health/ready" \
+    >/dev/null || fail 'readiness da API falhou pelo proxy do API Server'
+  gate="$(kube get namespace "$NAMESPACE" -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}')"
+  [[ "$gate" == passed ]] || fail 'gate do namespace DRE não está passed'
+}
+
+rollback_runtime_internal() {
+  local previous="$1"
+  if [[ "$previous" != none ]]; then
+    [[ -d "$(release_directory "$previous")" \
+      && ! -L "$(release_directory "$previous")" \
+      && -f "$(release_file "$previous" 00-platform.yaml)" \
+      && -f "$(release_file "$previous" 30-runtime.yaml)" ]] || return 1
+    kube apply --server-side --field-manager=dre-deployctl \
+      -f "$(release_file "$previous" 00-platform.yaml)" >/dev/null || return 1
+    kube -n "$NAMESPACE" rollout status statefulset/dre-postgres --timeout=240s >/dev/null \
+      || return 1
+    kube apply --server-side --field-manager=dre-deployctl \
+      -f "$(release_file "$previous" 30-runtime.yaml)" >/dev/null || return 1
+    kube -n "$NAMESPACE" rollout status deployment/dre-api --timeout=180s >/dev/null \
+      || return 1
+    kube -n "$NAMESPACE" rollout status deployment/dre-worker --timeout=180s >/dev/null \
+      || return 1
+    printf '%s\n' "$previous" | atomic_write "$CURRENT_RELEASE" 0600 || return 1
+    kube label namespace "$NAMESPACE" \
+      platform.servidor.local/deployment-gate=passed --overwrite >/dev/null || return 1
+  else
+    kube -n "$NAMESPACE" delete deployment dre-api dre-worker --ignore-not-found >/dev/null \
+      || return 1
+    kube -n "$NAMESPACE" delete service dre-api dre-worker-metrics --ignore-not-found >/dev/null \
+      || return 1
+    kube -n "$NAMESPACE" delete poddisruptionbudget dre-api dre-worker --ignore-not-found >/dev/null \
+      || return 1
+    kube label namespace "$NAMESPACE" \
+      platform.servidor.local/deployment-gate=secrets-only --overwrite >/dev/null || return 1
+    rm -f -- "$CURRENT_RELEASE" || return 1
+  fi
+}
+
+deploy_release() {
+  [[ "$#" -eq 3 ]] || fail 'uso: deploy RELEASE_ID PLAN_SHA256 OPERATION_ID'
+  local release_id="$1" plan_sha="$2" operation_id="$3"
+  local plan previous protected_before postgres_image current_postgres alert_backup work_started=false
+  require_cached_release "$release_id"
+  require_operation_id "$operation_id"
+  require_new_receipt deploy "$operation_id"
+  verify_cached_release_again "$release_id"
+  verify_foundation
+  verify_release_secret_inventory "$release_id"
+  verify_protected_projects
+  acquire_controller_lock
+  plan="$(load_and_verify_plan "$release_id" "$plan_sha")"
+  previous="$(jq -r '.current_release' "$plan")"
+  [[ "$previous" == "$(current_release_id)" ]] || fail 'release corrente mudou desde o plano'
+  protected_before="$(jq -r '.protected_fingerprint' "$plan")"
+  acquire_shared_maintenance_locks
+  postgres_image="$(release_postgres_image "$release_id")"
+  if kube -n "$NAMESPACE" get statefulset dre-postgres >/dev/null 2>&1; then
+    current_postgres="$(kube -n "$NAMESPACE" get statefulset dre-postgres -o jsonpath='{.spec.template.spec.containers[0].image}')"
+    [[ "$current_postgres" == "$postgres_image" ]] \
+      || fail 'troca de imagem PostgreSQL exige operação de upgrade própria'
+  fi
+  alert_backup="$(mktemp)"
+  if [[ -f "$PROMETHEUS_RULES" && ! -L "$PROMETHEUS_RULES" ]]; then
+    cp -a -- "$PROMETHEUS_RULES" "$alert_backup"
+  else
+    : >"$alert_backup"
+  fi
+  jq -cn \
+    --arg release_id "$release_id" \
+    --arg operation_id "$operation_id" \
+    --arg previous_release "$previous" \
+    --arg started_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{schema:1,status:"started",release_id:$release_id,operation_id:$operation_id,previous_release:$previous_release,started_at_utc:$started_at_utc}' \
+    | atomic_write "${RECEIPT_ROOT}/deploy-${operation_id}.json" 0600
+  deploy_failed() {
+    local code=$? rollback_result=not-required
+    set +e
+    if $work_started; then
+      if rollback_runtime_internal "$previous"; then
+        rollback_result=passed
+      else
+        rollback_result=failed
+        kube label namespace "$NAMESPACE" \
+          platform.servidor.local/deployment-gate=rollback-failed --overwrite >/dev/null 2>&1 || true
+      fi
+      if [[ -s "$alert_backup" ]]; then
+        install -m 0644 -o root -g root "$alert_backup" "$PROMETHEUS_RULES" \
+          || rollback_result=failed
+      else
+        rm -f -- "$PROMETHEUS_RULES" || rollback_result=failed
+      fi
+      promtool check config /etc/prometheus/prometheus.yml >/dev/null 2>&1 \
+        && systemctl reload prometheus.service >/dev/null 2>&1 \
+        || rollback_result=failed
+    fi
+    jq -cn \
+      --arg release_id "$release_id" \
+      --arg operation_id "$operation_id" \
+      --arg previous_release "$previous" \
+      --arg rollback "$rollback_result" \
+      --arg failed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{schema:1,status:"failed",release_id:$release_id,operation_id:$operation_id,previous_release:$previous_release,rollback:$rollback,failed_at_utc:$failed_at_utc}' \
+      | atomic_write "${RECEIPT_ROOT}/deploy-${operation_id}.json" 0600 || true
+    rm -f -- "$alert_backup"
+    audit_event deploy failed "$release_id" "$operation_id"
+    exit "$code"
+  }
+  trap deploy_failed EXIT
+  work_started=true
+  kube apply --server-side --field-manager=dre-deployctl \
+    -f "$(release_file "$release_id" 00-platform.yaml)" >/dev/null
+  kube -n "$NAMESPACE" rollout status statefulset/dre-postgres --timeout=240s >/dev/null
+  kube -n "$NAMESPACE" exec dre-postgres-0 -- dre-pgbackrest stanza-create >/dev/null
+  kube -n "$NAMESPACE" exec dre-postgres-0 -- dre-pgbackrest check >/dev/null
+  kube -n "$NAMESPACE" delete job dre-database-migrate --ignore-not-found --wait=true >/dev/null
+  kube apply --server-side --field-manager=dre-deployctl \
+    -f "$(release_file "$release_id" 10-migrations.yaml)" >/dev/null
+  kube -n "$NAMESPACE" wait --for=condition=complete job/dre-database-migrate --timeout=660s >/dev/null
+  kube -n "$NAMESPACE" delete job dre-database-access --ignore-not-found --wait=true >/dev/null
+  kube apply --server-side --field-manager=dre-deployctl \
+    -f "$(release_file "$release_id" 20-database-access.yaml)" >/dev/null
+  kube -n "$NAMESPACE" wait --for=condition=complete job/dre-database-access --timeout=360s >/dev/null
+  kube apply --server-side --field-manager=dre-deployctl \
+    -f "$(release_file "$release_id" 30-runtime.yaml)" >/dev/null
+  kube -n "$NAMESPACE" rollout status deployment/dre-api --timeout=180s >/dev/null
+  kube -n "$NAMESPACE" rollout status deployment/dre-worker --timeout=180s >/dev/null
+  install -m 0644 -o root -g root \
+    "$(release_file "$release_id" monitoring/alerts-k3s.yml)" "$PROMETHEUS_RULES"
+  promtool check rules "$PROMETHEUS_RULES" >/dev/null
+  promtool check config /etc/prometheus/prometheus.yml >/dev/null
+  systemctl reload prometheus.service
+  kube label namespace "$NAMESPACE" \
+    platform.servidor.local/deployment-gate=passed --overwrite >/dev/null
+  verify_runtime_core "$release_id"
+  [[ "$(protected_fingerprint)" == "$protected_before" ]] \
+    || fail 'recurso protegido mudou durante o deploy DRE'
+  verify_protected_projects
+  printf '%s\n' "$release_id" | atomic_write "$CURRENT_RELEASE" 0600
+  jq -cn \
+    --arg release_id "$release_id" \
+    --arg operation_id "$operation_id" \
+    --arg previous_release "$previous" \
+    --arg completed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{schema:1,status:"passed",release_id:$release_id,operation_id:$operation_id,previous_release:$previous_release,completed_at_utc:$completed_at_utc}' \
+    | atomic_write "${RECEIPT_ROOT}/deploy-${operation_id}.json" 0600
+  trap - EXIT
+  rm -f -- "$alert_backup"
+  audit_event deploy passed "$release_id" "$operation_id"
+  pass "release ${release_id} implantada; banco e projetos protegidos preservados"
+}
+
+verify_release() {
+  [[ "$#" -eq 1 ]] || fail 'uso: verify RELEASE_ID'
+  local release_id="$1"
+  require_cached_release "$release_id"
+  verify_cached_release_again "$release_id"
+  verify_foundation
+  verify_release_secret_inventory "$release_id"
+  [[ "$(current_release_id)" == "$release_id" ]] || fail 'release solicitada não é a corrente'
+  verify_runtime_core "$release_id"
+  verify_protected_projects
+  audit_event verify passed "$release_id"
+  pass "release ${release_id} verificada com três containers permanentes e serviços privados"
+}
+
+backup_database() {
+  [[ "$#" -eq 2 ]] || fail 'uso: backup {full|diff} OPERATION_ID'
+  local backup_type="$1" operation_id="$2" release_id info stop
+  [[ "$backup_type" =~ ^(full|diff)$ ]] || fail 'tipo de backup inválido'
+  require_operation_id "$operation_id"
+  require_new_receipt backup "$operation_id"
+  release_id="$(current_release_id)"
+  [[ "$release_id" != none ]] || fail 'não existe release DRE corrente'
+  verify_foundation
+  verify_runtime_core "$release_id"
+  acquire_controller_lock
+  jq -cn \
+    --arg type "$backup_type" \
+    --arg operation_id "$operation_id" \
+    --arg release_id "$release_id" \
+    --arg started_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{schema:1,status:"started",type:$type,operation_id:$operation_id,release_id:$release_id,started_at_utc:$started_at_utc}' \
+    | atomic_write "${RECEIPT_ROOT}/backup-${operation_id}.json" 0600
+  backup_failed() {
+    local code=$?
+    set +e
+    jq -cn \
+      --arg type "$backup_type" \
+      --arg operation_id "$operation_id" \
+      --arg release_id "$release_id" \
+      --arg failed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{schema:1,status:"failed",type:$type,operation_id:$operation_id,release_id:$release_id,failed_at_utc:$failed_at_utc}' \
+      | atomic_write "${RECEIPT_ROOT}/backup-${operation_id}.json" 0600 || true
+    audit_event backup failed "$release_id" "$operation_id"
+    exit "$code"
+  }
+  trap backup_failed EXIT
+  kube -n "$NAMESPACE" exec dre-postgres-0 -- dre-pgbackrest "$backup_type" >/dev/null
+  info="$(kube -n "$NAMESPACE" exec dre-postgres-0 -- dre-pgbackrest info)"
+  jq -e 'type == "array" and length == 1 and .[0].name == "dre" and .[0].status.code == 0' \
+    <<<"$info" >/dev/null || fail 'pgBackRest não confirmou o repositório saudável'
+  stop="$(date -u +%s)"
+  jq -cn \
+    --arg type "$backup_type" \
+    --arg operation_id "$operation_id" \
+    --arg release_id "$release_id" \
+    --argjson completed_at_epoch "$stop" \
+    '{schema:1,status:"passed",type:$type,operation_id:$operation_id,release_id:$release_id,completed_at_epoch:$completed_at_epoch}' \
+    | atomic_write "${RECEIPT_ROOT}/backup-${operation_id}.json" 0600
+  trap - EXIT
+  audit_event backup passed "$release_id" "$operation_id"
+  pass "backup ${backup_type} concluído e conferido pelo pgBackRest"
+}
+
+restore_drill() {
+  [[ "$#" -eq 3 ]] || fail 'uso: restore-drill RELEASE_ID OPERATION_ID {latest|YYYY-MM-DDTHH:MM:SSZ}'
+  local release_id="$1" operation_id="$2" target="$3" temporary pvc_uid pv_name migration_count
+  require_cached_release "$release_id"
+  require_operation_id "$operation_id"
+  require_new_receipt restore "$operation_id"
+  [[ "$target" == latest || "$target" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] \
+    || fail 'alvo de restore inválido'
+  [[ "$(current_release_id)" == "$release_id" ]] || fail 'restore exige a release corrente'
+  verify_foundation
+  verify_runtime_core "$release_id"
+  acquire_controller_lock
+  if kube -n "$RESTORE_NAMESPACE" get statefulset dre-restore-postgres >/dev/null 2>&1 \
+      || kube -n "$RESTORE_NAMESPACE" get pvc dre-restore-data >/dev/null 2>&1; then
+    fail 'restore anterior ainda existe; reconciliação explícita é necessária'
+  fi
+  jq -cn \
+    --arg release_id "$release_id" \
+    --arg operation_id "$operation_id" \
+    --arg target "$target" \
+    --arg started_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{schema:1,status:"started",release_id:$release_id,operation_id:$operation_id,target:$target,started_at_utc:$started_at_utc}' \
+    | atomic_write "${RECEIPT_ROOT}/restore-${operation_id}.json" 0600
+  temporary="$(mktemp -d /run/dre-restore.XXXXXX)"
+  trap 'rm -rf -- "$temporary"' RETURN
+  restore_failed() {
+    local code=$?
+    set +e
+    kube -n "$RESTORE_NAMESPACE" delete statefulset dre-restore-postgres --ignore-not-found --wait=true >/dev/null 2>&1
+    kube -n "$RESTORE_NAMESPACE" delete service dre-restore-postgres --ignore-not-found >/dev/null 2>&1
+    kube -n "$RESTORE_NAMESPACE" delete configmap dre-restore-postgres-config dre-restore-runtime-config --ignore-not-found >/dev/null 2>&1
+    kube -n "$RESTORE_NAMESPACE" delete secret dre-registry-pull dre-backup-runtime --ignore-not-found >/dev/null 2>&1
+    jq -cn \
+      --arg release_id "$release_id" \
+      --arg operation_id "$operation_id" \
+      --arg target "$target" \
+      --arg failed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{schema:1,status:"failed",release_id:$release_id,operation_id:$operation_id,target:$target,failed_at_utc:$failed_at_utc}' \
+      | atomic_write "${RECEIPT_ROOT}/restore-${operation_id}.json" 0600 || true
+    audit_event restore-drill failed "$release_id" "$operation_id"
+    rm -rf -- "$temporary"
+    exit "$code"
+  }
+  trap restore_failed EXIT
+  python3 "$RESTORE_RENDERER" \
+    "$(release_file "$release_id" 00-platform.yaml)" \
+    "$(release_postgres_image "$release_id")" "$operation_id" "$target" \
+    "${temporary}/restore.yaml"
+  for secret in dre-registry-pull dre-backup-runtime; do
+    kube -n "$NAMESPACE" get secret "$secret" -o json \
+      | jq --arg namespace "$RESTORE_NAMESPACE" \
+        'del(.metadata.annotations,.metadata.creationTimestamp,.metadata.managedFields,.metadata.ownerReferences,.metadata.resourceVersion,.metadata.uid) | .metadata.namespace=$namespace' \
+      | kube apply --server-side --field-manager=dre-deployctl -f - >/dev/null
+  done
+  kube apply --server-side --field-manager=dre-deployctl -f "${temporary}/restore.yaml" >/dev/null
+  pvc_uid="$(kube -n "$RESTORE_NAMESPACE" get pvc dre-restore-data -o jsonpath='{.metadata.uid}')"
+  kube -n "$RESTORE_NAMESPACE" rollout status statefulset/dre-restore-postgres --timeout=1200s >/dev/null
+  migration_count="$(kube -n "$RESTORE_NAMESPACE" exec dre-restore-postgres-0 -- \
+    psql --no-psqlrc --tuples-only --no-align -h /var/run/postgresql \
+    -U dre_postgres_admin -d dre \
+    --command='SELECT count(*) FROM _sqlx_migrations WHERE success')"
+  [[ "${migration_count//[[:space:]]/}" == 7 ]] || fail 'restore não confirmou sete migrations'
+  [[ "$(kube -n "$RESTORE_NAMESPACE" exec dre-restore-postgres-0 -- \
+    psql --no-psqlrc --tuples-only --no-align -h /var/run/postgresql \
+    -U dre_postgres_admin -d dre \
+    --command="SELECT count(*) FROM pg_index WHERE NOT indisvalid")" =~ ^[[:space:]]*0[[:space:]]*$ ]] \
+    || fail 'restore contém índice inválido'
+  pv_name="$(kube -n "$RESTORE_NAMESPACE" get pvc dre-restore-data -o jsonpath='{.spec.volumeName}')"
+  kube -n "$RESTORE_NAMESPACE" delete statefulset dre-restore-postgres --wait=true >/dev/null
+  kube -n "$RESTORE_NAMESPACE" delete service dre-restore-postgres >/dev/null
+  kube -n "$RESTORE_NAMESPACE" delete configmap dre-restore-postgres-config dre-restore-runtime-config >/dev/null
+  kube -n "$RESTORE_NAMESPACE" delete secret dre-registry-pull dre-backup-runtime >/dev/null
+  kube -n "$RESTORE_NAMESPACE" delete pvc dre-restore-data --wait=true >/dev/null
+  local deadline=$((SECONDS + 180))
+  while admin_kube get pv "$pv_name" >/dev/null 2>&1; do
+    ((SECONDS < deadline)) || fail 'PV descartável não foi removido pela StorageClass Delete'
+    sleep 2
+  done
+  jq -cn \
+    --arg release_id "$release_id" \
+    --arg operation_id "$operation_id" \
+    --arg target "$target" \
+    --arg pvc_uid "$pvc_uid" \
+    --arg completed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{schema:1,status:"passed",release_id:$release_id,operation_id:$operation_id,target:$target,pvc_uid:$pvc_uid,migrations:7,invalid_indexes:0,completed_at_utc:$completed_at_utc}' \
+    | atomic_write "${RECEIPT_ROOT}/restore-${operation_id}.json" 0600
+  trap - EXIT
+  rm -rf -- "$temporary"
+  trap - RETURN
+  audit_event restore-drill passed "$release_id" "$operation_id"
+  pass 'restore descartável validou migrations e índices e removeu o PV temporário'
+}
+
+write_metrics() {
+  [[ "$#" -eq 0 ]] || fail 'uso: metrics'
+  local temporary ready=0 release_expected=0 release_ready=0 backup_timestamp=0 restore_timestamp=0 cert_expiry=0 release
+  temporary="$(mktemp "${METRICS_FILE}.tmp.XXXXXX")"
+  if (verify_foundation) >/dev/null 2>&1; then
+    ready=1
+  fi
+  release="$(current_release_id 2>/dev/null || printf none)"
+  if [[ "$release" != none ]]; then
+    release_expected=1
+    if (verify_runtime_core "$release") >/dev/null 2>&1; then
+      release_ready=1
+    fi
+  fi
+  backup_timestamp="$(find "$RECEIPT_ROOT" -maxdepth 1 -type f -name 'backup-*.json' -print0 2>/dev/null \
+    | xargs -0 -r jq -s '[.[].completed_at_epoch] | max // 0' 2>/dev/null || printf 0)"
+  restore_timestamp="$(find "$RECEIPT_ROOT" -maxdepth 1 -type f -name 'restore-*.json' -print0 2>/dev/null \
+    | xargs -0 -r jq -s '[.[].completed_at_utc | fromdateiso8601] | max // 0' 2>/dev/null || printf 0)"
+  backup_timestamp="${backup_timestamp:-0}"
+  restore_timestamp="${restore_timestamp:-0}"
+  if [[ -f /etc/dre-deployctl/client.crt ]]; then
+    cert_expiry="$(date -u -d "$(openssl x509 -in /etc/dre-deployctl/client.crt -noout -enddate | cut -d= -f2)" +%s 2>/dev/null || printf 0)"
+  fi
+  local metric_value
+  for metric_value in "$ready" "$release_expected" "$release_ready" \
+    "$backup_timestamp" "$restore_timestamp" "$cert_expiry"; do
+    [[ "$metric_value" =~ ^[0-9]+$ ]] || fail 'valor interno de métrica DRE inválido'
+  done
+  {
+    printf '# HELP dre_controller_foundation_ready Fundação fechada do controlador DRE.\n'
+    printf '# TYPE dre_controller_foundation_ready gauge\n'
+    printf 'dre_controller_foundation_ready %s\n' "$ready"
+    printf '# HELP dre_controller_release_expected Uma release DRE já foi promovida.\n'
+    printf '# TYPE dre_controller_release_expected gauge\n'
+    printf 'dre_controller_release_expected %s\n' "$release_expected"
+    printf '# HELP dre_controller_release_ready Release corrente DRE verificada.\n'
+    printf '# TYPE dre_controller_release_ready gauge\n'
+    printf 'dre_controller_release_ready %s\n' "$release_ready"
+    printf '# HELP dre_controller_backup_last_success_timestamp_seconds Último backup DRE concluído.\n'
+    printf '# TYPE dre_controller_backup_last_success_timestamp_seconds gauge\n'
+    printf 'dre_controller_backup_last_success_timestamp_seconds %s\n' "$backup_timestamp"
+    printf '# HELP dre_controller_restore_last_success_timestamp_seconds Último restore drill DRE concluído.\n'
+    printf '# TYPE dre_controller_restore_last_success_timestamp_seconds gauge\n'
+    printf 'dre_controller_restore_last_success_timestamp_seconds %s\n' "$restore_timestamp"
+    printf '# HELP dre_controller_identity_certificate_expiry_timestamp_seconds Expiração da identidade Kubernetes DRE.\n'
+    printf '# TYPE dre_controller_identity_certificate_expiry_timestamp_seconds gauge\n'
+    printf 'dre_controller_identity_certificate_expiry_timestamp_seconds %s\n' "$cert_expiry"
+  } >"$temporary"
+  chmod 0644 "$temporary"
+  chown root:root "$temporary"
+  mv -fT -- "$temporary" "$METRICS_FILE"
+}
+
+status() {
+  [[ "$#" -eq 0 ]] || fail 'uso: status'
+  local release gate postgres_pvc api_ready worker_ready postgres_ready
+  release="$(current_release_id)"
+  gate="$(kube get namespace "$NAMESPACE" -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}' 2>/dev/null || printf absent)"
+  postgres_pvc="$(kube -n "$NAMESPACE" get pvc dre-postgres-data -o jsonpath='{.status.phase}' 2>/dev/null || printf absent)"
+  api_ready="$(kube -n "$NAMESPACE" get deployment dre-api -o jsonpath='{.status.availableReplicas}' 2>/dev/null || printf 0)"
+  worker_ready="$(kube -n "$NAMESPACE" get deployment dre-worker -o jsonpath='{.status.availableReplicas}' 2>/dev/null || printf 0)"
+  postgres_ready="$(kube -n "$NAMESPACE" get statefulset dre-postgres -o jsonpath='{.status.readyReplicas}' 2>/dev/null || printf 0)"
+  jq -cn \
+    --arg release "$release" --arg gate "$gate" --arg pvc "$postgres_pvc" \
+    --argjson api_ready "${api_ready:-0}" --argjson worker_ready "${worker_ready:-0}" \
+    --argjson postgres_ready "${postgres_ready:-0}" \
+    '{schema:1,namespace:"dre-production",release:$release,gate:$gate,pvc_phase:$pvc,ready:{api:$api_ready,worker:$worker_ready,postgres:$postgres_ready}}'
+}
+
+contract() {
+  [[ "$#" -eq 0 ]] || fail 'uso: contract'
+  jq -cn '{schema:1,controller:"dre-deployctl",namespace:"dre-production",restore_namespace:"dre-restore-drill",lifecycle:"always-active",secondary_slot_member:false,permanent_containers:["api","worker","postgres"],images:"digest-only",release_signature:"ed25519",secret_input_schema:1,bridge_token_source:"orchestrator-stdin",mutations:["import-release","initialize-secrets","plan","deploy","backup","restore-drill"],generic_shell:false,generic_kubectl:false}'
+}
+
+main() {
+  require_root
+  local action="${1:-}"
+  [[ -n "$action" ]] || fail 'ação obrigatória'
+  shift
+  mkdir -p "$RELEASE_CACHE" "$PLAN_ROOT" "$RECEIPT_ROOT"
+  chmod 0700 "$STATE_ROOT" "$RELEASE_CACHE" "$PLAN_ROOT" "$RECEIPT_ROOT"
+  chown root:root "$STATE_ROOT" "$RELEASE_CACHE" "$PLAN_ROOT" "$RECEIPT_ROOT"
+  prune_expired_plans
+  case "$action" in
+    contract) contract "$@" ;;
+    import-release) import_release "$@" ;;
+    initialize-secrets) initialize_secrets "$@" ;;
+    plan) create_plan "$@" ;;
+    deploy) deploy_release "$@" ;;
+    verify) verify_release "$@" ;;
+    backup) backup_database "$@" ;;
+    restore-drill) restore_drill "$@" ;;
+    metrics) write_metrics "$@" ;;
+    status) status "$@" ;;
+    *) fail 'ação não permitida' ;;
+  esac
+}
+
+main "$@"

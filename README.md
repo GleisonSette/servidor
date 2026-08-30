@@ -1,13 +1,16 @@
 # Servidor local compartilhado
 
 Infraestrutura declarativa e memória operacional do servidor K3s usado por
-quatro projetos controlados pelo mesmo administrador:
+cinco projetos controlados pelo mesmo administrador:
 
 1. `apiwpp`;
 2. Pixel/CIA;
 3. SaferWPP;
 4. Blindou, bloqueado para publicação até a instalação e validação da borda
-   externa de contenção.
+   externa de contenção;
+5. DRE familiar, com fundação vazia e controlador instalados como projeto
+   sempre ativo e independente; uma release assinada está importada no cache,
+   ainda sem Secret, PVC ou workload.
 
 O repositório não contém segredos nem código das aplicações. O ponto de entrada
 para continuidade entre sessões é `memory/canon/index.md`.
@@ -16,6 +19,7 @@ para continuidade entre sessões é `memory/canon/index.md`.
 
 - `memory/`: memória canônica, histórico e índice BM25;
 - `platform/`: namespaces e controles compartilhados do K3s;
+- `platform/dre/`: fundação, admissão, RBAC e alertas do controlador DRE;
 - `platform/security/`: contrato da barreira externa e seus gates;
 - `operations/remote/`: rotinas operacionais versionadas e sem credenciais;
 - `runbooks/`: manutenção, recuperação e validação;

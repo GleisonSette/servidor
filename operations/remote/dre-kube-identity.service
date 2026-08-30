@@ -1,0 +1,16 @@
+[Unit]
+Description=Reconcilia a identidade Kubernetes exclusiva do DRE
+After=k3s.service
+Requires=k3s.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/dre-kube-identityctl reconcile
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/etc/dre-deployctl

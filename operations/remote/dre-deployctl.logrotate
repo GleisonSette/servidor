@@ -1,0 +1,11 @@
+/var/lib/dre-deployctl/audit.jsonl {
+    daily
+    rotate 30
+    maxsize 16M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    create 0600 root root
+    su root root
+}

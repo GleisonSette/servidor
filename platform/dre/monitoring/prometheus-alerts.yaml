@@ -1,0 +1,47 @@
+groups:
+  - name: dre-controller
+    rules:
+      - alert: DreControllerFoundationUnavailable
+        expr: dre_controller_foundation_ready != 1 or absent(dre_controller_foundation_ready)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Fundação fechada do controlador DRE indisponível
+          runbook: /runbooks/dre-k3s.md
+
+      - alert: DreControllerReleaseUnavailable
+        expr: dre_controller_release_expected == 1 and dre_controller_release_ready != 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Release corrente do DRE não passou na verificação
+          runbook: /runbooks/dre-k3s.md
+
+      - alert: DreControllerBackupStale
+        expr: dre_controller_release_expected == 1 and (time() - dre_controller_backup_last_success_timestamp_seconds > 129600)
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: Backup DRE está atrasado há mais de 36 horas
+          runbook: /runbooks/dre-k3s.md
+
+      - alert: DreControllerRestoreDrillStale
+        expr: dre_controller_release_expected == 1 and (time() - dre_controller_restore_last_success_timestamp_seconds > 7776000)
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: Restore drill DRE não foi aprovado nos últimos 90 dias
+          runbook: /runbooks/dre-k3s.md
+
+      - alert: DreControllerIdentityExpiring
+        expr: dre_controller_identity_certificate_expiry_timestamp_seconds - time() < 2592000
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Identidade Kubernetes DRE expira em menos de 30 dias
+          runbook: /runbooks/dre-k3s.md

@@ -1,0 +1,12 @@
+[Unit]
+Description=Coleta periódica das métricas do controlador DRE
+
+[Timer]
+OnBootSec=2m
+OnUnitActiveSec=1m
+AccuracySec=15s
+Persistent=true
+Unit=dre-controller-metrics.service
+
+[Install]
+WantedBy=timers.target

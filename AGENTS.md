@@ -4,8 +4,9 @@
 
 - Este repositório governa o servidor físico `192.168.100.59`, o cluster K3s
   local, a contenção temporária do Blindou e a infraestrutura compartilhada.
-- Código e manifests exclusivos de `apiwpp`, Pixel/CIA, SaferWPP e Blindou
-  permanecem nos respectivos repositórios. Não duplicar código de aplicação aqui.
+- Código e manifests exclusivos de `apiwpp`, Pixel/CIA, SaferWPP, Blindou e DRE
+  permanecem nos respectivos repositórios. Este repositório contém apenas a
+  fundação e o controlador do host para cada projeto, sem duplicar aplicação.
 - Segredos, kubeconfigs, chaves privadas, certificados privados, senhas e
   conteúdo de arquivos `.env` nunca entram neste repositório, memória, índice,
   log ou resposta.
@@ -38,6 +39,13 @@
   será retido até a entrada do primeiro cliente; nesse marco, ou diante de
   suspeita de exposição, lembrar o usuário de removê-lo e rotacionar a
   credencial.
+- D030 substitui somente a restrição de bootstrap da D029: o helper local
+  `Dre.SudoBootstrap.psm1` pode carregar `KEY_SERVIDOR` do arquivo canônico
+  `C:\github\servidor\.env` para bootstraps DRE versionados e fechados. Host,
+  staging, hashes, inventário e instalador são validados; o valor passa apenas
+  por memória e `stdin`, sem impressão, argumento, ambiente ou persistência. A
+  concessão não alcança `sudo` genérico, importação de release, Secret,
+  migration, deploy, backup ou restore.
 - Preservar alterações do usuário nos repositórios irmãos. Mudança em outro
   repositório exige escopo explícito e commit separado.
 - Por D026, a ativação da Shopee usa operação fechada posterior ao deploy da
@@ -55,6 +63,11 @@
   os blobs por streaming; o host continua recebendo somente a credencial
   root-only de leitura nos controladores aprovados. A exceção termina quando o
   usuário pedir a volta ao GitHub Actions e não abrange outra imagem ou projeto.
+- D032 exige que o token da ponte DRE seja gerado pelo orquestrador local e
+  entregue por entrada protegida primeiro ao Cloudflare Pages e depois ao
+  controlador. O valor nunca pode ser lido de volta do Kubernetes, exibido ou
+  persistido; a origem HTTPS, Secrets, migration e deploy mantêm autorizações
+  próprias.
 
 ## Memória RAG obrigatória
 
@@ -98,6 +111,10 @@ Depois de qualquer mudança operacional ou decisão:
   verificados, o estado atual permanece: APIWPP ativo e SaferWPP sem workloads.
   Pixel/CIA continua sem novos workloads. A contenção temporária do Blindou não
   contém `root` e termina obrigatoriamente na migração para Vultr.
+- Por D029, o DRE é um projeto familiar sempre ativo e independente do slot.
+  Seu deploy falha fechado sem release Ed25519, imagens por digest, identidade
+  Kubernetes exclusiva, Secrets criptografados, capacidade viva mínima e
+  integridade comprovada de Blindou, APIWPP e slot.
 - Um único nó, HDD, Fast Ethernet e energia residencial permanecem pontos
   únicos de falha. Isolamento externo reduz movimento lateral, mas não cria
   alta disponibilidade nem torna impossível explorar uma vulnerabilidade.

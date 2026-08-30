@@ -18,6 +18,14 @@ $files = Get-ChildItem -LiteralPath $root -Recurse -File -Force |
 
 foreach ($file in $files) {
     if ($forbiddenNames -contains $file.Name) {
+        $rootEnv = Join-Path $root '.env'
+        if ($file.Name -eq '.env' -and $file.FullName -eq $rootEnv) {
+            & git -C $root check-ignore -q -- .env
+            if ($LASTEXITCODE -ne 0) {
+                throw 'O .env local permitido por D025 não está protegido pelo gitignore.'
+            }
+            continue
+        }
         throw "Arquivo sensível não permitido: $($file.FullName)"
     }
     if ($file.Extension -in @('.key', '.pem', '.p12', '.pfx')) {
@@ -44,6 +52,20 @@ $required = @(
     'operations/remote/verify-platform.sh',
     'operations/remote/verify-blindou-isolation.sh',
     'operations/remote/verify-saferwpp-foundation-artifacts.py',
+    'operations/Dre.SudoBootstrap.psm1',
+    'operations/Invoke-DreControllerBootstrap.ps1',
+    'operations/remote/dre-deployctl',
+    'operations/remote/dre-deployctl.sudoers',
+    'operations/remote/dre-deployctl.logrotate',
+    'operations/remote/dre-release-verify.py',
+    'operations/remote/dre-secret-material.py',
+    'operations/remote/dre-restore-render.py',
+    'operations/remote/dre-kube-identityctl',
+    'operations/remote/bootstrap-dre-deployctl.sh',
+    'operations/remote/verify-dre-controller-artifacts.py',
+    'platform/dre/controller-foundation.yaml',
+    'platform/dre/monitoring/prometheus-alerts.yaml',
+    'runbooks/dre-k3s.md',
     'operations/Blindou.SudoBootstrap.psm1',
     'operations/Invoke-BlindouDataControllerBootstrap.ps1',
     'operations/Invoke-BlindouDataPullProof.ps1',
@@ -58,6 +80,21 @@ $required = @(
 foreach ($relative in $required) {
     if (-not (Test-Path -LiteralPath (Join-Path $root $relative))) {
         throw "Arquivo obrigatório ausente: $relative"
+    }
+}
+
+$dreBootstrap = Get-Content -Raw -LiteralPath (
+    Join-Path $root 'operations/Invoke-DreControllerBootstrap.ps1'
+)
+foreach ($invariant in @(
+    'apiadmin@192.168.100.59',
+    'dre-controller-bootstrap-4902604dad96-20260830T034515Z',
+    '85063b55e3a0325616bba69d28362a3aac1a175768a7c3394bebbc97efcceb2d',
+    '4902604dad96d9b07f4010308d30e3815cb4e76446855d925079be0e3b922ce9',
+    'StrictHostKeyChecking=yes'
+)) {
+    if (-not $dreBootstrap.Contains($invariant)) {
+        throw "Orquestrador DRE diverge do bundle aprovado: $invariant"
     }
 }
 
@@ -92,6 +129,10 @@ if ($null -eq $pythonCommand) {
     $pythonCommand = Get-Command python3 -ErrorAction Stop
 }
 & $pythonCommand.Source -B (Join-Path $root 'operations/remote/verify-saferwpp-foundation-artifacts.py')
+& $pythonCommand.Source -B (Join-Path $root 'operations/remote/verify-dre-controller-artifacts.py')
+& $pythonCommand.Source -B (Join-Path $root 'operations/remote/test-dre-release-verify.py')
+& $pythonCommand.Source -B (Join-Path $root 'operations/remote/test-dre-secret-material.py')
+& $pythonCommand.Source -B (Join-Path $root 'operations/remote/test-dre-restore-render.py')
 & $pythonCommand.Source -B (Join-Path $root 'operations/remote/verify-blindou-data-artifacts.py') $root
 & $pythonCommand.Source -B (Join-Path $root 'operations/remote/test-blindou-data-release-verify.py')
 & $pythonCommand.Source -B (Join-Path $root 'operations/remote/test-blindou-data-secret-verify.py')
