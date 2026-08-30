@@ -243,6 +243,7 @@ mkdir -p "$backup"
 chmod 0700 "$backup"
 rollback_needed=true
 foundation_created=false
+production_gate_before='blocked'
 declare -a targets=(
   /usr/local/sbin/dre-deployctl
   /usr/local/sbin/dre-kube-identityctl
@@ -319,7 +320,16 @@ if "$K3S" kubectl get validatingadmissionpolicy dre-controller-only >/dev/null 2
   require_production_predeploy_state
   require_empty_namespace dre-restore-drill
   require_validation_namespace_absent
+  production_gate_before="$(
+    "$K3S" kubectl get namespace dre-production \
+      -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}'
+  )"
   "$K3S" kubectl apply -f "$FOUNDATION_SOURCE" >/dev/null
+  if [[ "$production_gate_before" == secrets-only ]]; then
+    "$K3S" kubectl label namespace dre-production \
+      platform.servidor.local/deployment-gate=secrets-only \
+      --overwrite >/dev/null
+  fi
 else
   foundation_created=true
   "$K3S" kubectl apply -f "$FOUNDATION_SOURCE" >/dev/null

@@ -711,3 +711,36 @@ fundação conserva somente a permissão nominal e a admissão fail-closed. O
 rollback instala o bundle anterior; receipts schema 2 e releases cacheadas
 permanecem auditáveis. D034 não autoriza `dre-production`, migration
 persistente, rota externa, contas reais, dispositivos ou saldo inicial.
+
+## Resolvida D035 - Build e publicação das imagens DRE somente no servidor
+
+Em 2026-08-30, o usuário determinou que nenhum workload Linux, Docker, WSL ou
+container seja executado na estação Windows e autorizou construir, verificar e
+publicar as três imagens da candidata DRE no servidor físico. A estação fica
+restrita a Git, edição, SSH/SCP nativos e entrega protegida da credencial GHCR.
+
+O build usa o archive exato do commit
+`25dc4f8996699a5c9870294666391eb8bbab7c3e`, SHA-256
+`a5303a241928ea78223bf7cddfb5425fc77d14acbc96c9c249dcca586ad70099`,
+e BuildKit 0.32.2 oficial fixado pelo SHA-256
+`2975d0f651ad96ba8b80b9992ae1f9a964f4408569af5b6dc36544165c3926af`.
+O daemon existe somente durante a operação, roda como root por helper fechado,
+usa worker OCI próprio, snapshotter `native`, rede `bridge`, paralelismo dois,
+`nice`/`ionice` reduzidos e não acessa Docker nem o socket containerd do K3s.
+O preflight exige quatro CPUs, 8 GiB disponíveis e 60 GiB livres, além dos
+locks DRE, Blindou e slot secundário.
+
+O resultado são três OCI archives `linux/amd64` entregues novamente a
+`apiadmin`. A etapa seguinte permanece sem sudo: Syft 1.51.0 produz SBOM SPDX,
+Trivy 0.72.0 bloqueia qualquer vulnerabilidade alta/crítica e regctl 0.11.5
+publica `dre-app`, `dre-postgres` e `dre-validation-runner`. Todas as
+ferramentas são fixadas por SHA-256. O token `write:packages` continua no
+keyring da estação, atravessa SSH apenas por `stdin`, vive somente na memória e
+em um HOME temporário `0700` no servidor e nunca aparece em argumento, log,
+recibo ou arquivo versionado.
+
+Falha antes do push não publica imagem. Falha parcial durante o push pode deixar
+tag imutável sem recibo; repetir a mesma candidata é idempotente porque archive
+e tag estão presos ao mesmo SHA Git. D035 não concede acesso ao containerd do
+K3s, não instala daemon permanente e não autoriza `dre-production`, migration
+persistente, Cloudflare, contas ou dados reais.

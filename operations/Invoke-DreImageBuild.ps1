@@ -4,15 +4,18 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-Import-Module (Join-Path $PSScriptRoot 'Dre.SudoBootstrap.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'Dre.ImageBuild.psm1') -Force
 
 $server = 'apiadmin@192.168.100.59'
+$sourceRevision = '25dc4f8996699a5c9870294666391eb8bbab7c3e'
 $remoteRoot =
-    '/home/apiadmin/dre-controller-bootstrap-4902604dad96-20260830T223108Z'
-$archiveSha256 =
-    'dcd5d1a525ac9b9717ab70293e7c7c6bb993f5fbcd4d7eceeb3d51f3d8db0771'
-$publicKeySha256 =
-    '4902604dad96d9b07f4010308d30e3815cb4e76446855d925079be0e3b922ce9'
+    '/home/apiadmin/dre-image-build-25dc4f899669-20260830T221500Z'
+$sourceArchiveSha256 =
+    'a5303a241928ea78223bf7cddfb5425fc77d14acbc96c9c249dcca586ad70099'
+$buildKitArchiveSha256 =
+    '2975d0f651ad96ba8b80b9992ae1f9a964f4408569af5b6dc36544165c3926af'
+$buildScriptSha256 =
+    'ef848fc154dc9cc39256db43fdba5049c8cd7f19d5aa3d4a5261bc7b1e58705d'
 $sshDirectory = Join-Path $env:LOCALAPPDATA 'apiwpp\ssh'
 $identityFile = Join-Path $sshDirectory 'apiwpp_admin_ed25519'
 $knownHostsFile = Join-Path $sshDirectory 'known_hosts'
@@ -31,6 +34,8 @@ $sshArguments = @(
     '-o', 'IdentitiesOnly=yes',
     '-o', 'BatchMode=yes',
     '-o', 'ConnectTimeout=15',
+    '-o', 'ServerAliveInterval=15',
+    '-o', 'ServerAliveCountMax=12',
     '-o', 'PreferredAuthentications=publickey',
     '-o', 'PasswordAuthentication=no',
     '-o', 'KbdInteractiveAuthentication=no',
@@ -40,14 +45,20 @@ $sshArguments = @(
     '-o', "UserKnownHostsFile=$knownHostsFile"
 )
 
-Invoke-DreSudoBootstrap `
-    -SshArguments $sshArguments `
-    -Server $server `
-    -RemoteRoot $remoteRoot `
-    -ExpectedArchiveSha256 $archiveSha256 `
-    -PublicKeySha256 $publicKeySha256
+$buildArguments = @{
+    SshArguments = $sshArguments
+    Server = $server
+    RemoteRoot = $remoteRoot
+    SourceRevision = $sourceRevision
+    SourceArchiveSha256 = $sourceArchiveSha256
+    BuildKitArchiveSha256 = $buildKitArchiveSha256
+    BuildScriptSha256 = $buildScriptSha256
+}
+Invoke-DreImageBuild @buildArguments
 
 Write-Output (
-    'dre_sudo_bootstrap=passed ' +
-    "archive_sha256=$archiveSha256 public_key_sha256=$publicKeySha256"
+    'dre_image_build_orchestrator=passed ' +
+    "source_revision=$sourceRevision source_archive_sha256=$sourceArchiveSha256 " +
+    "buildkit_archive_sha256=$buildKitArchiveSha256 " +
+    "build_script_sha256=$buildScriptSha256"
 )

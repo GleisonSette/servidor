@@ -54,6 +54,11 @@ $required = @(
     'operations/remote/verify-saferwpp-foundation-artifacts.py',
     'operations/Dre.SudoBootstrap.psm1',
     'operations/Invoke-DreControllerBootstrap.ps1',
+    'operations/Dre.ImageBuild.psm1',
+    'operations/Invoke-DreImageBuild.ps1',
+    'operations/Invoke-DreImagePublish.ps1',
+    'operations/remote/build-dre-images.sh',
+    'operations/remote/publish-dre-images.sh',
     'operations/remote/dre-deployctl',
     'operations/remote/dre-deployctl.sudoers',
     'operations/remote/dre-deployctl.logrotate',
@@ -90,13 +95,87 @@ $dreBootstrap = Get-Content -Raw -LiteralPath (
 )
 foreach ($invariant in @(
     'apiadmin@192.168.100.59',
-    'dre-controller-bootstrap-4902604dad96-20260830T215253Z',
-    'e9037fa049f2760426002a8c7ad8949d9d6f8154d11407cc7e56306051822bd4',
+    'dre-controller-bootstrap-4902604dad96-20260830T223108Z',
+    'dcd5d1a525ac9b9717ab70293e7c7c6bb993f5fbcd4d7eceeb3d51f3d8db0771',
     '4902604dad96d9b07f4010308d30e3815cb4e76446855d925079be0e3b922ce9',
     'StrictHostKeyChecking=yes'
 )) {
     if (-not $dreBootstrap.Contains($invariant)) {
         throw "Orquestrador DRE diverge do bundle aprovado: $invariant"
+    }
+}
+$dreImagePublish = Get-Content -Raw -LiteralPath (
+    Join-Path $root 'operations/Invoke-DreImagePublish.ps1'
+)
+foreach ($invariant in @(
+    '92776fcbf215e5bdd32e86f80530714983f84f4d96be91fc5bde51c391523d7a',
+    'c93aa7638749f5aaac1a8e01787321889c78f0101809bb2880343478d0ba0467',
+    '2a2e837a2c8d59ec9af5472ee22d3b04ee463c4e44476ecf993fd1e5ab6ebc7f',
+    'bbb64b9695866ce4a7a8f5c9592002c5961cab378577fa3f8a040df362b9b2ea',
+    '$gh.Source auth token',
+    'StrictHostKeyChecking=yes'
+)) {
+    if (-not $dreImagePublish.Contains($invariant)) {
+        throw "Orquestrador da publicação DRE diverge: $invariant"
+    }
+}
+$dreImagePublishScript = Get-Content -Raw -LiteralPath (
+    Join-Path $root 'operations/remote/publish-dre-images.sh'
+)
+foreach ($invariant in @(
+    'oci-archive:',
+    '--severity HIGH,CRITICAL',
+    '--exit-code 1',
+    'registry login ghcr.io',
+    '--pass-stdin',
+    'ghcr.io/gleisonsette/dre-validation-runner'
+)) {
+    if (-not $dreImagePublishScript.Contains($invariant)) {
+        throw "Publicação DRE perdeu a invariante: $invariant"
+    }
+}
+
+$dreImageBuild = Get-Content -Raw -LiteralPath (
+    Join-Path $root 'operations/Invoke-DreImageBuild.ps1'
+)
+foreach ($invariant in @(
+    '25dc4f8996699a5c9870294666391eb8bbab7c3e',
+    'dre-image-build-25dc4f899669-20260830T221500Z',
+    'a5303a241928ea78223bf7cddfb5425fc77d14acbc96c9c249dcca586ad70099',
+    '2975d0f651ad96ba8b80b9992ae1f9a964f4408569af5b6dc36544165c3926af',
+    'ef848fc154dc9cc39256db43fdba5049c8cd7f19d5aa3d4a5261bc7b1e58705d',
+    'StrictHostKeyChecking=yes'
+)) {
+    if (-not $dreImageBuild.Contains($invariant)) {
+        throw "Orquestrador do build DRE diverge do artefato aprovado: $invariant"
+    }
+}
+$dreImageBuildModule = Get-Content -Raw -LiteralPath (
+    Join-Path $root 'operations/Dre.ImageBuild.psm1'
+)
+foreach ($invariant in @(
+    'KEY_SERVIDOR=',
+    'sudo -S -p',
+    'Read-DreImageBuildSudoPassword',
+    'New-DreImageBuildRootWrapper'
+)) {
+    if (-not $dreImageBuildModule.Contains($invariant)) {
+        throw "Helper sudo do build DRE perdeu a invariante: $invariant"
+    }
+}
+$dreImageBuildScript = Get-Content -Raw -LiteralPath (
+    Join-Path $root 'operations/remote/build-dre-images.sh'
+)
+foreach ($invariant in @(
+    '--containerd-worker=false',
+    '--oci-worker-snapshotter=native',
+    '--oci-worker-net=bridge',
+    '--oci-max-parallelism=2',
+    'rm -rf --one-file-system',
+    'ghcr.io/gleisonsette/dre-validation-runner'
+)) {
+    if (-not $dreImageBuildScript.Contains($invariant)) {
+        throw "Build efêmero DRE perdeu a invariante: $invariant"
     }
 }
 

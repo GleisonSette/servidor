@@ -2,11 +2,11 @@
 
 ## Estado e limite
 
-O controlador fechado e a fundação Kubernetes vazia do DRE estão instalados no
-servidor desde 2026-08-29. A release assinada
-`dre-20260830T010200Z-29aeeb82d5bc` foi importada no cache fechado em
-2026-08-30, mas não é a release corrente. Secrets, PVC, banco, imagens locais e
-workloads continuam ausentes. Criação de segredo, migration persistente,
+O controlador schema 2 e a fundação Kubernetes do DRE estão instalados no
+servidor. A release legada `dre-20260830T010200Z-29aeeb82d5bc` permanece no
+cache somente para rollback e não é a release corrente. Os cinco Secrets
+permanentes sem FCM existem, o gate pré-deploy é `secrets-only` e PVC, banco,
+workloads e `dre-validation` permanecem ausentes. Migration persistente,
 backup/restore de dados e deploy exigem janelas e autorizações operacionais
 próprias.
 
@@ -38,6 +38,40 @@ também entram obrigatoriamente na proteção.
   inventário, cache root-owned e instalador; não aceita comando livre. O valor
   não pode ser impresso, persistido, colocado em argumento ou variável de
   ambiente. Os helpers do Blindou/slot continuam capacidades separadas.
+- Por D035, `Dre.ImageBuild.psm1` usa a mesma origem de senha somente para o
+  build efêmero fechado. Ele não aceita comando root livre, não instala daemon
+  e não acessa o socket containerd do K3s.
+
+## Build, scan e publicação das imagens
+
+Windows não executa Linux, WSL, Docker, container ou teste de imagem. Ele gera
+o archive pelo Git, transporta arquivos com SSH/SCP nativos e chama os dois
+orquestradores. O build acontece somente no servidor:
+
+```text
+pwsh operations/Invoke-DreImageBuild.ps1
+```
+
+O orquestrador fixa o commit, SHA-256 do archive, BuildKit 0.32.2 e script do
+build. O helper root copia as entradas para staging privado, usa worker OCI
+`native` com rede `bridge`, dois passos paralelos e prioridade reduzida, e
+encerra o daemon no `trap`. K3s/containerd nunca é backend do builder. A saída
+são `rust.oci.tar`, `postgres.oci.tar` e `validation.oci.tar`, metadados e
+recibo ligados ao SHA Git.
+
+Depois, sem sudo:
+
+```text
+pwsh operations/Invoke-DreImagePublish.ps1
+```
+
+Syft gera os três SBOMs SPDX; Trivy bloqueia o fluxo se encontrar qualquer
+vulnerabilidade alta/crítica; somente então regctl publica no GHCR. As três
+ferramentas e os dois scripts são fixados por SHA-256. O token do `gh` chega
+por `stdin`, é usado em HOME temporário `0700` e não entra em argumento,
+ambiente persistente, log ou recibo. O recibo final contém somente referências
+por digest e hashes das evidências. Falha parcial de registry é repetida com a
+mesma tag `git-<12 SHA>`; nunca trocar o conteúdo por baixo da tag.
 
 ## Contrato da release schema 2
 
@@ -65,12 +99,14 @@ schema 2 com recibo descartável aprovado.
 
 ## Instalação do controlador
 
-Estado vivo: bundle root-owned
-`6b8e0e81190b4cda040abd8806c32ccd104fd291cb9dc325790595f77953ced1`,
-chave pública
+Estado vivo: controlador schema 2 com chave pública
 `4902604dad96d9b07f4010308d30e3815cb4e76446855d925079be0e3b922ce9`
-e backup transacional `20260829T235150Z`. Reexecução usa bundle novo, hashes
-novos e o mesmo contrato fechado; nunca altera o cache já atestado.
+e backup transacional da atualização em
+`/var/backups/servidor-local/dre-controller-bootstrap`. Reexecução usa bundle
+novo, hashes novos e o mesmo contrato fechado; nunca altera o cache já
+atestado. Atualização com Secrets existentes preserva explicitamente o gate
+`secrets-only`; aplicar novamente a fundação não pode regredi-lo para
+`blocked`.
 
 Somente em janela autorizada:
 
@@ -128,7 +164,8 @@ Antes da primeira release, `initialize-secrets RELEASE_ID` recebe por `stdin`
 um único JSON protegido com os campos exatos `schema`,
 `registry_dockerconfigjson`, `web_bridge_token`, `r2` e
 `fcm_service_account`. O dockerconfig fica restrito aos registries das duas
-imagens; FCM deve ser `null` quando a release não o habilita. O token da ponte
+imagens permanentes e da imagem efêmera de validação; FCM deve ser `null`
+quando a release não o habilita. O token da ponte
 usa somente alfabeto portátil, possui ao menos 64 caracteres e é o mesmo valor
 protegido no Secret `DRE_BRIDGE_TOKEN` do Cloudflare Pages.
 
