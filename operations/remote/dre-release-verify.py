@@ -23,13 +23,21 @@ FCM_PROJECT_RE = re.compile(r"^[a-z][a-z0-9-]{4,29}$")
 IMAGE_RE = re.compile(r"^[a-z0-9][a-z0-9._:/-]*@sha256:[0-9a-f]{64}$")
 DNS_NAME_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$")
 
-STAGE_FILES = (
+PRODUCTION_STAGE_FILES = (
     "00-platform.yaml",
     "10-migrations.yaml",
     "20-database-access.yaml",
     "30-runtime.yaml",
 )
-EVIDENCE_FILES = {
+VALIDATION_STAGE_FILES = (
+    "40-validation-platform.yaml",
+    "41-validation-migrations.yaml",
+    "42-validation-database-access.yaml",
+    "43-validation-runtime.yaml",
+    "44-validation-bootstrap.yaml",
+    "45-validation-e2e.yaml",
+)
+SCHEMA_1_EVIDENCE_FILES = {
     "release.json",
     "supply-chain.json",
     "monitoring/alerts-k3s.yml",
@@ -38,7 +46,10 @@ EVIDENCE_FILES = {
     "scan/rust.json",
     "scan/postgres.json",
 }
-REQUIRED_FILES = set(STAGE_FILES) | EVIDENCE_FILES
+SCHEMA_2_EVIDENCE_FILES = SCHEMA_1_EVIDENCE_FILES | {
+    "sbom/validation.spdx.json",
+    "scan/validation.json",
+}
 
 ALLOWED_IDENTITIES: dict[str, set[tuple[str, str]]] = {
     "00-platform.yaml": {
@@ -78,6 +89,42 @@ ALLOWED_IDENTITIES: dict[str, set[tuple[str, str]]] = {
         ("Service", "dre-worker-metrics"),
         ("PodDisruptionBudget", "dre-worker"),
     },
+    "40-validation-platform.yaml": {
+        ("Namespace", "dre-validation"),
+        ("ConfigMap", "dre-postgres-config"),
+        ("ConfigMap", "dre-runtime-config"),
+        ("ConfigMap", "dre-database-access-script"),
+        ("ServiceAccount", "dre-postgres"),
+        ("ServiceAccount", "dre-api"),
+        ("ServiceAccount", "dre-worker"),
+        ("ServiceAccount", "dre-migrator"),
+        ("ServiceAccount", "dre-database-access"),
+        ("ServiceAccount", "dre-admin"),
+        ("ResourceQuota", "dre-validation-quota"),
+        ("LimitRange", "dre-validation-defaults"),
+        ("Service", "dre-postgres"),
+        ("PersistentVolumeClaim", "dre-postgres-data"),
+        ("StatefulSet", "dre-postgres"),
+        ("NetworkPolicy", "default-deny"),
+        ("NetworkPolicy", "allow-cluster-dns"),
+        ("NetworkPolicy", "postgres-ingress"),
+        ("NetworkPolicy", "application-to-postgres"),
+        ("NetworkPolicy", "api-ingress"),
+        ("NetworkPolicy", "validation-to-api"),
+    },
+    "41-validation-migrations.yaml": {("Job", "dre-database-migrate")},
+    "42-validation-database-access.yaml": {("Job", "dre-database-access")},
+    "43-validation-runtime.yaml": {
+        ("Deployment", "dre-api"),
+        ("Service", "dre-api"),
+        ("Deployment", "dre-worker"),
+        ("Service", "dre-worker-metrics"),
+    },
+    "44-validation-bootstrap.yaml": {("Job", "dre-validation-bootstrap")},
+    "45-validation-e2e.yaml": {
+        ("ServiceAccount", "dre-validation"),
+        ("Job", "dre-validation-e2e"),
+    },
 }
 ALLOWED_API_VERSIONS = {
     "v1",
@@ -94,6 +141,7 @@ ALLOWED_SECRETS = {
     "dre-api-runtime",
     "dre-backup-runtime",
     "dre-fcm-runtime",
+    "dre-validation-accounts",
 }
 EXPECTED_ALERTS = {
     "DreK3sApiUnavailable",
@@ -205,13 +253,24 @@ def pod_specs(document: dict[str, Any]) -> Iterable[dict[str, Any]]:
 
 
 def validate_container(
-    container: dict[str, Any], resource: str, allowed_images: set[str]
+    container: dict[str, Any], resource: str, expected_images: dict[str, str]
 ) -> None:
     image = container.get("image")
     if not isinstance(image, str) or not IMAGE_RE.fullmatch(image):
         fail(f"imagem sem digest em {resource}")
-    if image not in allowed_images:
-        fail(f"imagem fora da release em {resource}")
+    container_name = container.get("name")
+    component_by_container = {
+        "postgres": "postgres",
+        "database-access": "postgres",
+        "e2e": "validation",
+        "api": "rust",
+        "worker": "rust",
+        "migrate": "rust",
+        "bootstrap": "rust",
+    }
+    component = component_by_container.get(container_name)
+    if component is None or expected_images.get(component) != image:
+        fail(f"imagem incompatível com o container em {resource}")
     resources = container.get("resources", {})
     for field in ("requests", "limits"):
         values = resources.get(field, {})
@@ -234,7 +293,7 @@ def validate_container(
 
 
 def validate_pod_spec(
-    spec: dict[str, Any], resource: str, allowed_images: set[str]
+    spec: dict[str, Any], resource: str, expected_images: dict[str, str]
 ) -> None:
     for field in ("hostNetwork", "hostPID", "hostIPC"):
         if spec.get(field) is True:
@@ -252,7 +311,7 @@ def validate_pod_spec(
     if not containers:
         fail(f"workload sem container em {resource}")
     for container in containers:
-        validate_container(container, resource, allowed_images)
+        validate_container(container, resource, expected_images)
     for volume in spec.get("volumes", []) or []:
         if "hostPath" in volume:
             fail(f"hostPath proibido em {resource}")
@@ -263,9 +322,10 @@ def validate_pod_spec(
 
 def validate_release_metadata(
     root: Path, release_id: str
-) -> tuple[dict[str, Any], set[str]]:
+) -> tuple[dict[str, Any], dict[str, str], int]:
     release = load_json(root / "release.json", "release.json")
-    expected_release_keys = {
+    schema = release.get("schema")
+    schema_1_keys = {
         "schema",
         "generated_at_utc",
         "target",
@@ -282,33 +342,50 @@ def validate_release_metadata(
         "stages",
         "stage_sha256",
     }
-    if set(release) != expected_release_keys:
+    schema_2_keys = schema_1_keys | {
+        "migration_count",
+        "validation_image",
+        "validation_namespace",
+        "validation_stages",
+    }
+    expected_release_keys = schema_1_keys if schema == 1 else schema_2_keys
+    if schema not in {1, 2} or set(release) != expected_release_keys:
         fail("campos de release.json divergem do contrato fechado")
-    if release.get("schema") != 1:
-        fail("schema de release incompatível")
     if release.get("target") != "local-k3s-x86_64":
         fail("target da release não é o K3s local x86_64")
     if release.get("namespace") != "dre-production":
         fail("namespace da release diverge")
-    if release.get("stages") != list(STAGE_FILES):
+    if release.get("stages") != list(PRODUCTION_STAGE_FILES):
         fail("ordem dos estágios diverge")
+    stage_files = PRODUCTION_STAGE_FILES
+    if schema == 2:
+        if release.get("migration_count") != 9:
+            fail("schema 2 deve declarar exatamente nove migrations")
+        if release.get("validation_namespace") != "dre-validation":
+            fail("namespace de validação diverge")
+        if release.get("validation_stages") != list(VALIDATION_STAGE_FILES):
+            fail("ordem dos estágios de validação diverge")
+        stage_files += VALIDATION_STAGE_FILES
     checksums = release.get("stage_sha256")
-    if not isinstance(checksums, dict) or set(checksums) != set(STAGE_FILES):
+    if not isinstance(checksums, dict) or set(checksums) != set(stage_files):
         fail("mapa de checksums dos estágios diverge")
-    for stage in STAGE_FILES:
+    for stage in stage_files:
         expected = checksums.get(stage)
         if not isinstance(expected, str) or not SHA256_RE.fullmatch(expected):
             fail(f"checksum inválido em {stage}")
         if sha256_file(root / stage) != expected:
             fail(f"checksum do estágio diverge: {stage}")
-    rust_image = release.get("rust_image")
-    postgres_image = release.get("postgres_image")
-    if not isinstance(rust_image, str) or not IMAGE_RE.fullmatch(rust_image):
-        fail("imagem Rust inválida no recibo")
-    if not isinstance(postgres_image, str) or not IMAGE_RE.fullmatch(postgres_image):
-        fail("imagem PostgreSQL inválida no recibo")
-    if rust_image == postgres_image:
-        fail("imagens Rust e PostgreSQL não podem coincidir")
+    image_fields = ["rust_image", "postgres_image"]
+    if schema == 2:
+        image_fields.append("validation_image")
+    release_images: dict[str, str] = {}
+    for field in image_fields:
+        image = release.get(field)
+        if not isinstance(image, str) or not IMAGE_RE.fullmatch(image):
+            fail(f"imagem inválida no recibo: {field}")
+        release_images[field.removesuffix("_image")] = image
+    if len(set(release_images.values())) != len(release_images):
+        fail("imagens da release não podem coincidir")
     fcm_enabled = release.get("fcm_enabled")
     fcm_project_id = release.get("fcm_project_id")
     if not isinstance(fcm_enabled, bool) or not isinstance(fcm_project_id, str):
@@ -329,12 +406,9 @@ def validate_release_metadata(
     if supply.get("target") != "local-k3s-x86_64":
         fail("target da cadeia de fornecimento diverge")
     images = supply.get("images")
-    if not isinstance(images, dict) or set(images) != {"rust", "postgres"}:
-        fail("cadeia de fornecimento deve conter Rust e PostgreSQL")
-    for component, expected_image in (
-        ("rust", rust_image),
-        ("postgres", postgres_image),
-    ):
+    if not isinstance(images, dict) or set(images) != set(release_images):
+        fail("componentes da cadeia de fornecimento divergem da release")
+    for component, expected_image in release_images.items():
         evidence = images.get(component)
         if not isinstance(evidence, dict):
             fail(f"evidência ausente para {component}")
@@ -367,12 +441,23 @@ def validate_release_metadata(
             fail(f"scan de {component} contém vulnerabilidade alta")
         load_json(root / evidence["sbom"]["path"], f"SBOM {component}")
         load_json(root / evidence["scan"]["path"], f"scan {component}")
-    return release, {rust_image, postgres_image}
+    migration_count = 7 if schema == 1 else 9
+    return release, release_images, migration_count
 
 
-def validate_documents(root: Path, allowed_images: set[str]) -> None:
+def validate_documents(
+    root: Path, release: dict[str, Any], expected_images: dict[str, str]
+) -> None:
+    schema = release["schema"]
+    stage_files = PRODUCTION_STAGE_FILES
+    if schema == 2:
+        stage_files += VALIDATION_STAGE_FILES
     permanent_containers: list[str] = []
-    for stage, expected_identities in ALLOWED_IDENTITIES.items():
+    for stage in stage_files:
+        expected_identities = ALLOWED_IDENTITIES[stage]
+        expected_namespace = (
+            "dre-validation" if stage in VALIDATION_STAGE_FILES else "dre-production"
+        )
         documents = load_yaml_documents(root / stage)
         actual_identities: set[tuple[str, str]] = set()
         for document in documents:
@@ -394,8 +479,8 @@ def validate_documents(root: Path, allowed_images: set[str]) -> None:
             if kind in {"Namespace", "StorageClass"}:
                 if namespace is not None:
                     fail(f"recurso cluster-scoped possui namespace: {kind}/{name}")
-            elif namespace != "dre-production":
-                fail(f"recurso fora de dre-production: {kind}/{name}")
+            elif namespace != expected_namespace:
+                fail(f"recurso fora de {expected_namespace}: {kind}/{name}")
             labels = metadata.get("labels", {})
             if labels.get("app.kubernetes.io/part-of") != "dre-familiar":
                 fail(f"ownership DRE ausente em {kind}/{name}")
@@ -404,8 +489,11 @@ def validate_documents(root: Path, allowed_images: set[str]) -> None:
                 fail("Secret não pode integrar a release")
             if kind == "Namespace":
                 labels = metadata.get("labels", {})
-                if labels.get("dre.familiar/lifecycle") != "always-active":
-                    fail("namespace DRE não está marcado como sempre ativo")
+                expected_lifecycle = (
+                    "disposable" if name == "dre-validation" else "always-active"
+                )
+                if labels.get("dre.familiar/lifecycle") != expected_lifecycle:
+                    fail("lifecycle do namespace DRE diverge")
                 if labels.get("pod-security.kubernetes.io/enforce") != "restricted":
                     fail("Pod Security restricted ausente")
                 if labels.get("pod-security.kubernetes.io/enforce-version") != "v1.36":
@@ -429,11 +517,15 @@ def validate_documents(root: Path, allowed_images: set[str]) -> None:
                         fail(f"Service possui nodePort: {name}")
             if kind == "PersistentVolumeClaim":
                 spec = document.get("spec", {})
-                if spec.get("storageClassName") != "dre-local-retain":
-                    fail("PVC não usa a StorageClass DRE Retain")
+                expected_storage_class = (
+                    "local-path" if expected_namespace == "dre-validation" else "dre-local-retain"
+                )
+                if spec.get("storageClassName") != expected_storage_class:
+                    fail("PVC não usa a StorageClass aprovada para seu lifecycle")
                 storage = spec.get("resources", {}).get("requests", {}).get("storage")
-                if storage != "20Gi":
-                    fail("PVC PostgreSQL deve solicitar exatamente 20Gi")
+                expected_storage = "5Gi" if expected_namespace == "dre-validation" else "20Gi"
+                if storage != expected_storage:
+                    fail("PVC PostgreSQL possui capacidade divergente")
             if kind == "Job":
                 spec = document.get("spec", {})
                 if spec.get("ttlSecondsAfterFinished") != 86400:
@@ -444,8 +536,11 @@ def validate_documents(root: Path, allowed_images: set[str]) -> None:
                 if document.get("spec", {}).get("podSelector") != {}:
                     fail("default-deny não seleciona todos os pods")
             for spec in pod_specs(document):
-                validate_pod_spec(spec, f"{kind}/{name}", allowed_images)
-                if kind in {"Deployment", "StatefulSet"}:
+                validate_pod_spec(spec, f"{kind}/{name}", expected_images)
+                if (
+                    stage in PRODUCTION_STAGE_FILES
+                    and kind in {"Deployment", "StatefulSet"}
+                ):
                     permanent_containers.extend(
                         container.get("name", "")
                         for container in spec.get("containers", []) or []
@@ -497,14 +592,34 @@ def main() -> None:
     relative = {
         str(path.relative_to(destination)).replace(os.sep, "/") for path in paths
     }
-    if relative != REQUIRED_FILES:
-        missing = sorted(REQUIRED_FILES - relative)
-        extra = sorted(relative - REQUIRED_FILES)
+    if "release.json" not in relative:
+        fail("release.json ausente no archive")
+    release_preview = load_json(destination / "release.json", "release.json")
+    schema = release_preview.get("schema")
+    if schema == 1:
+        required_files = set(PRODUCTION_STAGE_FILES) | SCHEMA_1_EVIDENCE_FILES
+    elif schema == 2:
+        required_files = (
+            set(PRODUCTION_STAGE_FILES)
+            | set(VALIDATION_STAGE_FILES)
+            | SCHEMA_2_EVIDENCE_FILES
+        )
+    else:
+        fail("schema de release incompatível")
+    if relative != required_files:
+        missing = sorted(required_files - relative)
+        extra = sorted(relative - required_files)
         fail(f"conteúdo do archive diverge; ausentes={missing}, extras={extra}")
-    _, allowed_images = validate_release_metadata(destination, release_id)
-    validate_documents(destination, allowed_images)
+    release, expected_images, migration_count = validate_release_metadata(
+        destination, release_id
+    )
+    validate_documents(destination, release, expected_images)
     validate_alerts(destination)
-    print("dre_release_bundle=passed namespace=dre-production permanent_containers=3")
+    print(
+        "dre_release_bundle=passed "
+        f"schema={schema} migrations={migration_count} "
+        "namespace=dre-production permanent_containers=3"
+    )
 
 
 if __name__ == "__main__":

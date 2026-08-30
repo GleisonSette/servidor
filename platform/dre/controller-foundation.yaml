@@ -182,6 +182,7 @@ rules:
     resourceNames:
       - dre-production
       - dre-restore-drill
+      - dre-validation
     verbs:
       - get
       - patch
@@ -469,9 +470,9 @@ spec:
   matchConditions:
     - name: dre-scope-only
       expression: >-
-        request.namespace in ['dre-production', 'dre-restore-drill'] ||
+        request.namespace in ['dre-production', 'dre-restore-drill', 'dre-validation'] ||
         (request.resource.resource == 'namespaces' &&
-          request.name in ['dre-production', 'dre-restore-drill']) ||
+          request.name in ['dre-production', 'dre-restore-drill', 'dre-validation']) ||
         (request.resource.resource == 'storageclasses' &&
           request.name in ['dre-local-retain', 'dre-local-delete-drill'])
   validations:

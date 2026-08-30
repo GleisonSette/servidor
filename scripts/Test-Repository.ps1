@@ -59,11 +59,13 @@ $required = @(
     'operations/remote/dre-deployctl.logrotate',
     'operations/remote/dre-release-verify.py',
     'operations/remote/dre-secret-material.py',
+    'operations/remote/dre-validation-material.py',
     'operations/remote/dre-restore-render.py',
     'operations/remote/dre-kube-identityctl',
     'operations/remote/bootstrap-dre-deployctl.sh',
     'operations/remote/verify-dre-controller-artifacts.py',
     'platform/dre/controller-foundation.yaml',
+    'platform/dre/validation-access.yaml',
     'platform/dre/monitoring/prometheus-alerts.yaml',
     'runbooks/dre-k3s.md',
     'operations/Blindou.SudoBootstrap.psm1',
@@ -88,8 +90,8 @@ $dreBootstrap = Get-Content -Raw -LiteralPath (
 )
 foreach ($invariant in @(
     'apiadmin@192.168.100.59',
-    'dre-controller-bootstrap-4902604dad96-20260830T034515Z',
-    '85063b55e3a0325616bba69d28362a3aac1a175768a7c3394bebbc97efcceb2d',
+    'dre-controller-bootstrap-4902604dad96-20260830T215253Z',
+    'e9037fa049f2760426002a8c7ad8949d9d6f8154d11407cc7e56306051822bd4',
     '4902604dad96d9b07f4010308d30e3815cb4e76446855d925079be0e3b922ce9',
     'StrictHostKeyChecking=yes'
 )) {
@@ -132,6 +134,7 @@ if ($null -eq $pythonCommand) {
 & $pythonCommand.Source -B (Join-Path $root 'operations/remote/verify-dre-controller-artifacts.py')
 & $pythonCommand.Source -B (Join-Path $root 'operations/remote/test-dre-release-verify.py')
 & $pythonCommand.Source -B (Join-Path $root 'operations/remote/test-dre-secret-material.py')
+& $pythonCommand.Source -B (Join-Path $root 'operations/remote/test-dre-validation-material.py')
 & $pythonCommand.Source -B (Join-Path $root 'operations/remote/test-dre-restore-render.py')
 & $pythonCommand.Source -B (Join-Path $root 'operations/remote/verify-blindou-data-artifacts.py') $root
 & $pythonCommand.Source -B (Join-Path $root 'operations/remote/test-blindou-data-release-verify.py')

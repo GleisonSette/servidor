@@ -26,7 +26,11 @@ function Write-Utf8Lf([string]$Path, [string]$Content) {
 
 function Resolve-RepoPath([string]$RelativePath) {
     $absolute = [IO.Path]::GetFullPath((Join-Path $repoRoot $RelativePath))
-    $prefix = $repoRoot.TrimEnd('\') + '\'
+    $separators = [char[]]@(
+        [IO.Path]::DirectorySeparatorChar,
+        [IO.Path]::AltDirectorySeparatorChar
+    )
+    $prefix = $repoRoot.TrimEnd($separators) + [IO.Path]::DirectorySeparatorChar
     if (-not $absolute.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Fonte fora do repositorio: $RelativePath"
     }

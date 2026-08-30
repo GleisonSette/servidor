@@ -11,8 +11,9 @@ repositórios.
   gate de deploy bloqueado.
 - `blindou-data/`: quarentena independente do futuro PostgreSQL dedicado do
   Blindou; nenhum PVC, Secret ou workload é criado pelo pacote base.
-- `dre/`: fundação aplicada e vazia do controlador DRE, com namespaces de
-  produção/restauração, RBAC, admissão e alertas próprios.
+- `dre/`: fundação do controlador DRE, com namespaces permanentes de
+  produção/restauração, RBAC descartável de `dre-validation`, admissão e
+  alertas próprios.
 - `saferwpp/`: contrato ainda não aplicado do PostgreSQL, backup,
   observabilidade, quota e dependências exclusivas do laboratório SaferWPP.
 - `secondary-slot/`: fonte de verdade, admissão e alertas da exclusão mútua

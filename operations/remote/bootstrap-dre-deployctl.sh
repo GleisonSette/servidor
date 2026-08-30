@@ -16,6 +16,7 @@ readonly FOUNDATION_SOURCE="${REPOSITORY_ROOT}/platform/dre/controller-foundatio
 readonly CONTROLLER_ALERTS_SOURCE="${REPOSITORY_ROOT}/platform/dre/monitoring/prometheus-alerts.yaml"
 readonly VERIFIER_SOURCE="${SOURCE_DIRECTORY}/dre-release-verify.py"
 readonly SECRET_SOURCE="${SOURCE_DIRECTORY}/dre-secret-material.py"
+readonly VALIDATION_MATERIAL_SOURCE="${SOURCE_DIRECTORY}/dre-validation-material.py"
 readonly RESTORE_SOURCE="${SOURCE_DIRECTORY}/dre-restore-render.py"
 readonly CONTROLLER_SOURCE="${SOURCE_DIRECTORY}/dre-deployctl"
 readonly IDENTITY_SOURCE="${SOURCE_DIRECTORY}/dre-kube-identityctl"
@@ -26,6 +27,7 @@ readonly IDENTITY_TIMER_SOURCE="${SOURCE_DIRECTORY}/dre-kube-identity.timer"
 readonly METRICS_SERVICE_SOURCE="${SOURCE_DIRECTORY}/dre-controller-metrics.service"
 readonly METRICS_TIMER_SOURCE="${SOURCE_DIRECTORY}/dre-controller-metrics.timer"
 readonly ARTIFACT_VERIFIER="${SOURCE_DIRECTORY}/verify-dre-controller-artifacts.py"
+readonly VALIDATION_ACCESS_SOURCE="${REPOSITORY_ROOT}/platform/dre/validation-access.yaml"
 readonly K3S='/usr/local/bin/k3s'
 readonly CONFIG_ROOT='/etc/dre-deployctl'
 readonly LIB_ROOT='/usr/local/lib/dre-deployctl'
@@ -65,6 +67,36 @@ require_empty_namespace() {
     [[ "$count" -eq 0 ]] \
       || fail "namespace ${namespace} contém ${count} objeto(s) ${resource} inesperado(s)"
   done
+}
+
+require_production_predeploy_state() {
+  local -a resources=(
+    deployments.apps statefulsets.apps daemonsets.apps replicasets.apps
+    replicationcontrollers jobs.batch cronjobs.batch pods services
+    persistentvolumeclaims
+  )
+  local resource count secret_names
+  for resource in "${resources[@]}"; do
+    count="$("$K3S" kubectl --namespace dre-production get "$resource" \
+      --ignore-not-found -o name | wc -l)"
+    [[ "$count" -eq 0 ]] \
+      || fail "namespace dre-production contém ${count} objeto(s) ${resource} antes do deploy"
+  done
+  secret_names="$("$K3S" kubectl --namespace dre-production get secrets -o json \
+    | jq -r '.items[].metadata.name' | sort)"
+  case "$secret_names" in
+    '') ;;
+    $'dre-api-runtime\ndre-backup-runtime\ndre-database-access\ndre-postgres-admin\ndre-registry-pull') ;;
+    $'dre-api-runtime\ndre-backup-runtime\ndre-database-access\ndre-fcm-runtime\ndre-postgres-admin\ndre-registry-pull') ;;
+    *) fail 'inventário de Secrets de produção diverge do estado pré-deploy aprovado' ;;
+  esac
+  [[ "$("$K3S" kubectl get namespace dre-production -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}')" =~ ^(blocked|secrets-only)$ ]] \
+    || fail 'gate de produção já avançou além do estado autorizado para o bootstrap'
+}
+
+require_validation_namespace_absent() {
+  ! "$K3S" kubectl get namespace dre-validation >/dev/null 2>&1 \
+    || fail 'dre-validation existe; concluir diagnóstico/limpeza antes de atualizar o controlador'
 }
 
 wait_for_protected_locks_release() {
@@ -114,6 +146,41 @@ run_protected_gate() {
   fail "${label} permaneceu ocupado por 60 segundos"
 }
 
+run_secondary_slot_gate() {
+  local output occupant apiwpp_workloads saferwpp_workloads
+  output="$(sudo -u apiadmin sudo -n /usr/local/sbin/secondary-slotctl verify)" \
+    || fail 'slot secundário não está íntegro'
+  if [[ "$output" =~ ^secondary_slot_verify=passed[[:space:]]occupant=(none|apiwpp|saferwpp)[[:space:]]generation=([0-9]+)[[:space:]]apiwpp_workloads=([0-9]+)[[:space:]]saferwpp_workloads=([0-9]+)$ ]]; then
+    occupant="${BASH_REMATCH[1]}"
+    apiwpp_workloads="${BASH_REMATCH[3]}"
+    saferwpp_workloads="${BASH_REMATCH[4]}"
+  else
+    fail 'atestado do slot secundário possui formato inesperado'
+  fi
+  case "$occupant" in
+    none)
+      [[ "$apiwpp_workloads" == 0 && "$saferwpp_workloads" == 0 ]] \
+        || fail 'slot none possui workload ativo'
+      ;;
+    apiwpp)
+      [[ "$saferwpp_workloads" == 0 ]] || fail 'slot APIWPP possui workload SaferWPP'
+      if [[ "$apiwpp_workloads" != 0 ]]; then
+        run_protected_gate APIWPP 'another apiwpp deployment is already running' \
+          sudo -u apiadmin sudo -n /usr/local/sbin/apiwpp-deployctl verify
+      fi
+      ;;
+    saferwpp)
+      [[ "$apiwpp_workloads" == 0 && "$saferwpp_workloads" != 0 ]] \
+        || fail 'slot SaferWPP possui contagem incompatível'
+      [[ -x /usr/local/sbin/saferwpp-deployctl \
+        && ! -L /usr/local/sbin/saferwpp-deployctl ]] \
+        || fail 'SaferWPP ocupante não possui controlador fechado'
+      sudo -u apiadmin sudo -n /usr/local/sbin/saferwpp-deployctl verify >/dev/null \
+        || fail 'SaferWPP ocupante não está íntegro'
+      ;;
+  esac
+}
+
 reset_dre_unit_failures() {
   local unit
   for unit in dre-controller-metrics.service dre-controller-metrics.timer \
@@ -129,14 +196,15 @@ readonly PUBLIC_KEY_SHA256="$2"
 [[ "$(hostname)" == "$EXPECTED_HOSTNAME" ]] || fail 'hostname inesperado'
 [[ "$PUBLIC_KEY_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail 'SHA-256 da chave pública inválido'
 
-for command in python3 openssl sudo visudo promtool logrotate systemd-analyze install cp mv rm mkdir \
+for command in python3 openssl sudo visudo promtool logrotate systemd-analyze install cp mv rm mkdir base64 \
   chmod chown stat sha256sum systemctl jq grep flock hostname date find wc mktemp sleep "$K3S"; do
   command -v "$command" >/dev/null || fail "dependência ausente: ${command}"
 done
 for source in "$FOUNDATION_SOURCE" "$CONTROLLER_ALERTS_SOURCE" "$VERIFIER_SOURCE" \
-  "$SECRET_SOURCE" "$RESTORE_SOURCE" "$CONTROLLER_SOURCE" "$IDENTITY_SOURCE" \
+  "$SECRET_SOURCE" "$VALIDATION_MATERIAL_SOURCE" "$RESTORE_SOURCE" "$CONTROLLER_SOURCE" "$IDENTITY_SOURCE" \
   "$SUDOERS_SOURCE" "$LOGROTATE_SOURCE" "$IDENTITY_SERVICE_SOURCE" "$IDENTITY_TIMER_SOURCE" \
   "$METRICS_SERVICE_SOURCE" "$METRICS_TIMER_SOURCE" "$ARTIFACT_VERIFIER" \
+  "$VALIDATION_ACCESS_SOURCE" \
   "$PUBLIC_KEY"; do
   [[ -f "$source" && ! -L "$source" ]] || fail "fonte ausente ou simbólica: ${source}"
 done
@@ -162,11 +230,7 @@ wait_for_protected_locks_release
 run_protected_gate Blindou 'outra operação Blindou está em andamento' \
   sudo -u apiadmin sudo -n /usr/local/sbin/blindou-deployctl status
 wait_for_protected_locks_release
-run_protected_gate APIWPP 'another apiwpp deployment is already running' \
-  sudo -u apiadmin sudo -n /usr/local/sbin/apiwpp-deployctl verify
-wait_for_protected_locks_release
-sudo -u apiadmin sudo -n /usr/local/sbin/secondary-slotctl verify >/dev/null \
-  || fail 'slot secundário não está íntegro'
+run_secondary_slot_gate
 
 exec 6>"$PLATFORM_BOOTSTRAP_LOCK"
 chmod 0600 "$PLATFORM_BOOTSTRAP_LOCK"
@@ -184,6 +248,8 @@ declare -a targets=(
   /usr/local/sbin/dre-kube-identityctl
   /usr/local/lib/dre-deployctl/dre-release-verify.py
   /usr/local/lib/dre-deployctl/dre-secret-material.py
+  /usr/local/lib/dre-deployctl/dre-validation-material.py
+  /usr/local/lib/dre-deployctl/validation-access.yaml
   /usr/local/lib/dre-deployctl/dre-restore-render.py
   /etc/dre-deployctl/release-signing.pub
   /etc/dre-deployctl/client.key
@@ -240,8 +306,9 @@ rollback() {
     done
     systemctl daemon-reload
     reset_dre_unit_failures
-    promtool check config "$PROMETHEUS_CONFIG" >/dev/null 2>&1 \
-      && systemctl reload prometheus.service >/dev/null 2>&1 || true
+    if promtool check config "$PROMETHEUS_CONFIG" >/dev/null 2>&1; then
+      systemctl reload prometheus.service >/dev/null 2>&1 || true
+    fi
   fi
   exit "$code"
 }
@@ -249,15 +316,17 @@ trap rollback EXIT
 reset_dre_unit_failures
 
 if "$K3S" kubectl get validatingadmissionpolicy dre-controller-only >/dev/null 2>&1; then
-  if ! "$K3S" kubectl diff -f "$FOUNDATION_SOURCE" >/dev/null; then
-    fail 'fundação DRE preexistente diverge; reconciliação humana é obrigatória'
-  fi
+  require_production_predeploy_state
+  require_empty_namespace dre-restore-drill
+  require_validation_namespace_absent
+  "$K3S" kubectl apply -f "$FOUNDATION_SOURCE" >/dev/null
 else
   foundation_created=true
   "$K3S" kubectl apply -f "$FOUNDATION_SOURCE" >/dev/null
 fi
-require_empty_namespace dre-production
+require_production_predeploy_state
 require_empty_namespace dre-restore-drill
+require_validation_namespace_absent
 
 install -d -m 0700 -o root -g root "$CONFIG_ROOT" "$LIB_ROOT" "$STATE_ROOT" \
   "${STATE_ROOT}/releases" "${STATE_ROOT}/plans" "${STATE_ROOT}/receipts"
@@ -266,6 +335,8 @@ install -m 0755 -o root -g root "$CONTROLLER_SOURCE" /usr/local/sbin/dre-deployc
 install -m 0700 -o root -g root "$IDENTITY_SOURCE" /usr/local/sbin/dre-kube-identityctl
 install -m 0500 -o root -g root "$VERIFIER_SOURCE" "${LIB_ROOT}/dre-release-verify.py"
 install -m 0500 -o root -g root "$SECRET_SOURCE" "${LIB_ROOT}/dre-secret-material.py"
+install -m 0500 -o root -g root "$VALIDATION_MATERIAL_SOURCE" "${LIB_ROOT}/dre-validation-material.py"
+install -m 0600 -o root -g root "$VALIDATION_ACCESS_SOURCE" "${LIB_ROOT}/validation-access.yaml"
 install -m 0500 -o root -g root "$RESTORE_SOURCE" "${LIB_ROOT}/dre-restore-render.py"
 install -m 0644 -o root -g root "$PUBLIC_KEY" "${CONFIG_ROOT}/release-signing.pub"
 install -m 0440 -o root -g root "$SUDOERS_SOURCE" /etc/sudoers.d/dre-deployctl
@@ -311,7 +382,7 @@ promtool check config "$PROMETHEUS_CONFIG" >/dev/null
 /usr/local/sbin/dre-kube-identityctl reconcile >/dev/null
 /usr/local/sbin/dre-kube-identityctl verify >/dev/null
 sudo -u apiadmin sudo -n /usr/local/sbin/dre-deployctl contract \
-  | jq -e '.controller == "dre-deployctl" and .generic_shell == false and .secondary_slot_member == false and .bridge_token_source == "orchestrator-stdin"' \
+  | jq -e '.schema == 2 and .controller == "dre-deployctl" and .validation_namespace == "dre-validation" and .validation.required_before_plan == true and .generic_shell == false and .secondary_slot_member == false and .bridge_token_source == "orchestrator-stdin"' \
   >/dev/null
 
 negative_manifest="$(mktemp)"
@@ -362,13 +433,10 @@ wait_for_protected_locks_release
 run_protected_gate Blindou 'outra operação Blindou está em andamento' \
   sudo -u apiadmin sudo -n /usr/local/sbin/blindou-deployctl status
 wait_for_protected_locks_release
-run_protected_gate APIWPP 'another apiwpp deployment is already running' \
-  sudo -u apiadmin sudo -n /usr/local/sbin/apiwpp-deployctl verify
-wait_for_protected_locks_release
-sudo -u apiadmin sudo -n /usr/local/sbin/secondary-slotctl verify >/dev/null \
-  || fail 'slot secundário divergiu depois do bootstrap'
-require_empty_namespace dre-production
+run_secondary_slot_gate
+require_production_predeploy_state
 require_empty_namespace dre-restore-drill
+require_validation_namespace_absent
 
 rollback_needed=false
 trap - ERR EXIT

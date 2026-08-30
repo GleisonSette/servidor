@@ -39,24 +39,29 @@ também entram obrigatoriamente na proteção.
   não pode ser impresso, persistido, colocado em argumento ou variável de
   ambiente. Os helpers do Blindou/slot continuam capacidades separadas.
 
-## Contrato da release
+## Contrato da release schema 2
 
 No repositório `C:\github\dre`, a release é renderizada por digest e empacotada
 por `ops/k8s/package-release.py`. O archive assinado contém exatamente:
 
-- os quatro estágios `00-platform`, `10-migrations`, `20-database-access` e
-  `30-runtime`;
-- `release.json` com checksums dos quatro estágios;
+- os quatro estágios permanentes `00-platform`, `10-migrations`,
+  `20-database-access` e `30-runtime`;
+- os seis estágios descartáveis `40-validation-platform` até
+  `45-validation-e2e`;
+- `release.json` schema 2 com nove migrations, `dre-validation` e checksums dos
+  dez estágios;
 - `supply-chain.json` ligado ao SHA Git e ao release ID;
 - SBOM SPDX e recibo de scan sem vulnerabilidade alta/crítica para as imagens
-  Rust e PostgreSQL `linux/amd64`;
+  Rust, PostgreSQL e validation runner `linux/amd64`;
 - regras de alerta K3s do DRE.
 
 O release ID usa `dre-YYYYMMDDTHHMMSSZ-<12 primeiros caracteres do SHA Git>`.
 O empacotador gera `release.tar.gz`, `release.tar.gz.sig` e
 `release-envelope.json`. O controlador confere SHA-256, assinatura Ed25519,
 conteúdo do archive, escopo Kubernetes, imagens, SBOM, scan e alertas antes de
-copiar a release para cache root-only.
+copiar a release para cache root-only. Schema 1 continua importável e
+reverificável somente para rollback; `plan` e `deploy` aceitam exclusivamente
+schema 2 com recibo descartável aprovado.
 
 ## Instalação do controlador
 
@@ -80,10 +85,17 @@ Somente em janela autorizada:
 
 O bootstrap valida todos os artefatos, sintaxe sudoers/systemd, K3s
 `v1.36.2+k3s1`, `x86_64` e integridade de APIWPP, Blindou e slot. Ele cria os
-dois namespaces vazios, StorageClasses `Retain`/`Delete`, RBAC, admissão,
+dois namespaces permanentes, StorageClasses `Retain`/`Delete`, RBAC, admissão,
 identidade renovável, métricas e alertas. Um dry-run com identidade não
 autorizada precisa ser recusado. Falha restaura arquivos e Prometheus; se a
 fundação era nova e ainda vazia, ela também é removida.
+
+Uma atualização do controlador é aceita somente enquanto produção não possui
+PVC/workload e `dre-validation` está ausente. Os cinco Secrets permanentes — e
+o sexto FCM opcional — podem existir; nomes diferentes ou gate além de
+`secrets-only` são recusados. A ampliação aditiva da fundação permanece
+compatível com o controlador anterior caso a troca dos arquivos precise ser
+revertida.
 
 O backup transacional da instalação fica em
 `/var/backups/servidor-local/dre-controller-bootstrap/<timestamp>`. Rollback
@@ -148,7 +160,26 @@ O plano dura 30 minutos e vincula release, archive, release corrente, inventári
 de Secrets, recursos protegidos e capacidade viva. A saída contém apenas o
 `plan_sha256` não secreto. Mudança em qualquer prova exige plano novo.
 
-## Deploy e verificação
+## Validação descartável, deploy e verificação
+
+Antes de qualquer plano permanente:
+
+```text
+sudo -n /usr/local/sbin/dre-deployctl validate-release RELEASE_ID OPERATION_ID
+```
+
+Essa ação cria `dre-validation`, instala RBAC temporário, copia sem exibir
+somente o pull secret já existente e gera credenciais sintéticas em `/run`.
+Depois aplica PostgreSQL sem WAL/R2, nove migrations, papéis, API/worker,
+bootstrap de duas contas/dispositivos sintéticos e o E2E assinado. API, worker
+e PostgreSQL são reiniciados separadamente e precisam recuperar readiness e as
+nove migrations. Sucesso registra archive/digests, remove namespace, PVC e PV e
+libera a criação do plano. Falha preserva o namespace com gate `blocked`;
+depois do diagnóstico, a única remoção autorizada é:
+
+```text
+sudo -n /usr/local/sbin/dre-deployctl cleanup-validation RELEASE_ID OPERATION_ID
+```
 
 Com autorização explícita para migration persistente e deploy:
 
@@ -165,7 +196,8 @@ sudo -n /usr/local/sbin/dre-deployctl verify RELEASE_ID
 4. impede troca implícita da imagem PostgreSQL;
 5. aplica plataforma e aguarda o PostgreSQL;
 6. cria a stanza pgBackRest e executa `check`;
-7. recria somente o Job fixo de migration e exige sete migrations bem-sucedidas;
+7. recria somente o Job fixo de migration e exige a quantidade declarada —
+   nove para schema 2;
 8. recria o Job fixo de papéis e acessos;
 9. aplica API/worker e aguarda os rollouts;
 10. instala regras Prometheus assinadas, valida configuração e executa smoke
@@ -199,8 +231,9 @@ descrição ou credencial.
 O restore drill copia em memória somente os Secrets necessários para
 `dre-restore-drill`, cria um PVC de 20 GiB na StorageClass exclusiva `Delete`,
 restaura da mesma release e desliga `archive_mode` no banco restaurado para não
-enviar WAL ao prefixo de produção. A prova exige sete migrations e zero índice
-inválido. Ao passar, remove StatefulSet, Service, ConfigMaps, Secrets e PVC e
+enviar WAL ao prefixo de produção. A prova exige as migrations da release —
+nove no schema 2 e sete em rollback legado — e zero índice inválido. Ao passar,
+remove StatefulSet, Service, ConfigMaps, Secrets e PVC e
 aguarda o PV ser apagado. Falha preserva o PVC para diagnóstico e exige
 reconciliação explícita; nunca apaga ou restaura sobre `dre-postgres-data`.
 

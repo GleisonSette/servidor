@@ -654,3 +654,60 @@ controlador remove o lote Kubernetes criado na tentativa, e o Secret ainda
 inativo do Pages pode ser sobrescrito antes de repetir. D032 não autoriza criar
 credencial GHCR/R2, inicializar Secrets, configurar origem HTTPS, executar
 migration ou deploy; essas operações continuam separadas.
+
+## Resolvida D033 - Retirada imediata do runtime APIWPP preservando o banco
+
+Em 2026-08-30, diante de consumo concorrente de CPU/RAM e de uma operação
+pgBackRest presa, o usuário determinou que o APIWPP não permaneça funcionando
+nem retenha artefatos de execução. A ordem explícita substitui, para o APIWPP,
+a preservação reversível de runtime prevista em D022. Permanecem vigentes a
+proteção do Blindou, a exclusão mútua do slot e a preservação do database
+`clone_wpp`.
+
+A operação autorizada reduz o Deployment a zero, reconcilia o slot para
+ocupante `none`, desabilita os seis timers pgBackRest associados ao APIWPP e
+remove imagem, cache OCI, inbox de release e PVC de spool. Deployment, Service,
+ConfigMaps, Secrets, namespace, controlador e gateway podem permanecer como
+estrutura declarativa de custo desprezível quando forem necessários à
+coerência do slot, do host ou do Blindou; não podem iniciar workload.
+
+O repositório físico pgBackRest existente não é apagado. Embora historicamente
+nomeado APIWPP, ele contém proteção do cluster PostgreSQL compartilhado e sua
+remoção também reduziria a recuperabilidade do Blindou. Paralisar novas agendas
+não autoriza destruir cópias já existentes nem o PostgreSQL compartilhado.
+
+Retomar o APIWPP exige nova decisão explícita, nova imagem/release autenticada,
+recriação do PVC quando necessário, reativação consciente da proteção de dados
+e reserva válida pelo `secondary-slotctl`. Nenhum trabalho paralelo pode
+interpretar a presença do Deployment em zero como autorização de retomada.
+
+## Resolvida D034 - Release DRE validada em namespace descartável antes do plano
+
+Em 2026-08-30, a candidata DRE passou a declarar schema 2, nove migrations,
+três imagens e seis estágios adicionais de validação. Aplicar diretamente os
+quatro estágios permanentes manteria uma lacuna operacional: migrations,
+bootstrap, E2E e recuperação após reinício seriam comprovados somente depois
+de tocar o banco de produção.
+
+O usuário autorizou alterar e publicar o repositório `servidor`, instalar o
+controlador schema 2, publicar as imagens e executar apenas o ambiente
+descartável `dre-validation`. A decisão é manter schema 1 importável e
+reverificável somente para rollback, aceitar novas candidatas schema 2 com os
+dez estágios e bloquear `plan`/`deploy` até existir recibo aprovado ligado ao
+mesmo release ID, SHA-256 do archive e digests.
+
+O controlador cria `dre-validation` por ação fechada, instala RBAC limitado ao
+namespace, copia somente a credencial de pull já existente e gera senhas
+exclusivamente sintéticas em `/run`. Ele executa PostgreSQL sem WAL/R2, nove
+migrations, papéis, API, worker, bootstrap, E2E e substituição controlada dos
+pods API, worker e PostgreSQL. Sucesso remove namespace, PVC e PV e grava
+recibo root-only sem valores. Falha fecha o gate como `blocked`, preserva o
+ambiente para diagnóstico e exige `cleanup-validation` explícito.
+
+A alternativa de usar `kubectl` ou shell genérico foi recusada porque ampliaria
+a autoridade do operador. Manter um namespace permanente também foi recusado:
+o RBAC é recriado por manifesto root-owned e desaparece com o namespace. A
+fundação conserva somente a permissão nominal e a admissão fail-closed. O
+rollback instala o bundle anterior; receipts schema 2 e releases cacheadas
+permanecem auditáveis. D034 não autoriza `dre-production`, migration
+persistente, rota externa, contas reais, dispositivos ou saldo inicial.

@@ -156,8 +156,10 @@ allowed_files = {
     "operations/remote/dre-release-verify.py",
     "operations/remote/dre-restore-render.py",
     "operations/remote/dre-secret-material.py",
+    "operations/remote/dre-validation-material.py",
     "operations/remote/verify-dre-controller-artifacts.py",
     "platform/dre/controller-foundation.yaml",
+    "platform/dre/validation-access.yaml",
     "platform/dre/monitoring/prometheus-alerts.yaml",
 }
 maximum_members = 48

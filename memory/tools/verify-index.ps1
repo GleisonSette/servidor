@@ -24,7 +24,12 @@ foreach ($source in $catalog.sources) {
     }
     $sourceIds[[string]$source.source_id]=$true
     $absolute=[IO.Path]::GetFullPath((Join-Path $repoRoot ([string]$source.canon_path)))
-    if (-not $absolute.StartsWith($repoRoot.TrimEnd('\')+'\',
+    $separators = [char[]]@(
+        [IO.Path]::DirectorySeparatorChar,
+        [IO.Path]::AltDirectorySeparatorChar
+    )
+    $prefix = $repoRoot.TrimEnd($separators) + [IO.Path]::DirectorySeparatorChar
+    if (-not $absolute.StartsWith($prefix,
         [StringComparison]::OrdinalIgnoreCase)) { throw 'Fonte fora do repositorio.' }
     if (-not (Test-Path -LiteralPath $absolute -PathType Leaf)) {
         throw "Fonte ausente: $($source.canon_path)"

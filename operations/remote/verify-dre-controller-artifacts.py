@@ -48,6 +48,12 @@ def by_kind_name(documents: list[dict], kind: str, name: str) -> dict:
 foundation = yaml_documents("platform/dre/controller-foundation.yaml")
 production = by_kind_name(foundation, "Namespace", "dre-production")
 restore = by_kind_name(foundation, "Namespace", "dre-restore-drill")
+if any(
+    document.get("kind") == "Namespace"
+    and document.get("metadata", {}).get("name") == "dre-validation"
+    for document in foundation
+):
+    fail("namespace descartável não pode permanecer na fundação")
 for namespace in (production, restore):
     labels = namespace["metadata"]["labels"]
     if labels.get("platform.servidor.local/project") != "dre":
@@ -98,9 +104,42 @@ if cluster_binding.get("subjects") != [
 ]:
     fail("ClusterRoleBinding não usa a identidade exclusiva DRE")
 cluster_role = by_kind_name(foundation, "ClusterRole", "dre-deployctl-cluster")
+namespace_rule = next(
+    (
+        rule
+        for rule in cluster_role.get("rules", [])
+        if "namespaces" in rule.get("resources", [])
+    ),
+    None,
+)
+if namespace_rule is None or set(namespace_rule.get("resourceNames", [])) != {
+    "dre-production",
+    "dre-restore-drill",
+    "dre-validation",
+}:
+    fail("ClusterRole não limita os três namespaces DRE")
 for rule in cluster_role.get("rules", []):
     if "secrets" in rule.get("resources", []) or "pods/exec" in rule.get("resources", []):
         fail("ClusterRole DRE ganhou acesso mutável global")
+
+validation_access = yaml_documents("platform/dre/validation-access.yaml")
+validation_role = by_kind_name(validation_access, "Role", "dre-deployctl")
+validation_binding = by_kind_name(validation_access, "RoleBinding", "dre-deployctl")
+for resource in (validation_role, validation_binding):
+    if resource.get("metadata", {}).get("namespace") != "dre-validation":
+        fail("RBAC descartável saiu de dre-validation")
+if validation_binding.get("subjects") != [
+    {"apiGroup": "rbac.authorization.k8s.io", "kind": "User", "name": "dre-deployctl"}
+]:
+    fail("RoleBinding descartável não usa a identidade DRE")
+validation_resources = {
+    resource
+    for rule in validation_role.get("rules", [])
+    for resource in rule.get("resources", [])
+}
+for required in ("pods", "pods/exec", "services/proxy", "jobs", "statefulsets"):
+    if required not in validation_resources:
+        fail(f"RBAC descartável não permite o recurso fechado: {required}")
 
 admission = by_kind_name(foundation, "ValidatingAdmissionPolicy", "dre-controller-only")
 if admission.get("spec", {}).get("failurePolicy") != "Fail":
@@ -116,11 +155,20 @@ for invariant in (
 ):
     if invariant not in validation_text:
         fail(f"invariante de admissão ausente: {invariant}")
+match_condition_text = "\n".join(
+    str(condition.get("expression", ""))
+    for condition in admission.get("spec", {}).get("matchConditions", [])
+)
+if "dre-validation" not in match_condition_text:
+    fail("admissão não protege dre-validation")
 
 controller = read("operations/remote/dre-deployctl")
 for invariant in (
     "readonly NAMESPACE='dre-production'",
     "readonly RESTORE_NAMESPACE='dre-restore-drill'",
+    "readonly VALIDATION_NAMESPACE='dre-validation'",
+    "readonly VALIDATION_MATERIAL='/usr/local/lib/dre-deployctl/dre-validation-material.py'",
+    "readonly VALIDATION_ACCESS='/usr/local/lib/dre-deployctl/validation-access.yaml'",
     "readonly MIN_AVAILABLE_MEMORY_KIB=$((5 * 1024 * 1024))",
     "readonly MIN_AVAILABLE_DISK_KIB=$((45 * 1024 * 1024))",
     "readonly PLAN_RETENTION_DAYS=7",
@@ -132,6 +180,9 @@ for invariant in (
     'status:"started"',
     "verify_protected_projects",
     "protected_fingerprint",
+    "occupant=(none|apiwpp|saferwpp)",
+    "slot none possui workload ativo",
+    "namespaces+=(\"$namespace\")",
     "readonly BLINDOU_DATA_LOCK='/run/lock/blindou-datactl.lock'",
     "namespaces+=(blindou-data)",
     "secondary_slot_member:false",
@@ -141,6 +192,15 @@ for invariant in (
     "dre-pgbackrest stanza-create",
     "dre-pgbackrest check",
     "restore-drill",
+    "validate-release",
+    "cleanup-validation",
+    "require_schema_two_release",
+    "require_validation_receipt",
+    "validation_cleanup_internal",
+    "restart_validation_component api",
+    "restart_validation_component worker",
+    "restart_validation_component postgres",
+    'release_schemas:{import:[1,2],deploy:[2],rollback:[1,2]}',
     "StorageClass Delete",
     "prune_expired_plans",
     'backup_timestamp="${backup_timestamp:-0}"',
@@ -157,6 +217,18 @@ for forbidden in ("eval ", "bash -c", "sh -c", "kubectl $", "sudo -S"):
     if forbidden in controller:
         fail(f"interface genérica detectada no controlador: {forbidden}")
 
+release_verifier = read("operations/remote/dre-release-verify.py")
+for invariant in (
+    '"40-validation-platform.yaml"',
+    '"45-validation-e2e.yaml"',
+    '"validation_namespace"',
+    'release.get("migration_count") != 9',
+    '"sbom/validation.spdx.json"',
+    '"scan/validation.json"',
+):
+    if invariant not in release_verifier:
+        fail(f"contrato schema 2 ausente no verificador de release: {invariant}")
+
 sudoers = read("operations/remote/dre-deployctl.sudoers")
 lines = [line for line in sudoers.splitlines() if line.startswith("apiadmin ")]
 allowed_actions = {
@@ -164,6 +236,8 @@ allowed_actions = {
     "status",
     "import-release *",
     "initialize-secrets *",
+    "validate-release *",
+    "cleanup-validation *",
     "plan *",
     "deploy *",
     "verify *",
@@ -196,8 +270,11 @@ for invariant in (
     'logrotate --debug "$LOGROTATE_SOURCE"',
     "rollback_needed=true",
     "trap rollback EXIT",
-    "require_empty_namespace dre-production",
+    "require_production_predeploy_state",
     "require_empty_namespace dre-restore-drill",
+    "require_validation_namespace_absent",
+    "dre-validation-material.py",
+    "validation-access.yaml",
     'for resource in "${resources[@]}"',
     "--ignore-not-found -o name | wc -l",
     "wait_for_protected_locks_release",
@@ -205,6 +282,9 @@ for invariant in (
     "flock --timeout 90",
     "lock protegido não foi liberado em 90 segundos",
     "run_protected_gate",
+    "run_secondary_slot_gate",
+    "occupant=(none|apiwpp|saferwpp)",
+    "slot none possui workload ativo",
     "another apiwpp deployment is already running",
     "outra operação Blindou está em andamento",
     "permaneceu ocupado por 60 segundos",
@@ -223,15 +303,15 @@ blindou_checks = [
     for index, line in enumerate(bootstrap.splitlines())
     if line.startswith("run_protected_gate Blindou ")
 ]
-apiwpp_checks = [
+slot_checks = [
     index
     for index, line in enumerate(bootstrap.splitlines())
-    if line.startswith("run_protected_gate APIWPP ")
+    if line == "run_secondary_slot_gate"
 ]
 if (
     len(blindou_checks) != 2
-    or len(apiwpp_checks) != 2
-    or any(blindou >= apiwpp for blindou, apiwpp in zip(blindou_checks, apiwpp_checks))
+    or len(slot_checks) != 2
+    or any(blindou >= slot for blindou, slot in zip(blindou_checks, slot_checks))
 ):
     fail("ordem dos gates protegidos não evita herança transitória do lock Blindou")
 
@@ -301,6 +381,17 @@ for invariant in (
 if 'write_secret(output, "api-runtime/web-bridge-token", generate_secret' in secret_material:
     fail("token da ponte ainda é gerado sem coordenação com o Cloudflare")
 
+validation_material = read("operations/remote/dre-validation-material.py")
+for invariant in (
+    'LOGIN_HOST = "dre-postgres.dre-validation.svc.cluster.local"',
+    '"validation-accounts/primary-password"',
+    '"validation-accounts/secondary-password"',
+    "allowed_registries",
+    "dre_validation_material=passed synthetic=true",
+):
+    if invariant not in validation_material:
+        fail(f"contrato do material sintético ausente: {invariant}")
+
 alerts = yaml_documents("platform/dre/monitoring/prometheus-alerts.yaml")
 alert_names = {
     rule["alert"]
@@ -334,6 +425,7 @@ artifact_files.extend(
         "dre-controller-metrics.timer",
         "dre-release-verify.py",
         "dre-secret-material.py",
+        "dre-validation-material.py",
         "dre-restore-render.py",
         "bootstrap-dre-deployctl.sh",
     )

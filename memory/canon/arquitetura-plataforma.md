@@ -85,20 +85,30 @@ Blindou sempre ativo + DRE sempre ativo
                   + um único ocupante do slot APIWPP/SaferWPP
 ```
 
-O DRE usa os namespaces exclusivos `dre-production` e `dre-restore-drill`.
+O DRE usa os namespaces exclusivos `dre-production` e `dre-restore-drill` e,
+por D034, cria `dre-validation` somente durante uma prova descartável.
 API, worker e PostgreSQL são exatamente os três containers permanentes do
 produto. Services são somente ClusterIP; PostgreSQL, métricas, PVCs, Secrets,
 ServiceAccounts, banco, papéis, release e chave de assinatura não são
 compartilhados com Blindou ou com o slot.
 
 `dre-deployctl` é uma interface fechada, root-owned, com identidade Kubernetes
-CN `dre-deployctl`, grupo `dre-deployers` e RBAC limitado às duas fronteiras. A
+CN `dre-deployctl`, grupo `dre-deployers` e RBAC limitado às três fronteiras. A
 admissão `dre-controller-only` usa `failurePolicy: Fail`. O controlador aceita
-somente release Ed25519 com quatro estágios fixos, imagens por digest
-`linux/amd64`, SBOM SPDX, scans aprovados e regras de alerta assinadas. Planos
-expiram em 30 minutos e vinculam release, Secrets, capacidade e fingerprints de
-APIWPP/Blindou. O audit log técnico tem rotação diária por 30 dias e os planos
-expirados são removidos depois de sete dias.
+schema 1 somente para rollback e release Ed25519 schema 2 com quatro estágios
+permanentes, seis estágios descartáveis, nove migrations e três imagens por
+digest `linux/amd64`. SBOM SPDX, scans aprovados e regras de alerta permanecem
+obrigatórios. Planos expiram em 30 minutos e vinculam release, recibo aprovado
+de `dre-validation`, Secrets, capacidade e fingerprints de APIWPP/Blindou. O
+audit log técnico tem rotação diária por 30 dias e os planos expirados são
+removidos depois de sete dias.
+
+`dre-validation` recebe RBAC namespaced root-owned somente durante a ação
+fechada. Suas credenciais são sintéticas, PostgreSQL desliga archive/WAL remoto,
+e o pipeline executa migrations, bootstrap, E2E e substituição de API, worker e
+PostgreSQL. Sucesso remove namespace/PVC/PV; falha preserva o namespace com gate
+`blocked` para diagnóstico. Produção não pode receber plano sem recibo aprovado
+do mesmo archive e digests.
 
 O namespace de restauração usa PVC e StorageClass descartáveis e nunca aponta
 para o volume de produção. A prova desliga arquivamento de WAL no banco
