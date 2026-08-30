@@ -44,6 +44,16 @@
   cofre root-only; AppID e App Secret pertencem ao tenant e entram diretamente
   pelo painel Blindou. Pagar.me permanece ativo, e Mercado Livre, UAZAPI,
   Resend e 2FA não são ativados por essa operação.
+- Exceção temporária D031, alinhada à D064 do Blindou: enquanto o usuário não
+  solicitar o retorno ao GitHub Actions, somente a imagem PostgreSQL dedicada
+  pode usar o host como executor efêmero sem privilégio. A derivação OCI e o
+  scan rodam em workspace descartável de `apiadmin`, sob cgroup de 1 CPU/4 GiB,
+  prioridade baixa e recusa de concorrência com Cargo/Rust; não instalam
+  Docker/BuildKit, não usam `sudo`, K3s, banco, serviço ou segredo operacional.
+  A credencial GHCR com escrita permanece exclusivamente na estação e publica
+  os blobs por streaming; o host continua recebendo somente a credencial
+  root-only de leitura nos controladores aprovados. A exceção termina quando o
+  usuário pedir a volta ao GitHub Actions e não abrange outra imagem ou projeto.
 
 ## Memória RAG obrigatória
 

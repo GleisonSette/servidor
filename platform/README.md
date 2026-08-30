@@ -44,6 +44,9 @@ de que APIWPP e Blindou não foram alterados.
 O destino PostgreSQL dedicado do Blindou possui procedimento próprio em
 `runbooks/blindou-plataforma.md`. O bootstrap instala somente o controlador e
 a quarentena vazia; a prova direta do GHCR não altera objetos Kubernetes.
+Durante a exceção D031/D064, o host pode executar somente a derivação OCI e o
+scan dessa imagem em workspace não privilegiado e limitado. A publicação
+continua pertencendo à estação; nenhuma credencial de escrita entra no host.
 
 O slot alternável possui procedimento próprio em `runbooks/secondary-slot.md`.
 O bootstrap instala seu controlador, mas somente a operação fechada de

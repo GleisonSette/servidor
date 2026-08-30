@@ -16,9 +16,13 @@
 - A credencial GHCR do servidor é exclusiva para download e deve apresentar
   exatamente o escopo `read:packages`. Token de publicação, `repo`, workflow ou
   administração nunca entra no host.
-- O publicador GHCR usa somente o `GITHUB_TOKEN` efêmero do job hospedado pelo
-  GitHub. Não copiar esse token, cache de login ou credencial de Actions para o
-  servidor.
+- O caminho normal de publicação GHCR usa somente o `GITHUB_TOKEN` efêmero do
+  job hospedado pelo GitHub. Pela exceção temporária D031/D064, somente a imagem
+  PostgreSQL dedicada pode ser construída e escaneada em workspace não
+  privilegiado do host enquanto o usuário não solicitar o retorno ao GitHub
+  Actions. Nesse caminho, a estação mantém a credencial `write:packages`,
+  recebe o artefato por SSH e publica os blobs por streaming; token, cache de
+  login e autoridade de escrita nunca entram no servidor.
 
 ## Guias obrigatórios por projeto
 

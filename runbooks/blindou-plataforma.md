@@ -36,6 +36,16 @@ aplicação e usa uma regra própria: `pull-only` admite apenas o Job de prova;
 `candidate-foundation` admite somente o singleton e Jobs de dados fechados. A
 imagem e o bundle ainda não foram publicados.
 
+Por D031 neste repositório, alinhada à D064 do Blindou, a publicação da imagem
+PostgreSQL pode usar temporariamente o servidor apenas como executor efêmero de
+build e scan enquanto o usuário não solicitar o retorno ao GitHub Actions. O
+procedimento baixa a base oficial imutável, deriva OCI sem daemon, remove os
+artefatos proibidos, executa Trivy fixado e devolve o diretório de publicação à
+estação. Ele roda como `apiadmin`, sem `sudo`, K3s, banco, serviço ou segredo,
+sob 1 CPU, 4 GiB e prioridade baixa, e recusa iniciar enquanto Cargo/Rust estiver
+ativo. A estação é a única autoridade que envia blobs ao GHCR. Essa exceção não
+autoriza `foundation`, Secret, PVC, Job, Pod, migration, restore ou cutover.
+
 O controlador aceita apenas `status`, `verify-quarantine`, `validate-release`,
 `pull-proof`, `foundation`, `secrets`, `bootstrap`, `backup` e `restore-base`;
 não existe comando de
@@ -331,6 +341,10 @@ Revogar o PAT no GitHub é uma ação externa separada. Por D015, o Rust é
 compilado/testado no runner efêmero hospedado pelo GitHub e as imagens são
 publicadas por `GITHUB_TOKEN` temporário. Esse pipeline não acessa o host; o
 servidor conserva somente download.
+Como exceção estrita, D031/D064 permite somente a derivação e o scan da imagem
+PostgreSQL dedicada no workspace efêmero do usuário. O token de publicação
+continua na estação, nunca é transportado ao servidor, e a exceção termina
+quando o usuário solicitar o retorno ao GitHub Actions.
 Depois da primeira instalação, o controlador atual recusa a substituição por
 outro token. A rotação pós-release exige fluxo próprio autorizado que valide a
 nova credencial antes de retirar a anterior.

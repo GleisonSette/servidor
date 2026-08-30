@@ -303,6 +303,12 @@ UPnP ou redirecionamento de porta para o servidor.
 - Build/test/publicação usam runner efêmero hospedado pelo GitHub, manual e
   restrito ao SHA da `main`. O publicador usa `GITHUB_TOKEN` por job, produz
   SBOM/proveniência e scan; não acessa host, banco ou segredo operacional.
+- Exceção temporária D031/D064: somente a imagem PostgreSQL dedicada pode usar
+  o host para derivação OCI sem daemon e scan, em workspace `apiadmin`, 1 CPU,
+  4 GiB, baixa prioridade e exclusão mútua com Cargo/Rust. A estação recebe o
+  artefato validado e é a única autoridade que escreve no GHCR; token de
+  publicação, K3s, banco, serviço e segredo ficam fora do executor. O caminho
+  normal volta ao GitHub Actions quando o usuário assim solicitar.
 - Manifesto de release assinado por chave exclusiva do projeto.
 - Controlador root-owned valida assinatura, digest, escopo e lock.
 - O controlador aceita uma interface fechada; não recebe comando shell,

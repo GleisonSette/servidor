@@ -55,6 +55,10 @@ corpus por padrão.
   `pull-proof` direto pelo cofre GHCR. A prova mantém gate `blocked` e zero
   Secret, PVC, Job, Pod ou workload; o banco nativo continua autoridade e I2
   permanece bloqueada.
+- D031, alinhada à D064 do Blindou, autoriza temporariamente apenas o build e o
+  scan da imagem PostgreSQL dedicada no host não privilegiado até o usuário
+  pedir retorno ao GitHub Actions. A estação conserva toda autoridade GHCR de
+  escrita; `foundation`, dados, K3s e I2 permanecem fora do escopo.
 - D026 prepara, ainda sem instalação no host, a ativação separada da Shopee
   Open API. A release compatível entra com a flag desligada; depois o
   controlador gera a chave interna root-only e só conclui após backend e 16

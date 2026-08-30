@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "cases": [
     {
       "id": "qa-001-proximo-passo",
@@ -60,6 +60,12 @@
       "query": "D028 PostgreSQL dedicado Blindou datactl pull proof direto sem PVC Secret Pod I2 bloqueada",
       "top": 6,
       "expected_source_ids": ["decisoes", "plano-implementacao", "estado-atual", "arquitetura-plataforma"]
+    },
+    {
+      "id": "qa-011-postgresql-dedicado-d031",
+      "query": "D031 D064 build temporário PostgreSQL servidor sem daemon 1 CPU 4 GiB token escrita GHCR somente estação até voltar GitHub Actions",
+      "top": 6,
+      "expected_source_ids": ["decisoes", "plano-implementacao", "arquitetura-plataforma", "estado-atual"]
     }
   ]
 }

@@ -268,12 +268,15 @@ Objetivos:
 Status: I0 aprovada e I1 aprovada para publicação controlada em 2026-08-29.
 O pacote `platform/blindou-data/` nasce bloqueado; imagem privada, supply chain,
 bundle, `blindou-datactl`, backup, restore-base e gates descartáveis estão
-preparados. O PostgreSQL nativo continua autoridade.
+preparados. O PostgreSQL nativo continua autoridade. O workflow hospedado foi
+recusado antes dos steps por bloqueio de cobrança; D031/D064 autoriza, até o
+usuário solicitar o retorno ao GitHub Actions, somente o build/scan efêmero da
+imagem PostgreSQL no servidor, com publicação executada pela estação.
 
 Ordem:
 
-1. publicar a imagem privada do SHA Blindou exato e obter scan, SBOM,
-   proveniência e identidade OCI;
+1. concluir D031/D064: gerar a imagem do SHA Blindou exato no executor efêmero,
+   publicar pela estação e obter scan, SBOM, proveniência e identidade OCI;
 2. gerar o bundle assinado e commitar/publicar o controlador separado da
    plataforma;
 3. instalar somente o `blindou-datactl` e a quarentena vazia;

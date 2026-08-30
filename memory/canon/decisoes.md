@@ -545,3 +545,20 @@ os commits/pushes, a publicação da imagem e bundle, a instalação restrita do
 controlador e essa prova direta. Secret Kubernetes, PVC, Job, Pod,
 `foundation`, backup/restore operacional, migration, DSN, workload PostgreSQL,
 I2 e cutover continuam sem autorização.
+
+## Resolvida D031 - Build temporário do PostgreSQL dedicado no servidor
+
+Em 2026-08-29, após o GitHub recusar o workflow antes de qualquer step por
+bloqueio de cobrança, o usuário autorizou temporariamente o servidor físico
+como executor da imagem PostgreSQL dedicada, até solicitar o retorno ao GitHub
+Actions. A decisão está alinhada à D064 do repositório Blindou e substitui
+somente esse trecho operacional da D015.
+
+A derivação OCI sem daemon e o scan bloqueante rodam como `apiadmin` em
+workspace descartável, sob cgroup de 1 CPU/4 GiB, `nice`/`ionice` baixos e
+recusa de concorrência com Cargo/Rust. São proibidos `sudo`, Docker/BuildKit,
+K3s, banco, serviço, Secret e credencial operacional. A credencial GHCR de
+escrita permanece somente na estação: ela recebe o artefato, valida o recibo e
+publica os blobs por streaming. O host conserva apenas sua autoridade de
+leitura já aprovada. A exceção não alcança outra imagem, projeto, migration,
+workload ou etapa I2 e termina quando o usuário pedir a volta ao GitHub Actions.

@@ -1446,3 +1446,18 @@ Resultado: desenho corrigido antes da operação e ampliação mínima autorizad
 - publicação, instalação e prova direta foram autorizadas. `foundation`,
   Secrets Kubernetes, PVCs, Pods, backup/restore operacional, migration, DSN,
   workload PostgreSQL, I2 e cutover permaneceram bloqueados.
+
+## 2026-08-29 - Exceção D031/D064 autorizada para a publicação PostgreSQL
+
+Resultado: exceção temporária delimitada e documentada; nenhuma execução viva
+foi realizada por este registro.
+
+- O workflow hospedado do Blindou foi recusado antes de qualquer step por
+  bloqueio de cobrança do GitHub.
+- O usuário autorizou o servidor como executor temporário até solicitar o
+  retorno ao GitHub Actions, exclusivamente para a imagem PostgreSQL dedicada.
+- D031/D064 mantém a credencial GHCR de escrita na estação e limita o host a
+  derivação OCI sem daemon e scan em workspace `apiadmin`, 1 CPU/4 GiB,
+  prioridade baixa e sem concorrência com Cargo/Rust.
+- `sudo`, Docker/BuildKit, K3s, banco, serviço, segredo, outra imagem,
+  `foundation`, migration, restore e cutover continuam proibidos.
