@@ -1,5 +1,5 @@
 {
-  "version": "1.1.0",
+  "version": "1.2.0",
   "cases": [
     {
       "id": "qa-001-proximo-passo",
@@ -66,6 +66,18 @@
       "query": "D031 D064 build temporário PostgreSQL servidor sem daemon 1 CPU 4 GiB token escrita GHCR somente estação até voltar GitHub Actions",
       "top": 6,
       "expected_source_ids": ["decisoes", "plano-implementacao", "arquitetura-plataforma", "estado-atual"]
+    },
+    {
+      "id": "qa-012-dre-k3s-independente",
+      "query": "DRE controlador K3s independente slot release assinada importada próximo gate Secrets",
+      "top": 6,
+      "expected_source_ids": ["estado-atual", "decisoes", "plano-implementacao", "arquitetura-plataforma"]
+    },
+    {
+      "id": "qa-013-dre-token-ponte-d032",
+      "query": "D032 coordenar token ponte DRE Cloudflare Pages Kubernetes sem ler Secret",
+      "top": 6,
+      "expected_source_ids": ["decisoes", "arquitetura-plataforma", "historico-execucao", "plano-implementacao"]
     }
   ]
 }

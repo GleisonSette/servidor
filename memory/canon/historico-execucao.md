@@ -1562,3 +1562,71 @@ fase pronta para confirmação humana.
   GHCR permaneceram intactas por falta de autorização destrutiva específica.
 - Nenhum Secret, PVC, Job, Pod, Service, StatefulSet, database, migration,
   backup, restore, DSN, I2 ou cutover foi criado ou executado.
+
+## 2026-08-29 - Controlador fechado DRE preparado offline
+
+Resultado: fundação, controlador, identidade, empacotamento e verificadores DRE
+foram preparados no repositório sem alterar o host.
+
+- D029 definiu o DRE sempre ativo fora do slot APIWPP/SaferWPP, com namespaces,
+  banco, PVC, rede, release, backup e chave de assinatura exclusivos;
+- a interface `dre-deployctl` limitou importação, inicialização de Secrets,
+  plano, deploy, verificação, backup e restore-drill, sem shell ou `kubectl`
+  genérico;
+- releases exigem assinatura Ed25519, quatro estágios fixos, imagens por digest,
+  SBOM SPDX e scans sem vulnerabilidade alta/crítica;
+- a fundação declarou admissão fail-closed, RBAC mínimo, identidade renovável,
+  métricas, alertas e restore em PVC descartável;
+- testes offline cobriram archives maliciosos, segredos, restore, sintaxe,
+  contratos e isolamento. Instalação e operação permaneceram separadas.
+
+## 2026-08-29 - Fundação vazia e controlador DRE instalados
+
+Resultado: fundação e controlador instalados no host, com estado vazio,
+bloqueado e observável. Nenhuma release ou carga financeira foi aplicada.
+
+- a auditoria viva aprovou hostname/arquitetura, quatro CPUs, 10.671.804 KiB de
+  memória disponível, 183.666.928 KiB livres no K3s, versão
+  `v1.36.2+k3s1`, zero units falhas e os projetos protegidos;
+- a chave Ed25519 foi criada fora dos repositórios. Somente a chave pública de
+  SHA-256 `4902604dad96d9b07f4010308d30e3815cb4e76446855d925079be0e3b922ce9`
+  entrou no host;
+- D030 autorizou somente o helper fechado a ler `KEY_SERVIDOR`, mantê-la em
+  memória e enviá-la por `stdin`, com host, staging, hashes e bootstrap fixos;
+- o bundle root-owned final teve SHA-256
+  `6b8e0e81190b4cda040abd8806c32ccd104fd291cb9dc325790595f77953ced1`
+  e backup transacional em
+  `/var/backups/servidor-local/dre-controller-bootstrap/20260829T235150Z`;
+- namespaces, StorageClasses, RBAC, admissão, identidade, sudoers, timers,
+  alertas e controlador foram instalados. A pós-condição comprovou zero
+  workload, Pod, Service, PVC ou Secret e recusou identidade não autorizada;
+- `dre-deployctl status` retornou release `none`, gate `blocked`, PVC ausente e
+  zero API/worker/PostgreSQL Ready; APIWPP, Blindou e slot passaram.
+
+## 2026-08-30 - Primeira release DRE importada e token da ponte corrigido
+
+Resultado: publicação e importação da candidata concluídas sem ativação. Uma
+falha de coordenação do token Pages/API foi encontrada antes dos Secrets e
+corrigida na fonte do controlador sob D032.
+
+- as imagens privadas `dre-app` e `dre-postgres` foram publicadas por digest
+  `linux/amd64`, com SBOM e scan remoto sem achado alto/crítico;
+- o Pages `dre-familiar` publicou o commit
+  `8949efc1e10df3607120932847449a9ca2b16ec7` e respondeu HTTP 200 em
+  `https://dre-familiar.pages.dev`; o bucket privado e vazio
+  `dre-familiar-backups` foi criado sem credencial operacional;
+- a release `dre-20260830T010200Z-29aeeb82d5bc` passou assinatura Ed25519,
+  conteúdo fechado e hashes. O archive
+  `fa48fd316cee2e4c8553232dc0b3ef218b63555c72f9dda537e38ebb4a379ffe`
+  foi aceito por `import-release`;
+- depois da importação, `dre-deployctl status` permaneceu em release corrente
+  `none`, gate `blocked`, PVC ausente e Ready `0/0/0`. APIWPP, Blindou e slot
+  passaram novamente e nenhuma porta DRE foi aberta;
+- a revisão pré-Secrets detectou que o token da ponte era gerado dentro do host
+  e apagado, portanto não podia chegar ao Pages sem leitura indevida de Secret;
+- D032 exige `web_bridge_token` forte na entrada protegida, preserva o mesmo
+  valor para o Secret da API e nunca o imprime. Testes cobrem equivalência,
+  ausência em saída e rejeição de campo ausente, curto ou inválido;
+- a reconciliação, publicação e instalação do controlador corrigido foram
+  autorizadas sem ampliar o escopo para credenciais, Secret, migration,
+  workload, origem HTTPS ou dado financeiro.

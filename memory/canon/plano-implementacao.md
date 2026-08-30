@@ -419,6 +419,60 @@ Aceite manual:
 - o operador confirma o fluxo SaferWPP e o retorno ao estado APIWPP ativo;
 - alertas e runbooks permitem identificar transição bloqueada ou reconciliada.
 
+## Fase 3B - DRE familiar independente
+
+Status: preparação offline e fundação vazia concluídas em 2026-08-29. O
+controlador, identidade, sudoers, timers, alertas, namespaces, StorageClasses,
+RBAC e admissão estão instalados. Em 2026-08-30, imagens privadas foram
+publicadas e a release assinada `dre-20260830T010200Z-29aeeb82d5bc` foi
+importada no cache fechado, sem se tornar corrente. Secret, PVC, workload,
+migration, backup/restore de dados e rota continuam ausentes.
+
+Ordem obrigatória:
+
+1. concluído offline: validar manifests, empacotamento determinístico,
+   assinatura Ed25519, SBOM/scan, escopo Kubernetes e rejeições negativas;
+2. concluído offline: validar fundação, RBAC, admissão fail-closed, interface
+   sudo fechada, identidade renovável, retenção, alertas e restore descartável;
+3. concluído em 2026-08-29: auditoria viva conjunta de CPU, memória, HDD,
+   storage K3s, nó, Blindou, APIWPP e slot;
+4. concluído em 2026-08-29 sob D030: chave privada Ed25519 protegida fora do
+   servidor e instalação somente do controlador/fundação vazia;
+5. concluído em 2026-08-30: publicar imagens examinadas e importar a release
+   assinada sem criar Secret ou workload;
+6. autorizado em 2026-08-30 sob D032: corrigir, publicar e instalar o contrato
+   para que o token da ponte seja coordenado em memória com o Cloudflare antes
+   da inicialização, sem criar Secrets;
+7. em trabalho separado, criar credenciais mínimas GHCR/R2, gravar o token da
+   ponte no Pages e criar Secrets por entrada protegida;
+8. somente com autorização explícita de migration e deploy, aplicar a primeira
+   release, comprovar backup/restore e manter a API somente em ClusterIP;
+9. rota HTTPS, contas, dispositivos e saldo inicial permanecem fases
+   posteriores e independentes.
+
+Aceite automatizado offline:
+
+- release real do repositório DRE é aceita pelo verificador independente;
+- NodePort, archive malicioso e vulnerabilidade alta/crítica são recusados;
+- DRE não integra o slot e não altera fingerprints de APIWPP/Blindou;
+- PostgreSQL, credenciais, PVC, namespaces e chave de assinatura são exclusivos;
+- restore usa volume descartável e não arquiva WAL no destino de produção;
+- audit log possui retenção diária de 30 dias e planos antigos são limitados;
+- token ausente, curto ou inválido é recusado e nenhum valor aparece em saída.
+
+Aceite operacional:
+
+- concluído: capacidade viva conjunta aprovada sem reduzir a margem dos
+  projetos ativos;
+- concluído: bootstrap vazio, prova negativa de admissão, métricas ingeridas,
+  zero porta DRE e projetos protegidos íntegros;
+- concluído: release assinada aceita no cache sem alterar gate, PVC, workload ou
+  o ocupante do slot secundário;
+- pendente nesta janela: controlador instalado declara
+  `bridge_token_source=orchestrator-stdin` e preserva o cache da release;
+- backup offsite e restore descartável comprovados com a release implantada;
+- API, worker e PostgreSQL saudáveis sem exposição pública ou acesso cruzado.
+
 ## Fase 4 - Pixel/CIA lab (cancelada para este host)
 
 Status: cancelada para este host por decisão D013.

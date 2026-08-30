@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-indice-canonico
   source_path: memory/canon/index.md
   generated_from: decisão do usuário e auditoria do servidor em 2026-08-15
-  updated_at: 2026-08-29
+  updated_at: 2026-08-30
   status: canonical
 
 ## Regra de entrada
@@ -34,10 +34,11 @@ corpus por padrão.
   Pod Security, cotas, limites, negação de rede e admissão privada.
 - PostgreSQL 18.6, pgBackRest 2.59 e K3s v1.36.2 estão saudáveis; audit log do
   Kubernetes está ativo e há backup consistente do cluster com checksum.
-- Somente `apiwpp` está implantado; Pixel e SaferWPP ainda não estão no cluster.
-- Os quatro repositórios de aplicação possuem guia obrigatório de acesso ao
-  servidor. `apiwpp` e Blindou têm controladores próprios instalados; Pixel e
-  SaferWPP falham fechados para alterações.
+- APIWPP e Blindou possuem runtime implantado; DRE possui somente fundação
+  vazia/controlador, enquanto Pixel e SaferWPP continuam sem runtime.
+- Os cinco projetos possuem fronteiras documentadas. APIWPP, Blindou e DRE têm
+  controladores próprios instalados; Pixel e SaferWPP falham fechados para
+  alterações.
 - D022 mantém o Blindou sempre ativo e reserva a capacidade residual a um slot
   alternável entre APIWPP e SaferWPP, com exclusão mútua. Em 2026-08-27,
   `secondary-slotctl` foi instalado e inicializado na geração 1, com atestado
@@ -61,6 +62,14 @@ corpus por padrão.
   escrita; o bundle aceita somente as linhas imutáveis Trivy 0.67.2 normal ou
   Trivy 0.70.0 com recibo D064; `foundation`, dados, K3s e I2 permanecem fora
   do escopo.
+- D029 definiu o DRE sempre ativo fora do slot e D030 autorizou seu helper de
+  bootstrap estritamente fechado. A fundação vazia, controlador, identidade,
+  sudoers, timers, alertas e métricas estão instalados. Em 2026-08-30, imagens
+  privadas foram publicadas e a release assinada
+  `dre-20260830T010200Z-29aeeb82d5bc` foi importada no cache. A release corrente
+  continua `none`, gate `blocked`, PVC/workloads/Secrets/portas estão ausentes.
+  D032 corrige a coordenação do token da ponte; credenciais, Secrets, migration,
+  backup/restore de dados, HTTPS e deploy continuam gates separados.
 - A execução I1 publicou o digest PostgreSQL final, instalou somente o
   `blindou-datactl`/quarentena e comprovou uma imagem, 15 blobs e 157.256.746
   bytes. O estado permanece `blocked`, sem objeto operacional, aguardando

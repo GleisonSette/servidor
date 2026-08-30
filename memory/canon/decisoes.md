@@ -552,6 +552,60 @@ controlador e essa prova direta. Secret Kubernetes, PVC, Job, Pod,
 `foundation`, backup/restore operacional, migration, DSN, workload PostgreSQL,
 I2 e cutover continuam sem autorização.
 
+## Resolvida D029 - DRE familiar independente e sempre ativo no K3s
+
+Em 2026-08-29, depois de preparar a operação K3s no repositório DRE, o usuário
+autorizou explicitamente alterar o repositório `servidor` para implementar seu
+controlador fechado. Essa decisão acrescenta o DRE ao alvo da plataforma sem
+colocá-lo no slot APIWPP/SaferWPP. O estado-alvo passa a preservar Blindou e DRE
+sempre ativos, com exatamente um ocupante ativo no slot secundário.
+
+O DRE usa `dre-production`, API e worker Rust separados e um PostgreSQL 18
+StatefulSet exclusivo. São exatamente três containers permanentes, com
+ServiceAccounts, Secrets, PVC, banco, papéis, rede, release, backup e chave de
+assinatura próprios. PostgreSQL, métricas e Services permanecem privados. A
+fundação adicional `dre-restore-drill` aceita somente restauração temporária em
+StorageClass `Delete`; nunca aponta para o PVC de produção.
+
+`dre-deployctl` aceita somente release Ed25519 com quatro estágios fixos,
+digests `linux/amd64`, SHA Git, SBOM SPDX, scans sem vulnerabilidade alta/crítica
+e regras de alerta assinadas. A identidade Kubernetes `dre-deployctl` não
+pertence a `system:masters`; admissão e sudoers restringem namespace, ações e
+recursos. Segredos iniciais entram por `stdin`, valores internos são gerados
+separadamente por papel e nenhum valor é impresso. Plano expira em 30 minutos e
+vincula release, Secrets, capacidade e fingerprints de APIWPP/Blindou.
+
+O preflight exige um nó Ready `x86_64`, ao menos quatro CPUs lógicas, 5 GiB de
+memória disponível e 45 GiB livres no filesystem K3s. Esses pisos são gate
+conservador, não prova de capacidade. A operação também adquire os locks
+Blindou e slot e compara recursos protegidos antes/depois.
+
+D029 autorizou somente a implementação offline inicial nos repositórios
+`servidor` e DRE. Chave privada, publicação de imagens, R2/FCM, instalação,
+Secrets, migration persistente, deploy, restore vivo, rota HTTPS, contas e
+saldo inicial permaneceram operações separadas.
+
+## Resolvida D030 - Capacidade de senha restrita ao bootstrap DRE
+
+Em 2026-08-29, depois que a primeira execução manual do bootstrap DRE acionou
+rollback e exigiria nova digitação de senha, o usuário decidiu permitir que
+`KEY_SERVIDOR` fosse carregada do arquivo ignorado canônico
+`C:\github\servidor\.env` exclusivamente por
+`Dre.SudoBootstrap.psm1` e entregue por `stdin` ao `sudo` de um bootstrap DRE
+versionado e fechado.
+
+O helper valida host, identidade SSH, padrão do staging, hashes SHA-256, lista
+exata do bundle e instalador. Antes de executar código transportado como root,
+ele copia bundle e chave pública para cache root-owned, revalida o inventário e
+extrai somente arquivos regulares permitidos. O segredo nunca entra em
+argumento, variável de ambiente, arquivo gerado, log ou saída e é descartado da
+variável local ao final.
+
+D030 não concede `sudo` ou shell genérico e não autoriza importação de release,
+criação de Secrets, migration, deploy, backup, restore, publicação de imagem,
+R2/FCM, HTTPS, contas ou dados financeiros. A chave privada Ed25519 continua
+fora do servidor e dos repositórios.
+
 ## Resolvida D031 - Build temporário do PostgreSQL dedicado no servidor
 
 Em 2026-08-29, após o GitHub recusar o workflow antes de qualquer step por
@@ -576,3 +630,27 @@ Trivy 0.70.0 no archive SHA-256
 `8b4376d5d6befe5c24d503f10ff136d9e0c49f9127a4279fd110b727929a5aa9` e
 recibo D064 completo. Versão, hash, modo, limites, autoridade ou recibo
 divergentes falham fechados.
+
+## Resolvida D032 - Token da ponte DRE coordenado antes dos Secrets
+
+Em 2026-08-30, depois da publicação do Pages e da importação da primeira release
+assinada, a verificação operacional encontrou uma fronteira impossível no
+contrato inicial: `dre-secret-material.py` gerava o token da ponte dentro do
+servidor e apagava o material temporário, enquanto o Cloudflare Pages precisava
+receber exatamente o mesmo valor. Recuperar o token lendo um Secret Kubernetes
+violaria o cofre e não seria uma interface operacional reproduzível.
+
+O usuário autorizou corrigir, publicar e instalar o controlador. O contrato
+passa a exigir `web_bridge_token` no JSON protegido recebido por `stdin`, com
+alfabeto portátil e ao menos 64 caracteres. O orquestrador local gera o valor
+somente em memória, grava primeiro o Secret homônimo no Pages e só então envia o
+mesmo valor ao controlador. O valor não entra em argumento, arquivo versionado,
+log, índice ou resposta. Senhas PostgreSQL e cifra de backup continuam geradas
+separadamente no servidor.
+
+A coordenação não transforma Cloudflare e Kubernetes em uma transação única. A
+ordem torna a falha segura: erro no Pages impede `initialize-secrets`; erro no
+controlador remove o lote Kubernetes criado na tentativa, e o Secret ainda
+inativo do Pages pode ser sobrescrito antes de repetir. D032 não autoriza criar
+credencial GHCR/R2, inicializar Secrets, configurar origem HTTPS, executar
+migration ou deploy; essas operações continuam separadas.

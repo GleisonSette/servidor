@@ -34,6 +34,11 @@ forte contra comprometimento do kernel/root.
   compartilhado do slot a partir de um arquivo produzido pelo commit aprovado,
   com host, staging, SHA-256, cache root-owned e bootstrap fixos. Essa concessão
   não instala fundação ou controlador SaferWPP e não oferece `sudo` genérico.
+- D030 concede ao helper `Dre.SudoBootstrap.psm1` somente o bootstrap DRE
+  versionado, lendo `KEY_SERVIDOR` exclusivamente de
+  `C:\github\servidor\.env`, com host, staging, hashes, inventário e instalador
+  fixos. Não há shell, `kubectl`, importação de release, Secret ou deploy
+  genérico.
 - Uma ServiceAccount por workload, com token desabilitado quando não necessário.
 - Secrets, credenciais de banco e certificados separados por finalidade.
 
@@ -55,6 +60,8 @@ Estado dos controladores em 2026-08-27:
   ainda não foram instalados no host;
 - `blindou-deployctl` está instalado e governa a fundação, dados, backup,
   conector Cloudflare e releases assinadas do Blindou;
+- `dre-deployctl`, identidade e fundação vazia estão instalados; a release
+  assinada está importada no cache, sem Secret, PVC ou workload;
 - até a instalação de cada controlador, o respectivo Codex de aplicação pode
   preparar artefatos e confirmar o acesso, mas não alterar o servidor;
 - a capacidade administrativa com senha do usuário humano não é uma interface
@@ -68,6 +75,45 @@ Server e alerta com 30 dias de antecedência ou quando a reconciliação ficar
 mais de 26 horas sem sucesso. Falha de uma renovação restaura o kubeconfig
 anterior quando ele existia. Essas identidades não reutilizam kubeconfig,
 certificado, Role ou credencial do APIWPP ou do Blindou.
+
+## DRE independente
+
+O estado-alvo definido por D029 é:
+
+```text
+Blindou sempre ativo + DRE sempre ativo
+                  + um único ocupante do slot APIWPP/SaferWPP
+```
+
+O DRE usa os namespaces exclusivos `dre-production` e `dre-restore-drill`.
+API, worker e PostgreSQL são exatamente os três containers permanentes do
+produto. Services são somente ClusterIP; PostgreSQL, métricas, PVCs, Secrets,
+ServiceAccounts, banco, papéis, release e chave de assinatura não são
+compartilhados com Blindou ou com o slot.
+
+`dre-deployctl` é uma interface fechada, root-owned, com identidade Kubernetes
+CN `dre-deployctl`, grupo `dre-deployers` e RBAC limitado às duas fronteiras. A
+admissão `dre-controller-only` usa `failurePolicy: Fail`. O controlador aceita
+somente release Ed25519 com quatro estágios fixos, imagens por digest
+`linux/amd64`, SBOM SPDX, scans aprovados e regras de alerta assinadas. Planos
+expiram em 30 minutos e vinculam release, Secrets, capacidade e fingerprints de
+APIWPP/Blindou. O audit log técnico tem rotação diária por 30 dias e os planos
+expirados são removidos depois de sete dias.
+
+O namespace de restauração usa PVC e StorageClass descartáveis e nunca aponta
+para o volume de produção. A prova desliga arquivamento de WAL no banco
+restaurado, verifica migrations e índices e remove o volume somente após
+sucesso. Falha preserva o PVC descartável para diagnóstico.
+
+Por D032, a credencial da ponte web atravessa duas fronteiras administrativas.
+Um orquestrador local gera o valor forte somente em memória, grava primeiro o
+Secret `DRE_BRIDGE_TOKEN` no Cloudflare Pages por entrada protegida e depois
+envia o mesmo valor no JSON de `initialize-secrets`. O controlador valida o
+contrato fechado e grava `dre-api-runtime/web-bridge-token`; ele não gera um
+valor impossível de coordenar nem o devolve por saída. Falha no Cloudflare
+impede a criação dos Secrets Kubernetes, e falha na inicialização remove o lote
+criado naquela tentativa. A origem da API continua uma configuração posterior,
+dependente da rota HTTPS autorizada.
 
 ## Slot alternável APIWPP/SaferWPP
 

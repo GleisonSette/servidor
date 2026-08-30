@@ -29,6 +29,38 @@ SaferWPP continua vazio e o Blindou permanece ativo.
 - Fundação PostgreSQL, controladores e workloads SaferWPP continuam ausentes.
   O próximo gate permanece a fundação vazia exclusiva do produto.
 
+## Fundação DRE instalada e release importada em 2026-08-30
+
+- D029 mantém o DRE sempre ativo e independente do slot APIWPP/SaferWPP. D030
+  permite que somente `Dre.SudoBootstrap.psm1` entregue `KEY_SERVIDOR` por
+  `stdin` ao bootstrap fechado; não existe `sudo` genérico.
+- A auditoria viva aprovou quatro CPUs, 10.671.804 KiB de memória disponível,
+  183.666.928 KiB livres no filesystem K3s, K3s `v1.36.2+k3s1`, zero units
+  falhas e integridade de Blindou, APIWPP e slot.
+- A chave privada Ed25519 está protegida fora do servidor e dos repositórios. O
+  host recebeu somente a chave pública com SHA-256
+  `4902604dad96d9b07f4010308d30e3815cb4e76446855d925079be0e3b922ce9`.
+- `dre-production` e `dre-restore-drill`, StorageClasses, RBAC, admissão
+  fail-closed, identidade exclusiva, controlador, sudoers, timers, alertas e
+  métricas estão instalados. A prova negativa de admissão passou.
+- A release assinada `dre-20260830T010200Z-29aeeb82d5bc`, ligada ao commit DRE
+  `29aeeb82d5bc52ea72632e7d027a41a2030c6737`, foi aceita e armazenada no cache
+  root-only. O archive usa SHA-256
+  `fa48fd316cee2e4c8553232dc0b3ef218b63555c72f9dda537e38ebb4a379ffe`.
+- O estado operacional permanece vazio e bloqueado: release corrente `none`,
+  gate `blocked`, PVC ausente, zero API/worker/PostgreSQL Ready e zero objeto
+  operacional, Secret, Service ou volume DRE. Nenhuma imagem foi puxada no host
+  e nenhuma migration, banco, backup de dados, restore, rota HTTPS ou
+  implantação foi executada.
+- A verificação posterior à importação confirmou APIWPP, Blindou e slot
+  íntegros, com APIWPP como único ocupante do slot; as portas 443, 5432, 8080 e
+  8443 continuaram fechadas na LAN administrativa.
+- D032 corrige o contrato que antes gerava o token da ponte dentro do servidor
+  sem caminho seguro para o Pages. A fonte recebe o mesmo token forte por
+  `stdin`; a instalação dessa correção pertence à janela autorizada de
+  2026-08-30. Credenciais e Secrets continuam gates separados; migration e
+  deploy permanecem sem autorização.
+
 ## PostgreSQL dedicado Blindou I1 autorizado em 2026-08-29
 
 - O processo PostgreSQL nativo continua sendo a única autoridade do Blindou;
