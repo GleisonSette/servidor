@@ -13,9 +13,9 @@ $publishScriptSha256 =
 $regctlSha256 =
     'c93aa7638749f5aaac1a8e01787321889c78f0101809bb2880343478d0ba0467'
 $syftSha256 =
-    '2a2e837a2c8d59ec9af5472ee22d3b04ee463c4e44476ecf993fd1e5ab6ebc7f'
+    '5a8b71e94f4607973145f02e27e01d50b9f7c7bc41e38d40b39606ad138b43b5'
 $trivySha256 =
-    'bbb64b9695866ce4a7a8f5c9592002c5961cab378577fa3f8a040df362b9b2ea'
+    '0e69edd134a3c338baa1a6806920773615d682b18cbc6a0cba2a3b658ef9b63e'
 $sshDirectory = Join-Path $env:LOCALAPPDATA 'apiwpp\ssh'
 $identityFile = Join-Path $sshDirectory 'apiwpp_admin_ed25519'
 $knownHostsFile = Join-Path $sshDirectory 'known_hosts'
