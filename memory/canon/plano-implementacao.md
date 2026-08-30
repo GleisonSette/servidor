@@ -265,8 +265,9 @@ Objetivos:
 
 ## Fase 2F - PostgreSQL dedicado do Blindou
 
-Status: I0 aprovada; I1 em execução controlada em 2026-08-29, com imagem,
-bundle, controlador e quarentena concluídos e `pull-proof` em execução.
+Status: I0 aprovada; I1 automatizada concluída em 2026-08-29, com imagem,
+bundle, controlador, quarentena e `pull-proof` aprovados. A confirmação humana
+final está pendente antes de qualquer próxima fase.
 O pacote `platform/blindou-data/` nasce bloqueado; imagem privada, supply chain,
 bundle, `blindou-datactl`, backup, restore-base e gates descartáveis estão
 preparados. O PostgreSQL nativo continua autoridade. O workflow hospedado foi
@@ -282,8 +283,9 @@ Ordem:
 2. concluído: bundle assinado e controlador separado da plataforma foram
    publicados;
 3. concluído: instalar somente o `blindou-datactl` e a quarentena vazia;
-4. em execução: executar `pull-proof` direto pelo cofre GHCR do host, mantendo
-   gate `blocked` e zero Secret, PVC, Job, Pod ou workload de banco;
+4. concluído: `pull-proof` direto validou uma imagem, 15 blobs e 157.256.746
+   bytes, mantendo gate `blocked` e zero Secret, PVC, Job, Pod ou workload de
+   banco;
 5. parar novamente para autorização: `foundation`, I2, dados e cutover não são
    consequência da prova.
 

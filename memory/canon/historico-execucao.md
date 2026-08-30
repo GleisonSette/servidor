@@ -1539,3 +1539,26 @@ o defeito de escopo recebeu correção e gate de regressão.
   regressiva.
 - A falha ocorreu antes do downloader e preservou `pull_proofs=0`, gate
   `blocked` e zero Secret, PVC, Job, Pod, Service ou workload PostgreSQL.
+
+## 2026-08-29 - PostgreSQL dedicado I1 comprovado sem materializar banco
+
+Resultado: imagem, bundle, controlador, quarentena e pull integral aprovados;
+fase pronta para confirmação humana.
+
+- O controlador final veio do commit
+  `8b892b962f4096678c8ae6e0fb89bfe27b25b6de`, archive SHA-256
+  `aecec330574a99e28aecddb2505241b81a86ca2696c4fd7c722245ca765af1d6`.
+- A candidata Blindou
+  `753ec66aab3040cd81a766ffeafe1e9cb0850e18` passou nas assinaturas e o
+  downloader comprovou o digest
+  `sha256:2f1c8787a0f689fdc34bf94c59b7f30add5da8c5514930575dc383603a8f3f6d`:
+  uma imagem, 15 blobs e 157.256.746 bytes. O archive de transporte possui
+  SHA-256 `6bfc13df24df7356055e4fcf37a4cad0df1c1d17779006983dffa6d292f2fa8e`.
+- A auditoria independente terminou em `namespace=blindou-data gate=blocked
+  ready=0 pvc=0 image=none pull_proofs=1 cutover=false`; host, APIWPP e Blindou
+  passaram.
+- Três workspaces efêmeros de tentativas falhas foram validados como 0700,
+  pertencentes a `apiadmin`, e removidos por caminhos exatos. Imagens órfãs no
+  GHCR permaneceram intactas por falta de autorização destrutiva específica.
+- Nenhum Secret, PVC, Job, Pod, Service, StatefulSet, database, migration,
+  backup, restore, DSN, I2 ou cutover foi criado ou executado.

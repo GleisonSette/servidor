@@ -40,17 +40,17 @@ SaferWPP continua vazio e o Blindou permanece ativo.
 - O bundle assinado foi validado nos namespaces `blindou-data` e
   `blindou-data-image`, com SHA-256
   `729d1caafd1691c3d9bd3ea15cacec791cd97e081f5cc1573ea33b2737ad85d7`.
-  O `pull-proof` ainda não foi concluído.
-- O commit de plataforma `3194252bb5a2f732994b7e8a897cf8aadb45610a`
-  instalou `blindou-datactl` e criou a quarentena `blindou-data` `blocked`, sem
-  Secret, PVC, Job, Pod, Service ou workload de banco.
-- A imagem privada, o bundle assinado e o bootstrap fechado receberam
-  autorização operacional, mas a conclusão viva será registrada somente após
-  os respectivos recibos.
+  O `pull-proof` validou uma imagem, 15 blobs e 157.256.746 bytes.
+- O commit de plataforma `8b892b962f4096678c8ae6e0fb89bfe27b25b6de`
+  instalou a versão final do `blindou-datactl`; a quarentena `blindou-data`
+  permanece `blocked`, sem Secret, PVC, Job, Pod, Service ou workload de banco.
+- O estado final é `ready=0 pvc=0 image=none pull_proofs=1 cutover=false`.
+  Host, APIWPP e Blindou passaram nas verificações independentes.
 - `pull-proof` baixa integralmente o digest pelo PAT GHCR root-only já existente
   e preserva somente recibo. Ele não modifica o cluster e recusa executar se a
   quarentena contiver objeto operacional.
-- `foundation`, Secrets Kubernetes, PVCs, backup/restore operacional,
+- A execução I1 está pronta para confirmação humana. `foundation`, Secrets
+  Kubernetes, PVCs, backup/restore operacional,
   migration, DSN, StatefulSet, I2 e cutover permanecem bloqueados.
 
 ## Operação Blindou concluída em 2026-08-27

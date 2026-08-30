@@ -61,6 +61,10 @@ corpus por padrão.
   escrita; o bundle aceita somente as linhas imutáveis Trivy 0.67.2 normal ou
   Trivy 0.70.0 com recibo D064; `foundation`, dados, K3s e I2 permanecem fora
   do escopo.
+- A execução I1 publicou o digest PostgreSQL final, instalou somente o
+  `blindou-datactl`/quarentena e comprovou uma imagem, 15 blobs e 157.256.746
+  bytes. O estado permanece `blocked`, sem objeto operacional, aguardando
+  confirmação humana; `foundation` e I2 continuam bloqueados.
 - D026 prepara, ainda sem instalação no host, a ativação separada da Shopee
   Open API. A release compatível entra com a flag desligada; depois o
   controlador gera a chave interna root-only e só conclui após backend e 16
