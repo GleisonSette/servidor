@@ -95,8 +95,7 @@ function Invoke-BlindouSudoBootstrap {
         }
     }
 
-    $repositoryRoot = Split-Path -Parent $PSScriptRoot
-    $envFile = Join-Path $repositoryRoot '.env'
+    $envFile = 'C:\github\servidor\.env'
     $password = Read-BlindouSudoPassword -EnvFile $envFile
     try {
         $password | & ssh.exe @SshArguments $Server $remoteCommand

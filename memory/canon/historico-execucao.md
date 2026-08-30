@@ -1461,3 +1461,25 @@ foi realizada por este registro.
   prioridade baixa e sem concorrência com Cargo/Rust.
 - `sudo`, Docker/BuildKit, K3s, banco, serviço, segredo, outra imagem,
   `foundation`, migration, restore e cutover continuam proibidos.
+
+## 2026-08-29 - Publicação I1 e correção do caminho administrativo
+
+Resultado: imagem e bundle assinados concluídos; bootstrap ainda não executado
+neste registro e helper corrigido antes de acessar a credencial.
+
+- O SHA Blindou `753ec66aab3040cd81a766ffeafe1e9cb0850e18` passou no executor
+  efêmero D031/D064, scan bloqueante, SBOM, proveniência, publicação e releitura
+  do GHCR. O sujeito aceito foi
+  `sha256:2f1c8787a0f689fdc34bf94c59b7f30add5da8c5514930575dc383603a8f3f6d`.
+- O bundle SHA-256
+  `729d1caafd1691c3d9bd3ea15cacec791cd97e081f5cc1573ea33b2737ad85d7`
+  passou nas assinaturas `blindou-data` e `blindou-data-image` para o principal
+  público `blindou-local`; a chave privada permaneceu na estação.
+- O bootstrap foi interrompido antes de qualquer mudança no host porque o
+  helper derivava `.env` do worktree limpo, enquanto a credencial autorizada
+  existe somente em `C:\github\servidor\.env`. O arquivo não foi aberto,
+  copiado nem vinculado.
+- Com autorização específica, o helper passou a fixar esse caminho canônico e
+  o gate passou a recusar regressão para caminho relativo ao worktree. Até a
+  execução posterior, `blindou-datactl`, namespace, Secret, PVC, Job, Pod,
+  migration e banco dedicado continuavam ausentes.

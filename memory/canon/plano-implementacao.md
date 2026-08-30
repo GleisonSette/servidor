@@ -265,7 +265,8 @@ Objetivos:
 
 ## Fase 2F - PostgreSQL dedicado do Blindou
 
-Status: I0 aprovada e I1 aprovada para publicação controlada em 2026-08-29.
+Status: I0 aprovada; I1 em execução controlada em 2026-08-29, com imagem e
+bundle concluídos e bootstrap aguardando a correção validada do helper local.
 O pacote `platform/blindou-data/` nasce bloqueado; imagem privada, supply chain,
 bundle, `blindou-datactl`, backup, restore-base e gates descartáveis estão
 preparados. O PostgreSQL nativo continua autoridade. O workflow hospedado foi
@@ -275,11 +276,12 @@ imagem PostgreSQL no servidor, com publicação executada pela estação.
 
 Ordem:
 
-1. concluir D031/D064: gerar a imagem do SHA Blindou exato no executor efêmero,
-   publicar pela estação e obter scan, SBOM, proveniência e identidade OCI;
-2. gerar o bundle assinado e commitar/publicar o controlador separado da
-   plataforma;
-3. instalar somente o `blindou-datactl` e a quarentena vazia;
+1. concluído: D031/D064 gerou a imagem do SHA Blindou exato no executor
+   efêmero; a estação publicou e obteve scan, SBOM, proveniência e identidade
+   OCI;
+2. concluído: bundle assinado e controlador separado da plataforma foram
+   publicados;
+3. em execução: instalar somente o `blindou-datactl` e a quarentena vazia;
 4. executar `pull-proof` direto pelo cofre GHCR do host, mantendo gate
    `blocked` e zero Secret, PVC, Job, Pod ou workload de banco;
 5. parar novamente para autorização: `foundation`, I2, dados e cutover não são

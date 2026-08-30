@@ -86,8 +86,11 @@ grep -Fq "sudo -S -p '' -- ./operations/remote/bootstrap-blindou-datactl.sh" \
   "$SUDO_BOOTSTRAP_MODULE" || fail 'bootstrap sudo do datactl não usa stdin'
 grep -Fq "'^/home/apiadmin/blindou-data-bootstrap/[0-9a-f]{40}$'" \
   "$SUDO_BOOTSTRAP_MODULE" || fail 'bootstrap sudo do datactl não fixa staging e commit'
-grep -Fq "Join-Path \$repositoryRoot '.env'" \
-  "$SUDO_BOOTSTRAP_MODULE" || fail 'bootstrap sudo não fixa o arquivo temporário local'
+grep -Fq "C:\\github\\servidor\\.env" "$SUDO_BOOTSTRAP_MODULE" \
+  || fail 'bootstrap sudo não fixa o arquivo administrativo canônico'
+if grep -Fq "Join-Path \$repositoryRoot '.env'" "$SUDO_BOOTSTRAP_MODULE"; then
+  fail 'bootstrap sudo ainda depende do worktree para localizar o arquivo administrativo'
+fi
 if grep -Eq 'Write-(Host|Output|Verbose|Debug).*(password|KEY_SERVIDOR)' \
     "$SUDO_BOOTSTRAP_MODULE"; then
   fail 'bootstrap sudo pode revelar a senha'

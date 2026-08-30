@@ -34,9 +34,13 @@ SaferWPP continua vazio e o Blindou permanece ativo.
 - O processo PostgreSQL nativo continua sendo a única autoridade do Blindou;
   nenhum DSN, migration, dado, writer ou HBA foi alterado.
 - O workflow hospedado foi recusado antes dos steps por bloqueio de cobrança.
-  D031/D064 está autorizada temporariamente, mas neste registro o build no host,
-  a publicação da imagem, o bundle, a instalação do controlador e o
-  `pull-proof` ainda não foram executados.
+  Pela D031/D064 temporária, o host concluiu o build/scan efêmero do SHA Blindou
+  `753ec66aab3040cd81a766ffeafe1e9cb0850e18`; a estação publicou e releu o
+  digest `sha256:2f1c8787a0f689fdc34bf94c59b7f30add5da8c5514930575dc383603a8f3f6d`.
+- O bundle assinado foi validado nos namespaces `blindou-data` e
+  `blindou-data-image`, com SHA-256
+  `729d1caafd1691c3d9bd3ea15cacec791cd97e081f5cc1573ea33b2737ad85d7`.
+  A instalação do controlador e o `pull-proof` ainda não foram executados.
 - A plataforma prepara `blindou-datactl` e a quarentena `blindou-data`
   `blocked`, sem Secret, PVC, Job, Pod, Service ou workload de banco.
 - A imagem privada, o bundle assinado e o bootstrap fechado receberam

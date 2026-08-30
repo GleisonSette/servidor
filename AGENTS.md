@@ -23,7 +23,8 @@
 - Por decisões D018, D025 e D027, somente os helpers versionados
   `operations/Blindou.SudoBootstrap.psm1` e
   `operations/SecondarySlot.SudoBootstrap.psm1` podem carregar
-  `KEY_SERVIDOR` do arquivo local ignorado `.env`. O primeiro continua restrito
+  `KEY_SERVIDOR` do arquivo local ignorado canônico
+  `C:\github\servidor\.env`. O primeiro continua restrito
   aos bootstraps fechados `blindou-hostctl`, `blindou-deployctl` e
   `blindou-datactl`; este último exige o conjunto `DataController`, staging e
   commit fixos e instala somente o controlador e a quarentena vazia. O segundo

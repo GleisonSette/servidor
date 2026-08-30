@@ -445,6 +445,12 @@ host ou outro projeto continuam proibidos. Na entrada do primeiro cliente, ou
 antes diante de suspeita de exposição, o arquivo deve ser removido e a
 credencial rotacionada.
 
+O caminho administrativo canônico é `C:\github\servidor\.env`. O helper não
+deriva esse arquivo da raiz do worktree: assim, um commit limpo pode ser
+fotografado em worktree separado sem copiar, vincular ou relocalizar a
+credencial. Arquivo ausente, simbólico, repetido ou fora dos limites continua
+falhando fechado.
+
 Em 2026-08-29, o usuário ampliou essa permissão somente para a instalação do
 `blindou-datactl`. `operations/Blindou.SudoBootstrap.psm1` aceita o conjunto
 `DataController` apenas no host aprovado, sob

@@ -34,7 +34,8 @@ distintos: o controlador deve provar o pull da imagem privada por digest antes
 de criar o workload. A admissão exclui `blindou-data` da regra geral da
 aplicação e usa uma regra própria: `pull-only` admite apenas o Job de prova;
 `candidate-foundation` admite somente o singleton e Jobs de dados fechados. A
-imagem e o bundle ainda não foram publicados.
+imagem privada por digest e o bundle assinado já foram publicados e validados;
+o controlador e a quarentena ainda não foram instalados neste ponto.
 
 Por D031 neste repositório, alinhada à D064 do Blindou, a publicação da imagem
 PostgreSQL pode usar temporariamente o servidor apenas como executor efêmero de
@@ -201,9 +202,11 @@ label anterior do nó. Ele recusa remover namespace que possua objeto operaciona
 
 Os orquestradores versionados usam exclusivamente
 `operations/Blindou.SudoBootstrap.psm1` para instalar ou atualizar os
-controladores. O helper carrega `KEY_SERVIDOR` do `.env` ignorado na raiz deste
-repositório, sem exibir seu conteúdo, e envia o valor apenas por `stdin` para
-`sudo -S`. Ele fixa o host aprovado, o staging e exatamente os instaladores
+controladores. O helper carrega `KEY_SERVIDOR` exclusivamente do arquivo
+ignorado canônico `C:\github\servidor\.env`, independentemente do worktree
+limpo usado para fotografar o commit, sem exibir seu conteúdo, e envia o valor
+apenas por `stdin` para `sudo -S`. Ele fixa o host aprovado, o staging e
+exatamente os instaladores
 `bootstrap-blindou-hostctl.sh`, `bootstrap-blindou-deployctl.sh` e
 `bootstrap-blindou-datactl.sh`; o último só é aceito pelo conjunto
 `DataController` e por um caminho contendo o SHA completo do commit da
