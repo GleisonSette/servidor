@@ -15,7 +15,7 @@ $sourceArchiveSha256 =
 $buildKitArchiveSha256 =
     '2975d0f651ad96ba8b80b9992ae1f9a964f4408569af5b6dc36544165c3926af'
 $buildScriptSha256 =
-    'ef848fc154dc9cc39256db43fdba5049c8cd7f19d5aa3d4a5261bc7b1e58705d'
+    '654db24ad19c7aa3f2dde0c24fc488395cbc635fcc64b4c3fcca68811ec4add6'
 $sshDirectory = Join-Path $env:LOCALAPPDATA 'apiwpp\ssh'
 $identityFile = Join-Path $sshDirectory 'apiwpp_admin_ed25519'
 $knownHostsFile = Join-Path $sshDirectory 'known_hosts'

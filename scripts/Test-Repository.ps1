@@ -143,7 +143,7 @@ foreach ($invariant in @(
     'dre-image-build-25dc4f899669-20260830T221500Z',
     'a5303a241928ea78223bf7cddfb5425fc77d14acbc96c9c249dcca586ad70099',
     '2975d0f651ad96ba8b80b9992ae1f9a964f4408569af5b6dc36544165c3926af',
-    'ef848fc154dc9cc39256db43fdba5049c8cd7f19d5aa3d4a5261bc7b1e58705d',
+    '654db24ad19c7aa3f2dde0c24fc488395cbc635fcc64b4c3fcca68811ec4add6',
     'StrictHostKeyChecking=yes'
 )) {
     if (-not $dreImageBuild.Contains($invariant)) {
@@ -176,6 +176,37 @@ foreach ($invariant in @(
 )) {
     if (-not $dreImageBuildScript.Contains($invariant)) {
         throw "Build efêmero DRE perdeu a invariante: $invariant"
+    }
+}
+$lockStart = $dreImageBuildScript.IndexOf(
+    'exec 6>"$build_lock"',
+    [StringComparison]::Ordinal
+)
+$unlockEnd = $dreImageBuildScript.IndexOf(
+    'exec 6>&-',
+    [StringComparison]::Ordinal
+)
+foreach ($controllerCheck in @(
+    '/usr/local/sbin/dre-deployctl status',
+    '/usr/local/sbin/blindou-deployctl status',
+    '/usr/local/sbin/secondary-slotctl verify'
+)) {
+    $firstCheck = $dreImageBuildScript.IndexOf(
+        $controllerCheck,
+        [StringComparison]::Ordinal
+    )
+    $secondCheck = $dreImageBuildScript.IndexOf(
+        $controllerCheck,
+        $firstCheck + $controllerCheck.Length,
+        [StringComparison]::Ordinal
+    )
+    if ($firstCheck -lt 0 -or $firstCheck -ge $lockStart -or
+        $secondCheck -le $unlockEnd -or
+        $dreImageBuildScript.LastIndexOf(
+            $controllerCheck,
+            [StringComparison]::Ordinal
+        ) -ne $secondCheck) {
+        throw "Verificação do build DRE pode executar sob lock próprio: $controllerCheck"
     }
 }
 

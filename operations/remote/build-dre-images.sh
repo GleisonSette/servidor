@@ -65,6 +65,13 @@ done
 [[ ! -e "$output_directory" && ! -L "$output_directory" ]] \
   || fail 'diretório de saída já existe'
 
+/usr/local/sbin/dre-deployctl status >/dev/null \
+  || fail 'controlador DRE não está íntegro'
+/usr/local/sbin/blindou-deployctl status >/dev/null \
+  || fail 'Blindou não está íntegro'
+/usr/local/sbin/secondary-slotctl verify >/dev/null \
+  || fail 'slot secundário não está íntegro'
+
 exec 6>"$build_lock"
 chmod 0600 "$build_lock"
 flock -n 6 || fail 'outro build DRE está em andamento'
@@ -76,13 +83,6 @@ flock -n 8 || fail 'operação Blindou está em andamento'
   || fail 'lock do slot secundário ausente ou inseguro'
 exec 9<>"$slot_lock"
 flock -n 9 || fail 'transição APIWPP/SaferWPP está em andamento'
-
-/usr/local/sbin/dre-deployctl status >/dev/null \
-  || fail 'controlador DRE não está íntegro'
-/usr/local/sbin/blindou-deployctl status >/dev/null \
-  || fail 'Blindou não está íntegro'
-/usr/local/sbin/secondary-slotctl verify >/dev/null \
-  || fail 'slot secundário não está íntegro'
 
 work_directory="$(mktemp -d \
   "/var/tmp/dre-image-build.${source_revision:0:12}.XXXXXX")"
@@ -327,6 +327,15 @@ mv -- "${work_directory}/output" "$output_directory"
 chown -R apiadmin:apiadmin "$output_directory"
 find "$output_directory" -type d -exec chmod 0700 {} +
 find "$output_directory" -type f -exec chmod 0600 {} +
+
+flock --unlock 9
+flock --unlock 8
+flock --unlock 7
+flock --unlock 6
+exec 9>&-
+exec 8>&-
+exec 7>&-
+exec 6>&-
 
 /usr/local/sbin/dre-deployctl status >/dev/null \
   || fail 'controlador DRE divergiu após o build'
