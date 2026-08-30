@@ -227,9 +227,12 @@ allowed_files = {
     "bin/buildkit-runc",
     "bin/buildkitd",
 }
+maximum_buildkit_file_bytes = 96 * 1024 * 1024
+maximum_buildkit_total_bytes = 256 * 1024 * 1024
 with tarfile.open(archive, mode="r:gz") as release:
     members = release.getmembers()
     regular = set()
+    total_bytes = 0
     for member in members:
         path = PurePosixPath(member.name)
         name = str(path)
@@ -241,8 +244,11 @@ with tarfile.open(archive, mode="r:gz") as release:
             continue
         if not member.isreg() or name not in allowed_files:
             raise SystemExit("membro inesperado no BuildKit")
-        if member.size <= 0 or member.size > 64 * 1024 * 1024:
+        if member.size <= 0 or member.size > maximum_buildkit_file_bytes:
             raise SystemExit("tamanho inválido no BuildKit")
+        total_bytes += member.size
+        if total_bytes > maximum_buildkit_total_bytes:
+            raise SystemExit("BuildKit excede o limite total descompactado")
         regular.add(name)
     if regular != allowed_files:
         raise SystemExit("inventário do BuildKit diverge")

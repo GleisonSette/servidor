@@ -143,7 +143,7 @@ foreach ($invariant in @(
     'dre-image-build-25dc4f899669-20260830T221500Z',
     'a5303a241928ea78223bf7cddfb5425fc77d14acbc96c9c249dcca586ad70099',
     '2975d0f651ad96ba8b80b9992ae1f9a964f4408569af5b6dc36544165c3926af',
-    '654db24ad19c7aa3f2dde0c24fc488395cbc635fcc64b4c3fcca68811ec4add6',
+    '7e9ec62db21614221cb2945a341bfc005577884d37267f90290524fd5b5feeb3',
     'StrictHostKeyChecking=yes'
 )) {
     if (-not $dreImageBuild.Contains($invariant)) {
@@ -171,6 +171,8 @@ foreach ($invariant in @(
     '--oci-worker-snapshotter=native',
     '--oci-worker-net=bridge',
     '--oci-max-parallelism=2',
+    'maximum_buildkit_file_bytes = 96 * 1024 * 1024',
+    'maximum_buildkit_total_bytes = 256 * 1024 * 1024',
     'rm -rf --one-file-system',
     'ghcr.io/gleisonsette/dre-validation-runner'
 )) {
