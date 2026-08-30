@@ -1524,3 +1524,18 @@ forma fail-closed para as duas linhas imutáveis autorizadas.
   passou localmente no contrato corrigido.
 - Não houve download da imagem nem criação de Secret, PVC, Job, Pod, Service,
   workload PostgreSQL, migration, DSN, backup, restore, I2 ou cutover.
+
+## 2026-08-29 - Escopo Bash do recibo corrigido antes do download
+
+Resultado: nova tentativa recusada depois das assinaturas e antes do download;
+o defeito de escopo recebeu correção e gate de regressão.
+
+- O bundle real passou no verificador D064 instalado pelo commit
+  `37b7e21f293f4c112f509837932a89c9a3c70b98`, mas `set -u` recusou a função
+  `receipt_passes`: `name` era referenciada na mesma declaração `local` que a
+  atribuía, antes de ficar disponível para a expansão do caminho.
+- `require_receipt` e `receipt_passes` agora atribuem `name` e somente na linha
+  seguinte derivam o caminho root-only. Gates Windows e Linux recusam a forma
+  regressiva.
+- A falha ocorreu antes do downloader e preservou `pull_proofs=0`, gate
+  `blocked` e zero Secret, PVC, Job, Pod, Service ou workload PostgreSQL.

@@ -74,6 +74,18 @@ if (-not $dataPullProof.Contains('$matchingImages = @(') -or
     -not $dataPullProof.Contains('if ($matchingImages.Count -ne 1)')) {
     throw 'A prova de pull não preserva cardinalidade no StrictMode.'
 }
+$dataController = Get-Content -Raw -LiteralPath (
+    Join-Path $root 'operations/remote/blindou-datactl'
+)
+if ($dataController.Contains(
+    'local name="$1" release="$2" path="${RECEIPT_ROOT}/${name}.state"'
+)) {
+    throw 'O controlador expande name antes da atribuição sob nounset.'
+}
+if ($dataController -cnotmatch
+    'local name="\$1" release="\$2" path\r?\n\s+path="\$\{RECEIPT_ROOT\}/\$\{name\}\.state"') {
+    throw 'O caminho dos recibos não é derivado depois da atribuição de name.'
+}
 
 $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
 if ($null -eq $pythonCommand) {

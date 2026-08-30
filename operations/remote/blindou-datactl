@@ -161,7 +161,8 @@ write_receipt() {
 }
 
 require_receipt() {
-  local name="$1" release="$2" path="${RECEIPT_ROOT}/${name}.state"
+  local name="$1" release="$2" path
+  path="${RECEIPT_ROOT}/${name}.state"
   [[ -f "$path" && ! -L "$path" ]] || fail "recibo ${name} ausente"
   [[ "$(manifest_value "$path" release)" == "$release" ]] \
     || fail "recibo ${name} pertence a outra release"
@@ -170,7 +171,8 @@ require_receipt() {
 }
 
 receipt_passes() {
-  local name="$1" release="$2" path="${RECEIPT_ROOT}/${name}.state"
+  local name="$1" release="$2" path
+  path="${RECEIPT_ROOT}/${name}.state"
   [[ -f "$path" && ! -L "$path" \
       && "$(manifest_value "$path" release)" == "$release" \
       && "$(manifest_value "$path" status)" == 'passed' ]]

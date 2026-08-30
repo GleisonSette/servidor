@@ -30,6 +30,14 @@ fail() {
   || fail 'orquestrador do bootstrap de dados ausente ou simbólico'
 [[ -f "$DATA_PULL_SCRIPT" && ! -L "$DATA_PULL_SCRIPT" ]] \
   || fail 'orquestrador da prova PostgreSQL ausente ou simbólico'
+if grep -Fq 'local name="$1" release="$2" path="${RECEIPT_ROOT}/${name}.state"' \
+  "${REMOTE_DIR}/blindou-datactl"; then
+  fail 'controlador expande name antes da atribuição sob nounset'
+fi
+grep -Fq 'local name="$1" release="$2" path' "${REMOTE_DIR}/blindou-datactl" \
+  || fail 'declaração segura do caminho de recibo ausente'
+grep -Fq 'path="${RECEIPT_ROOT}/${name}.state"' "${REMOTE_DIR}/blindou-datactl" \
+  || fail 'derivação segura do caminho de recibo ausente'
 [[ -f "$FIRST_RELEASE_SCRIPT" && ! -L "$FIRST_RELEASE_SCRIPT" ]] \
   || fail 'orquestrador fechado da primeira release ausente ou simbólico'
 [[ -f "$ADDITIONAL_SUPERADMIN_SCRIPT" && ! -L "$ADDITIONAL_SUPERADMIN_SCRIPT" ]] \
