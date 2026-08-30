@@ -143,7 +143,7 @@ foreach ($invariant in @(
     'dre-image-build-25dc4f899669-20260830T221500Z',
     'a5303a241928ea78223bf7cddfb5425fc77d14acbc96c9c249dcca586ad70099',
     '2975d0f651ad96ba8b80b9992ae1f9a964f4408569af5b6dc36544165c3926af',
-    '7e9ec62db21614221cb2945a341bfc005577884d37267f90290524fd5b5feeb3',
+    '627c7655b922333dfe32a34002bbe1e5e15f4643871235084e599ec8f416bf8c',
     'StrictHostKeyChecking=yes'
 )) {
     if (-not $dreImageBuild.Contains($invariant)) {
@@ -170,6 +170,7 @@ foreach ($invariant in @(
     '--containerd-worker=false',
     '--oci-worker-snapshotter=native',
     '--oci-worker-net=bridge',
+    '--oci-cni-binary-dir',
     '--oci-max-parallelism=2',
     'maximum_buildkit_file_bytes = 96 * 1024 * 1024',
     'maximum_buildkit_total_bytes = 256 * 1024 * 1024',

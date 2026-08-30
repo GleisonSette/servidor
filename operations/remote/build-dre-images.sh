@@ -256,6 +256,12 @@ PY
 tar -xzf "${work_directory}/buildkit.tar.gz" \
   -C "${work_directory}/buildkit"
 chmod 0700 "${work_directory}/buildkit/bin/"*
+install -d -o root -g root -m 0700 "${work_directory}/cni"
+for plugin in bridge firewall host-local loopback; do
+  install -o root -g root -m 0700 \
+    "${work_directory}/buildkit/bin/buildkit-cni-${plugin}" \
+    "${work_directory}/cni/${plugin}"
+done
 
 readonly buildkitd="${work_directory}/buildkit/bin/buildkitd"
 readonly buildctl="${work_directory}/buildkit/bin/buildctl"
@@ -267,6 +273,7 @@ nice -n 10 ionice -c 2 -n 7 "$buildkitd" \
   --oci-worker=true \
   --oci-worker-snapshotter=native \
   --oci-worker-net=bridge \
+  --oci-cni-binary-dir "${work_directory}/cni" \
   --oci-worker-binary "${work_directory}/buildkit/bin/buildkit-runc" \
   --oci-worker-gc=false \
   --oci-max-parallelism=2 \
