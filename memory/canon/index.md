@@ -58,7 +58,9 @@ corpus por padrão.
 - D031, alinhada à D064 do Blindou, autoriza temporariamente apenas o build e o
   scan da imagem PostgreSQL dedicada no host não privilegiado até o usuário
   pedir retorno ao GitHub Actions. A estação conserva toda autoridade GHCR de
-  escrita; `foundation`, dados, K3s e I2 permanecem fora do escopo.
+  escrita; o bundle aceita somente as linhas imutáveis Trivy 0.67.2 normal ou
+  Trivy 0.70.0 com recibo D064; `foundation`, dados, K3s e I2 permanecem fora
+  do escopo.
 - D026 prepara, ainda sem instalação no host, a ativação separada da Shopee
   Open API. A release compatível entra com a flag desligada; depois o
   controlador gera a chave interna root-only e só conclui após backend e 16

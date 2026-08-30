@@ -308,7 +308,10 @@ UPnP ou redirecionamento de porta para o servidor.
   4 GiB, baixa prioridade e exclusão mútua com Cargo/Rust. A estação recebe o
   artefato validado e é a única autoridade que escreve no GHCR; token de
   publicação, K3s, banco, serviço e segredo ficam fora do executor. O caminho
-  normal volta ao GitHub Actions quando o usuário assim solicitar.
+  normal volta ao GitHub Actions quando o usuário assim solicitar. O
+  verificador separa estritamente a linha normal Trivy 0.67.2 por imagem da
+  linha excepcional Trivy 0.70.0 por binário e archive fixos; a segunda exige
+  o recibo D064 com identidade, recursos e negativas de acesso completas.
 - Manifesto de release assinado por chave exclusiva do projeto.
 - Controlador root-owned valida assinatura, digest, escopo e lock.
 - O controlador aceita uma interface fechada; não recebe comando shell,

@@ -1503,3 +1503,24 @@ localmente antes do transporte e correções fail-closed preparadas.
   array e continua exigindo exatamente um digest PostgreSQL privado.
 - Nenhum Secret, PVC, Job, Pod, Service, workload PostgreSQL, migration, DSN,
   backup, restore, I2 ou cutover foi criado por essas tentativas.
+
+## 2026-08-29 - Contrato do scanner D064 corrigido antes do pull
+
+Resultado: tentativa recusada antes do download e verificador corrigido de
+forma fail-closed para as duas linhas imutáveis autorizadas.
+
+- A tentativa seguinte alcançou a validação do bundle no host, mas foi
+  recusada antes do pull porque o verificador conhecia somente o caminho
+  normal Trivy 0.67.2 por imagem, enquanto a candidata autorizada contém o
+  binário Trivy 0.70.0 e o recibo D064.
+- O contrato passou a aceitar exatamente a linha normal sem recibo D064 ou a
+  linha excepcional com archive SHA-256
+  `8b4376d5d6befe5c24d503f10ff136d9e0c49f9127a4279fd110b727929a5aa9`,
+  versão 0.70.0 e recibo completo vinculado ao SHA, base, source index,
+  Dockerfile, recursos e negativas de acesso.
+- Testes positivos cobrem ambas as linhas; versões, hashes, ausência de recibo
+  e combinações híbridas são recusados. A candidata real
+  `sha256:2f1c8787a0f689fdc34bf94c59b7f30add5da8c5514930575dc383603a8f3f6d`
+  passou localmente no contrato corrigido.
+- Não houve download da imagem nem criação de Secret, PVC, Job, Pod, Service,
+  workload PostgreSQL, migration, DSN, backup, restore, I2 ou cutover.

@@ -568,3 +568,11 @@ escrita permanece somente na estação: ela recebe o artefato, valida o recibo e
 publica os blobs por streaming. O host conserva apenas sua autoridade de
 leitura já aprovada. A exceção não alcança outra imagem, projeto, migration,
 workload ou etapa I2 e termina quando o usuário pedir a volta ao GitHub Actions.
+
+Enquanto D031/D064 vigorar, o verificador do bundle aceita exatamente duas
+linhas de scan, sem combinação entre elas: o caminho normal com Trivy 0.67.2
+por imagem imutável, sem recibo D064, ou o caminho excepcional com o binário
+Trivy 0.70.0 no archive SHA-256
+`8b4376d5d6befe5c24d503f10ff136d9e0c49f9127a4279fd110b727929a5aa9` e
+recibo D064 completo. Versão, hash, modo, limites, autoridade ou recibo
+divergentes falham fechados.

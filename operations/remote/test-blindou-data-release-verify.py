@@ -35,6 +35,10 @@ TRIVY_IMAGE = (
     "docker.io/aquasec/trivy@sha256:"
     "ac2f9d0197456a8ce460884b113e49d65b667f506c31d014c9955869a7a5d682"
 )
+D064_BUILD_MODE = "d064-exceptional-server-oci-v1"
+D064_TRIVY_ARCHIVE_SHA256 = (
+    "8b4376d5d6befe5c24d503f10ff136d9e0c49f9127a4279fd110b727929a5aa9"
+)
 DIRECTORIES = ("manifests", "manifests/operations", "evidence", "recovery")
 OPERATION_NAMES = (
     "25-pull-proof.yaml",
@@ -223,6 +227,63 @@ def replace_trivy(files: dict[str, bytes], report: dict[str, object]) -> None:
     files["image.manifest"] = image_manifest.encode()
 
 
+def replace_candidate(files: dict[str, bytes], candidate: dict[str, object]) -> None:
+    candidate_bytes = json_bytes(candidate)
+    image_manifest = files["image.manifest"].decode()
+    image_manifest = re.sub(
+        r"^candidate_sha256=[0-9a-f]{64}$",
+        f"candidate_sha256={sha256(candidate_bytes)}",
+        image_manifest,
+        flags=re.MULTILINE,
+    )
+    files["evidence/candidate.json"] = candidate_bytes
+    files["image.manifest"] = image_manifest.encode()
+
+
+def d064_candidate(files: dict[str, bytes]) -> dict[str, object]:
+    candidate = json.loads(files["evidence/candidate.json"])
+    candidate["tools"] = {
+        "trivy_binary_archive_sha256": D064_TRIVY_ARCHIVE_SHA256,
+        "trivy_binary_version": "0.70.0",
+    }
+    candidate["build"] = {
+        "mode": D064_BUILD_MODE,
+        "receipt": {
+            "assembler_sha256": "1" * 64,
+            "base_platform_digest": BASE_IMAGE.split("@", 1)[1],
+            "build_mode": D064_BUILD_MODE,
+            "builder_sha256": "2" * 64,
+            "completed_at": "2026-08-30T00:32:15Z",
+            "component_platform_digest": "sha256:" + "3" * 64,
+            "dockerfile_sha256": DOCKERFILE_SHA256,
+            "invocation_id": f"blindou-build-postgres-{RELEASE[:12]}-{'4' * 12}",
+            "kubernetes_accessed": False,
+            "operational_credentials_used": False,
+            "registry_tool_sha256": "5" * 64,
+            "release_sha": RELEASE,
+            "resources": {
+                "cpu_quota_percent": 100,
+                "execution_priority": "nice-15-ionice-idle",
+                "memory_max_bytes": 4 * 1024 * 1024 * 1024,
+            },
+            "runtime_or_database_accessed": False,
+            "schema_version": 1,
+            "source_archive_sha256": "6" * 64,
+            "source_index_digest": SOURCE_INDEX.split("@", 1)[1],
+            "started_at": "2026-08-30T00:31:02Z",
+            "trivy": {
+                "archive_sha256": D064_TRIVY_ARCHIVE_SHA256,
+                "blocking_report_sha256": "7" * 64,
+                "complete_report_sha256": "8" * 64,
+                "sbom_spdx_sha256": "9" * 64,
+                "version": "0.70.0",
+            },
+            "write_registry_credential_received": False,
+        },
+    }
+    return candidate
+
+
 def archive(path: Path, files: dict[str, bytes], unsafe: str | None = None) -> None:
     with tarfile.open(path, "w:gz") as output:
         for directory in DIRECTORIES:
@@ -369,6 +430,34 @@ def main() -> int:
         root = Path(raw)
         valid = contents()
         verify(root / "valid", valid, None, True)
+        d064 = dict(valid)
+        replace_candidate(d064, d064_candidate(d064))
+        verify(root / "d064-valid", d064, None, True)
+        d064_version = dict(valid)
+        candidate = d064_candidate(d064_version)
+        candidate["tools"]["trivy_binary_version"] = "0.70.1"
+        replace_candidate(d064_version, candidate)
+        verify(root / "d064-version", d064_version, None, False)
+        d064_archive = dict(valid)
+        candidate = d064_candidate(d064_archive)
+        candidate["tools"]["trivy_binary_archive_sha256"] = "0" * 64
+        replace_candidate(d064_archive, candidate)
+        verify(root / "d064-archive", d064_archive, None, False)
+        d064_hybrid = dict(valid)
+        candidate = d064_candidate(d064_hybrid)
+        candidate["tools"]["trivy_image"] = TRIVY_IMAGE
+        replace_candidate(d064_hybrid, candidate)
+        verify(root / "d064-hybrid", d064_hybrid, None, False)
+        d064_without_build = dict(valid)
+        candidate = d064_candidate(d064_without_build)
+        del candidate["build"]
+        replace_candidate(d064_without_build, candidate)
+        verify(root / "d064-without-build", d064_without_build, None, False)
+        legacy_hybrid = dict(valid)
+        candidate = json.loads(legacy_hybrid["evidence/candidate.json"])
+        candidate["build"] = d064_candidate(legacy_hybrid)["build"]
+        replace_candidate(legacy_hybrid, candidate)
+        verify(root / "legacy-hybrid", legacy_hybrid, None, False)
         for index, unsafe in enumerate(("extra", "traversal", "link"), start=1):
             target = root / f"unsafe-{index}"
             target.mkdir()
@@ -395,7 +484,7 @@ def main() -> int:
         signature_negative(root)
     print(
         "[test-blindou-data-release-verify] bundle válido e recusas de path, link, "
-        "evidência, imagem e assinatura passaram"
+        "evidência, imagem, scanners imutáveis e assinatura passaram"
     )
     return 0
 

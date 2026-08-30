@@ -17,6 +17,9 @@ import yaml
 
 
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
+SHA256_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+UTC_TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 DIGEST_IMAGE = re.compile(
     r"^ghcr\.io/gleisonsette/blindou-postgres@sha256:[0-9a-f]{64}$"
 )
@@ -55,6 +58,10 @@ EXPECTED_TRIVY_IMAGE = (
     "docker.io/aquasec/trivy@sha256:"
     "ac2f9d0197456a8ce460884b113e49d65b667f506c31d014c9955869a7a5d682"
 )
+EXPECTED_D064_BUILD_MODE = "d064-exceptional-server-oci-v1"
+EXPECTED_D064_TRIVY_ARCHIVE_SHA256 = (
+    "8b4376d5d6befe5c24d503f10ff136d9e0c49f9127a4279fd110b727929a5aa9"
+)
 
 
 def fail(message: str) -> NoReturn:
@@ -91,6 +98,124 @@ def json_object(path: Path) -> dict[str, Any]:
     return value
 
 
+def validate_scan_tool(candidate: dict[str, Any], release: str) -> None:
+    legacy_tools = {
+        "trivy_image": EXPECTED_TRIVY_IMAGE,
+        "trivy_version": "0.67.2",
+    }
+    d064_tools = {
+        "trivy_binary_archive_sha256": EXPECTED_D064_TRIVY_ARCHIVE_SHA256,
+        "trivy_binary_version": "0.70.0",
+    }
+    tools = candidate.get("tools")
+    build = candidate.get("build")
+    if tools == legacy_tools:
+        if build is not None:
+            fail("evidência de build incompatível com o scanner legado")
+        return
+    if tools != d064_tools:
+        fail("ferramenta de scan divergente")
+    if not isinstance(build, dict) or set(build) != {"mode", "receipt"}:
+        fail("evidência D064 ausente ou divergente")
+    if build.get("mode") != EXPECTED_D064_BUILD_MODE:
+        fail("modo de build D064 divergente")
+    receipt = build.get("receipt")
+    expected_receipt_keys = {
+        "assembler_sha256",
+        "base_platform_digest",
+        "build_mode",
+        "builder_sha256",
+        "completed_at",
+        "component_platform_digest",
+        "dockerfile_sha256",
+        "invocation_id",
+        "kubernetes_accessed",
+        "operational_credentials_used",
+        "registry_tool_sha256",
+        "release_sha",
+        "resources",
+        "runtime_or_database_accessed",
+        "schema_version",
+        "source_archive_sha256",
+        "source_index_digest",
+        "started_at",
+        "trivy",
+        "write_registry_credential_received",
+    }
+    if not isinstance(receipt, dict) or set(receipt) != expected_receipt_keys:
+        fail("recibo D064 ausente ou com campos divergentes")
+    if (
+        receipt.get("schema_version") != 1
+        or receipt.get("build_mode") != EXPECTED_D064_BUILD_MODE
+        or receipt.get("release_sha") != release
+        or receipt.get("dockerfile_sha256") != EXPECTED_DOCKERFILE_SHA256
+        or receipt.get("base_platform_digest")
+        != EXPECTED_BASE_IMAGE.split("@", 1)[1]
+        or receipt.get("source_index_digest")
+        != EXPECTED_SOURCE_INDEX.split("@", 1)[1]
+        or receipt.get("resources")
+        != {
+            "cpu_quota_percent": 100,
+            "execution_priority": "nice-15-ionice-idle",
+            "memory_max_bytes": 4 * 1024 * 1024 * 1024,
+        }
+        or receipt.get("kubernetes_accessed") is not False
+        or receipt.get("operational_credentials_used") is not False
+        or receipt.get("runtime_or_database_accessed") is not False
+        or receipt.get("write_registry_credential_received") is not False
+    ):
+        fail("invariantes do recibo D064 divergentes")
+    trivy_receipt = receipt.get("trivy")
+    if (
+        not isinstance(trivy_receipt, dict)
+        or set(trivy_receipt)
+        != {
+            "archive_sha256",
+            "blocking_report_sha256",
+            "complete_report_sha256",
+            "sbom_spdx_sha256",
+            "version",
+        }
+        or trivy_receipt.get("archive_sha256")
+        != EXPECTED_D064_TRIVY_ARCHIVE_SHA256
+        or trivy_receipt.get("version") != "0.70.0"
+    ):
+        fail("scanner do recibo D064 divergente")
+    if any(
+        not isinstance(trivy_receipt.get(field), str)
+        or not SHA256.fullmatch(trivy_receipt[field])
+        for field in (
+            "blocking_report_sha256",
+            "complete_report_sha256",
+            "sbom_spdx_sha256",
+        )
+    ):
+        fail("hashes do scanner D064 inválidos")
+    for field in (
+        "assembler_sha256",
+        "builder_sha256",
+        "registry_tool_sha256",
+        "source_archive_sha256",
+    ):
+        value = receipt.get(field)
+        if not isinstance(value, str) or not SHA256.fullmatch(value):
+            fail(f"hash {field} do recibo D064 inválido")
+    component_digest = receipt.get("component_platform_digest")
+    if not isinstance(component_digest, str) or not SHA256_DIGEST.fullmatch(
+        component_digest
+    ):
+        fail("digest do componente D064 inválido")
+    invocation_id = receipt.get("invocation_id")
+    if not isinstance(invocation_id, str) or not re.fullmatch(
+        rf"blindou-build-postgres-{release[:12]}-[0-9a-f]{{12}}", invocation_id
+    ):
+        fail("invocação D064 divergente")
+    for field in ("started_at", "completed_at"):
+        value = receipt.get(field)
+        if not isinstance(value, str) or not UTC_TIMESTAMP.fullmatch(value):
+            fail(f"timestamp {field} do recibo D064 inválido")
+
+
 def validate_evidence(root: Path, image: str, release: str) -> None:
     evidence = root / "evidence"
     candidate = json_object(evidence / "candidate.json")
@@ -111,11 +236,7 @@ def validate_evidence(root: Path, image: str, release: str) -> None:
     }
     if source != expected_source:
         fail("evidência pertence a outro SHA")
-    if candidate.get("tools") != {
-        "trivy_image": EXPECTED_TRIVY_IMAGE,
-        "trivy_version": "0.67.2",
-    }:
-        fail("ferramenta de scan divergente")
+    validate_scan_tool(candidate, release)
     base_image = EXPECTED_BASE_IMAGE
     registry_path = evidence / "registry-attestations.json"
     if candidate.get("registry_attestations") != {
