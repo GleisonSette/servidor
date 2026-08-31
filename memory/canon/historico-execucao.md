@@ -1729,3 +1729,23 @@ ambiente descartável removido.
   `ee4a335236b0e99e5fac4ee3e30a986f0ddc8bb2`, 12 migrations e gates saudáveis.
   `secondary-slotctl verify` passou na geração 2 com ocupante `none`, e
   `systemctl --failed` retornou zero unidade.
+
+## 2026-08-31 - Executor rootless dos gates DRE preparado offline
+
+Resultado: decisão e bootstrap fechados; instalação e execução viva ainda
+pendentes neste registro.
+
+- D036 escolheu Podman rootless porque o Makefile exige builds, Compose e bancos
+  descartáveis, enquanto Windows, K3s genérico e daemon persistente permanecem
+  proibidos;
+- o bootstrap fixa Ubuntu 24.04 amd64, host, commit, archive, seis pacotes APT,
+  inventário, recibo e rollback da diferença de pacotes novos;
+- grupos, `subuid`, `subgid`, kubeconfig/socket K3s, units e sockets Podman são
+  comparados antes/depois. Não há novo sudoers, grupo, `kubectl` ou autoridade
+  de cluster;
+- o orquestrador exige artefatos commitados e publicados, SSH estrito e intervalo
+  entre conexões; a senha administrativa segue somente em memória e `stdin`;
+- o smoke usa `--root`, `--runroot`, XDG e imagem por digest em `/tmp`, valida
+  build, uidmap, `init` e podman-compose e apaga o storage ao terminar;
+- nenhum pacote, serviço, container, namespace, migration, Secret, workload ou
+  dado foi alterado por esta preparação offline.

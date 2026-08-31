@@ -41,11 +41,13 @@
   credencial.
 - D030 substitui somente a restrição de bootstrap da D029: o helper local
   `Dre.SudoBootstrap.psm1` pode carregar `KEY_SERVIDOR` do arquivo canônico
-  `C:\github\servidor\.env` para bootstraps DRE versionados e fechados. Host,
+  `C:\github\servidor\.env` para bootstraps DRE versionados e fechados. D036
+  acrescenta somente o bootstrap do executor rootless de validação, com
+  versões APT, inventário, rollback e negativas de daemon e K3s fixados. Host,
   staging, hashes, inventário e instalador são validados; o valor passa apenas
   por memória e `stdin`, sem impressão, argumento, ambiente ou persistência. A
   concessão não alcança `sudo` genérico, importação de release, Secret,
-  migration, deploy, backup ou restore.
+  migration, deploy, backup, restore, serviço Podman, socket ou acesso ao K3s.
 - Preservar alterações do usuário nos repositórios irmãos. Mudança em outro
   repositório exige escopo explícito e commit separado.
 - Por D026, a ativação da Shopee usa operação fechada posterior ao deploy da

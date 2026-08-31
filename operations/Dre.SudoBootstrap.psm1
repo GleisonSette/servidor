@@ -330,4 +330,264 @@ function Invoke-DreSudoBootstrap {
     }
 }
 
-Export-ModuleMember -Function Invoke-DreSudoBootstrap
+function New-DreValidationExecutorRootBootstrapScript {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RemoteRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedArchiveSha256,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedGitCommit
+    )
+
+    $template = @'
+set -Eeuo pipefail
+readonly PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+export PATH
+umask 077
+
+fail() {
+  printf '[dre-validation-executor-root-bootstrap] ERRO: %s\n' "$*" >&2
+  exit 1
+}
+
+readonly source_archive='__REMOTE_ROOT__/bundle.tar.gz'
+readonly expected_archive_sha256='__ARCHIVE_SHA256__'
+readonly expected_git_commit='__GIT_COMMIT__'
+readonly release_root='/var/lib/servidor-local/bootstrap-releases/dre-validation-executor'
+readonly release_directory="${release_root}/${expected_archive_sha256}"
+readonly bootstrap_lock='/run/lock/servidor-local-platform-bootstrap.lock'
+
+[[ "${EUID}" -eq 0 ]] || fail 'execute como root'
+[[ "$(hostname)" == apiwpp ]] || fail 'hostname inesperado'
+for command in chmod chown cut find flock install mktemp mv python3 rm sha256sum stat; do
+  command -v "$command" >/dev/null || fail "dependência ausente: ${command}"
+done
+[[ -f "$source_archive" && ! -L "$source_archive" ]] \
+  || fail 'bundle transportado ausente ou simbólico'
+[[ "$(stat -c '%U:%G:%a:%h' "$source_archive")" == 'apiadmin:apiadmin:600:1' ]] \
+  || fail 'bundle transportado possui ownership, modo ou links inseguros'
+[[ "$(sha256sum "$source_archive" | cut -d' ' -f1)" == "$expected_archive_sha256" ]] \
+  || fail 'SHA-256 do bundle transportado diverge'
+
+install -d -o root -g root -m 0700 "$release_root"
+exec 9>"$bootstrap_lock"
+chmod 0600 "$bootstrap_lock"
+flock -n 9 || fail 'outro bootstrap de plataforma está em andamento'
+
+work_directory=''
+cleanup() {
+  local result="$?"
+  trap - EXIT
+  if [[ -n "$work_directory" && -d "$work_directory" ]]; then
+    rm -rf --one-file-system -- "$work_directory"
+  fi
+  exit "$result"
+}
+trap cleanup EXIT
+
+if [[ -e "$release_directory" || -L "$release_directory" ]]; then
+  [[ -d "$release_directory" && ! -L "$release_directory" ]] \
+    || fail 'cache root-owned preexistente é inválido'
+  [[ -f "${release_directory}/bundle.tar.gz" \
+      && ! -L "${release_directory}/bundle.tar.gz" ]] \
+    || fail 'bundle do cache root-owned é inválido'
+  [[ "$(sha256sum "${release_directory}/bundle.tar.gz" | cut -d' ' -f1)" \
+      == "$expected_archive_sha256" ]] || fail 'bundle do cache root-owned diverge'
+else
+  work_directory="$(mktemp -d "${release_root}/.${expected_archive_sha256}.XXXXXX")"
+  install -o root -g root -m 0600 -- "$source_archive" \
+    "${work_directory}/bundle.tar.gz"
+  install -d -o root -g root -m 0700 "${work_directory}/repository"
+  python3 - "${work_directory}/bundle.tar.gz" \
+    "${work_directory}/repository" <<'PY'
+from __future__ import annotations
+
+import os
+from pathlib import Path, PurePosixPath
+import stat
+import sys
+import tarfile
+
+archive = Path(sys.argv[1])
+destination = Path(sys.argv[2]).resolve()
+allowed_files = {
+    "operations/Dre.SudoBootstrap.psm1",
+    "operations/Invoke-DreValidationExecutorBootstrap.ps1",
+    "operations/remote/bootstrap-dre-validation-executor.sh",
+    "operations/remote/verify-dre-validation-executor-artifacts.py",
+    "runbooks/dre-validation-executor.md",
+}
+maximum_members = 16
+maximum_file_bytes = 2 * 1024 * 1024
+maximum_total_bytes = 8 * 1024 * 1024
+
+
+def validated_name(raw_name: str) -> str:
+    path = PurePosixPath(raw_name)
+    normalized = str(path)
+    if (
+        not raw_name
+        or path.is_absolute()
+        or normalized != raw_name.rstrip("/")
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        raise SystemExit(f"membro inválido no arquivo: {raw_name!r}")
+    return normalized
+
+
+with tarfile.open(archive, mode="r:gz") as release:
+    members = release.getmembers()
+    if not members or len(members) > maximum_members:
+        raise SystemExit("quantidade de membros do arquivo é inválida")
+    total_bytes = 0
+    regular_files: list[tuple[tarfile.TarInfo, str]] = []
+    for member in members:
+        name = validated_name(member.name)
+        if member.isdir():
+            prefix = f"{name}/"
+            if not any(candidate.startswith(prefix) for candidate in allowed_files):
+                raise SystemExit(f"diretório inesperado no arquivo: {name}")
+            continue
+        if not member.isreg() or name not in allowed_files:
+            raise SystemExit(f"membro inesperado no arquivo: {name}")
+        if member.size < 0 or member.size > maximum_file_bytes:
+            raise SystemExit(f"tamanho inválido no arquivo: {name}")
+        total_bytes += member.size
+        if total_bytes > maximum_total_bytes:
+            raise SystemExit("arquivo excede o limite total descompactado")
+        regular_files.append((member, name))
+    if {name for _, name in regular_files} != allowed_files:
+        raise SystemExit("inventário do arquivo diverge do contrato fechado")
+
+    for member, name in regular_files:
+        target = destination.joinpath(*PurePosixPath(name).parts)
+        target.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+        source = release.extractfile(member)
+        if source is None:
+            raise SystemExit(f"não foi possível abrir membro regular: {name}")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(target, flags, 0o644)
+        try:
+            with source:
+                while chunk := source.read(1024 * 1024):
+                    view = memoryview(chunk)
+                    while view:
+                        written = os.write(descriptor, view)
+                        if written <= 0:
+                            raise SystemExit(f"gravação interrompida: {name}")
+                        view = view[written:]
+            os.fsync(descriptor)
+            metadata = os.fstat(descriptor)
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                raise SystemExit(f"alvo extraído possui tipo inseguro: {name}")
+        finally:
+            os.close(descriptor)
+PY
+  chown -R root:root "$work_directory"
+  [[ -z "$(find "${work_directory}/repository" -type l -print -quit)" ]] \
+    || fail 'release contém link simbólico'
+  mv -- "$work_directory" "$release_directory"
+  work_directory=''
+fi
+
+readonly repository="${release_directory}/repository"
+readonly verifier="${repository}/operations/remote/verify-dre-validation-executor-artifacts.py"
+readonly bootstrap="${repository}/operations/remote/bootstrap-dre-validation-executor.sh"
+for source in "$verifier" "$bootstrap"; do
+  [[ -f "$source" && ! -L "$source" \
+      && "$(stat -c '%U:%G:%h' "$source")" == 'root:root:1' ]] \
+    || fail "fonte root-owned inválida: ${source}"
+done
+cd "$repository"
+python3 "$verifier"
+/bin/bash -n "$bootstrap"
+/bin/bash "$bootstrap" "$expected_git_commit" "$expected_archive_sha256"
+printf 'dre_validation_executor_root_bootstrap=passed commit=%s archive_sha256=%s\n' \
+  "$expected_git_commit" "$expected_archive_sha256"
+'@
+    $script = $template.Replace('__REMOTE_ROOT__', $RemoteRoot)
+    $script = $script.Replace('__ARCHIVE_SHA256__', $ExpectedArchiveSha256)
+    $script = $script.Replace('__GIT_COMMIT__', $ExpectedGitCommit)
+    return $script.Replace("`r`n", "`n").Replace("`r", "`n")
+}
+
+function Invoke-DreValidationExecutorSudoBootstrap {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$SshArguments,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Server,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RemoteRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedArchiveSha256,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedGitCommit
+    )
+
+    if ($Server -cne 'apiadmin@192.168.100.59') {
+        throw 'O bootstrap do executor DRE aceita somente o servidor físico aprovado.'
+    }
+    if ($ExpectedArchiveSha256 -cnotmatch '^[0-9a-f]{64}$' -or
+        $ExpectedGitCommit -cnotmatch '^[0-9a-f]{40}$') {
+        throw 'Identidade inválida para o bootstrap do executor DRE.'
+    }
+    $commitPrefix = $ExpectedGitCommit.Substring(0, 12)
+    $expectedRootPattern =
+        '^/home/apiadmin/dre-validation-executor-bootstrap-' +
+        [Regex]::Escape($commitPrefix) + '-[0-9]{8}T[0-9]{6}Z$'
+    if ($RemoteRoot -cnotmatch $expectedRootPattern) {
+        throw 'Diretório remoto fora do staging fechado do executor DRE.'
+    }
+    foreach ($requiredOption in @(
+        'IdentitiesOnly=yes',
+        'BatchMode=yes',
+        'StrictHostKeyChecking=yes'
+    )) {
+        if ($SshArguments -notcontains $requiredOption) {
+            throw "Opção SSH obrigatória ausente: $requiredOption"
+        }
+    }
+
+    $rootScript = New-DreValidationExecutorRootBootstrapScript `
+        -RemoteRoot $RemoteRoot `
+        -ExpectedArchiveSha256 $ExpectedArchiveSha256 `
+        -ExpectedGitCommit $ExpectedGitCommit
+    $encodedScript = [Convert]::ToBase64String(
+        [Text.Encoding]::UTF8.GetBytes($rootScript)
+    )
+    $remoteCommand =
+        "sudo -S -p '' -- /bin/bash -c `"printf '%s' '$encodedScript' | " +
+        "base64 --decode | /bin/bash`""
+
+    $envFile = 'C:\github\servidor\.env'
+    $password = Read-DreSudoPassword -EnvFile $envFile
+    try {
+        $password | & ssh.exe @SshArguments $Server $remoteCommand
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Bootstrap remoto autenticado do executor DRE falhou.'
+        }
+    }
+    finally {
+        $password = $null
+        $rootScript = $null
+        $encodedScript = $null
+        $remoteCommand = $null
+    }
+}
+
+Export-ModuleMember -Function @(
+    'Invoke-DreSudoBootstrap',
+    'Invoke-DreValidationExecutorSudoBootstrap'
+)

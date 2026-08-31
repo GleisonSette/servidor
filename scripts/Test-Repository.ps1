@@ -54,6 +54,7 @@ $required = @(
     'operations/remote/verify-saferwpp-foundation-artifacts.py',
     'operations/Dre.SudoBootstrap.psm1',
     'operations/Invoke-DreControllerBootstrap.ps1',
+    'operations/Invoke-DreValidationExecutorBootstrap.ps1',
     'operations/Dre.ImageBuild.psm1',
     'operations/Invoke-DreImageBuild.ps1',
     'operations/Invoke-DreImagePublish.ps1',
@@ -69,10 +70,13 @@ $required = @(
     'operations/remote/dre-kube-identityctl',
     'operations/remote/bootstrap-dre-deployctl.sh',
     'operations/remote/verify-dre-controller-artifacts.py',
+    'operations/remote/bootstrap-dre-validation-executor.sh',
+    'operations/remote/verify-dre-validation-executor-artifacts.py',
     'platform/dre/controller-foundation.yaml',
     'platform/dre/validation-access.yaml',
     'platform/dre/monitoring/prometheus-alerts.yaml',
     'runbooks/dre-k3s.md',
+    'runbooks/dre-validation-executor.md',
     'operations/Blindou.SudoBootstrap.psm1',
     'operations/Invoke-BlindouDataControllerBootstrap.ps1',
     'operations/Invoke-BlindouDataPullProof.ps1',
@@ -257,16 +261,31 @@ $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
 if ($null -eq $pythonCommand) {
     $pythonCommand = Get-Command python3 -ErrorAction Stop
 }
-& $pythonCommand.Source -B (Join-Path $root 'operations/remote/verify-saferwpp-foundation-artifacts.py')
-& $pythonCommand.Source -B (Join-Path $root 'operations/remote/verify-dre-controller-artifacts.py')
-& $pythonCommand.Source -B (Join-Path $root 'operations/remote/test-dre-release-verify.py')
-& $pythonCommand.Source -B (Join-Path $root 'operations/remote/test-dre-secret-material.py')
-& $pythonCommand.Source -B (Join-Path $root 'operations/remote/test-dre-validation-material.py')
-& $pythonCommand.Source -B (Join-Path $root 'operations/remote/test-dre-restore-render.py')
-& $pythonCommand.Source -B (Join-Path $root 'operations/remote/verify-blindou-data-artifacts.py') $root
-& $pythonCommand.Source -B (Join-Path $root 'operations/remote/test-blindou-data-release-verify.py')
-& $pythonCommand.Source -B (Join-Path $root 'operations/remote/test-blindou-data-secret-verify.py')
-& $pythonCommand.Source -B (Join-Path $root 'operations/remote/test-blindou-data-ghcr-pull-verify.py')
+function Invoke-CheckedPython {
+    param(
+        [Parameter(Mandatory)][string]$Script,
+        [string[]]$Arguments = @()
+    )
+
+    & $pythonCommand.Source -B $Script @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Verificação Python falhou: $Script (código $LASTEXITCODE)."
+    }
+}
+
+Invoke-CheckedPython (Join-Path $root 'operations/remote/verify-saferwpp-foundation-artifacts.py')
+Invoke-CheckedPython (Join-Path $root 'operations/remote/verify-dre-controller-artifacts.py')
+Invoke-CheckedPython (Join-Path $root 'operations/remote/verify-dre-validation-executor-artifacts.py')
+Invoke-CheckedPython (Join-Path $root 'operations/remote/test-dre-release-verify.py')
+Invoke-CheckedPython (Join-Path $root 'operations/remote/test-dre-secret-material.py')
+Invoke-CheckedPython (Join-Path $root 'operations/remote/test-dre-validation-material.py')
+Invoke-CheckedPython (Join-Path $root 'operations/remote/test-dre-restore-render.py')
+Invoke-CheckedPython `
+    (Join-Path $root 'operations/remote/verify-blindou-data-artifacts.py') `
+    @($root)
+Invoke-CheckedPython (Join-Path $root 'operations/remote/test-blindou-data-release-verify.py')
+Invoke-CheckedPython (Join-Path $root 'operations/remote/test-blindou-data-secret-verify.py')
+Invoke-CheckedPython (Join-Path $root 'operations/remote/test-blindou-data-ghcr-pull-verify.py')
 
 $namespaceManifest = Get-Content -Raw -LiteralPath (Join-Path $root 'platform/base/namespaces.yaml')
 if ($namespaceManifest.Contains('platform.servidor.local/deployment-gate: passed')) {

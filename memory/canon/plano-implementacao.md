@@ -429,6 +429,9 @@ reinícios de API, worker e PostgreSQL passaram. Namespace, PVC e PV temporário
 foram removidos. Produção continua com release `none`, gate `secrets-only`,
 PVC ausente e Ready `0/0/0`. Migration persistente, deploy, backup/restore de
 produção e rota HTTPS permanecem ausentes e sem autorização neste registro.
+O executor rootless D036 dos gates integrais está preparado no repositório;
+instalação, `make release-check`, repetição literal de `make e2e` e limpeza
+comprovada ainda estão pendentes.
 
 Ordem obrigatória:
 
@@ -449,9 +452,12 @@ Ordem obrigatória:
    criar os cinco Secrets por entrada protegida, mantendo FCM desabilitado;
 8. concluído em 2026-08-31: publicar as três imagens finais, importar o bundle
    schema 2 e aprová-lo integralmente em `dre-validation` descartável;
-9. somente com autorização explícita de migration e deploy, aplicar a primeira
+9. autorizado e preparado offline: instalar o executor rootless sem daemon e
+   sem acesso ao K3s, executar `make release-check` e `make e2e` em ambiente
+   sintético descartável e comprovar a limpeza;
+10. somente com autorização explícita de migration e deploy, aplicar a primeira
    release, comprovar backup/restore e manter a API somente em ClusterIP;
-10. rota HTTPS, contas, dispositivos e saldo inicial permanecem fases
+11. rota HTTPS, contas, dispositivos e saldo inicial permanecem fases
    posteriores e independentes.
 
 Aceite automatizado offline:
@@ -476,6 +482,8 @@ Aceite operacional:
   `bridge_token_source=orchestrator-stdin` e preserva o cache da release;
 - concluído: release schema 2 aprovada no ambiente sintético, inclusive E2E e
   reinícios, com remoção comprovada de namespace/PVC/PV;
+- executor rootless sem daemon/K3s e gates literais do Makefile aprovados, com
+  remoção de containers, redes, volumes, imagens, processos e workspace;
 - backup offsite e restore descartável comprovados com a release implantada;
 - API, worker e PostgreSQL saudáveis sem exposição pública ou acesso cruzado.
 

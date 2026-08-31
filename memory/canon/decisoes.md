@@ -744,3 +744,38 @@ tag imutável sem recibo; repetir a mesma candidata é idempotente porque archiv
 e tag estão presos ao mesmo SHA Git. D035 não concede acesso ao containerd do
 K3s, não instala daemon permanente e não autoriza `dre-production`, migration
 persistente, Cloudflare, contas ou dados reais.
+
+## Resolvida D036 - Executor rootless dos gates integrais DRE
+
+Em 2026-08-31, os gates literais `make release-check` e `make e2e` continuavam
+pendentes porque exigem uma interface compatível com Docker para builds,
+Compose e bancos descartáveis. A estação Windows foi excluída por D035, o K3s
+não pode virar executor genérico e BuildKit isolado não cobre os contratos de
+Compose do repositório. O usuário autorizou alterar e publicar este repositório,
+instalar as ferramentas necessárias no servidor e executar os dois gates em
+ambiente integralmente sintético e descartável.
+
+A decisão instala por bootstrap fechado Podman, uidmap, podman-compose,
+slirp4netns, fuse-overlayfs e passt nas versões fixadas do Ubuntu 24.04, junto
+das dependências/recomendações que o APT resolve para build, rede e `init`. A
+transação proíbe remoção ou atualização de pacote preexistente, fotografa o
+inventário e desfaz somente pacotes novos se falhar antes do recibo. Nenhuma
+unit, timer, socket ou API Podman é habilitada ou iniciada; Docker e daemon
+persistente continuam ausentes.
+
+Execuções ocorrem como `apiadmin`, em `--root`, `--runroot`, XDG, caches e
+workspace próprios sob `/tmp`. Um shim temporário traduz exclusivamente a
+interface usada pelo Makefile para Podman rootless/podman-compose. Source vem de
+commit DRE publicado, contas, dispositivos, saldo e credenciais são sintéticos,
+e a API fica somente na loopback. Ao terminar, Compose, volumes, redes, imagens,
+processos e workspace são removidos por caminho exato.
+
+Os grupos, `subuid`, `subgid` e a inacessibilidade do kubeconfig/socket K3s são
+comparados antes e depois. O executor não recebe `kubectl`, kubeconfig,
+containerd, sudoers, grupo novo ou autoridade do `dre-deployctl`; consultas de
+segurança continuam somente pelos controladores já instalados. O recibo
+root-only não contém segredo. Remover as ferramentas depois do sucesso é uma
+operação separada e deve usar o inventário registrado, sem `autoremove` cego.
+
+D036 não autoriza migration ou deploy em `dre-production`, rota HTTPS,
+Cloudflare, R2 operacional, contas, dispositivos ou dados reais.
