@@ -58,19 +58,42 @@ $remoteCommand =
     "'$remoteRoot' '$sourceRevision' '$regctlSha256' '$syftSha256' '$trivySha256'"
 
 $token = $null
+$tokenLines = $null
+$startInfo = $null
+$sshProcess = $null
+$sshStarted = $false
 try {
     $tokenLines = @(& $gh.Source auth token)
     if ($LASTEXITCODE -ne 0 -or $tokenLines.Count -ne 1) {
         throw 'Não foi possível obter uma credencial GitHub única do keyring.'
     }
     $token = [string]$tokenLines[0]
+    $tokenLines = $null
     if ([string]::IsNullOrEmpty($token) -or $token.Length -gt 1024 -or
         $token.IndexOf([char]0) -ge 0 -or
         $token.Contains("`r") -or $token.Contains("`n")) {
         throw 'A credencial GitHub possui formato inválido.'
     }
-    $token | & ssh.exe @sshArguments $server $remoteCommand
-    if ($LASTEXITCODE -ne 0) {
+    $ssh = Get-Command ssh.exe -CommandType Application -ErrorAction Stop
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $ssh.Source
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardInput = $true
+    foreach ($argument in @($sshArguments) + @($server, $remoteCommand)) {
+        $startInfo.ArgumentList.Add($argument)
+    }
+    $sshProcess = [Diagnostics.Process]::new()
+    $sshProcess.StartInfo = $startInfo
+    if (-not $sshProcess.Start()) {
+        throw 'Não foi possível iniciar o transporte SSH da publicação DRE.'
+    }
+    $sshStarted = $true
+    $sshProcess.StandardInput.NewLine = "`n"
+    $sshProcess.StandardInput.WriteLine($token)
+    $sshProcess.StandardInput.Close()
+    $token = $null
+    $sshProcess.WaitForExit()
+    if ($sshProcess.ExitCode -ne 0) {
         throw 'Scan ou publicação das imagens DRE falhou.'
     }
 }
@@ -78,6 +101,16 @@ finally {
     $token = $null
     $tokenLines = $null
     $remoteCommand = $null
+    $startInfo = $null
+    if ($null -ne $sshProcess) {
+        if ($sshStarted -and -not $sshProcess.HasExited) {
+            $sshProcess.Kill($true)
+            $sshProcess.WaitForExit()
+        }
+        $sshProcess.Dispose()
+        $sshProcess = $null
+    }
+    $sshStarted = $false
 }
 
 Write-Output (

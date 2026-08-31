@@ -113,6 +113,8 @@ foreach ($invariant in @(
     '5a8b71e94f4607973145f02e27e01d50b9f7c7bc41e38d40b39606ad138b43b5',
     '0e69edd134a3c338baa1a6806920773615d682b18cbc6a0cba2a3b658ef9b63e',
     '$gh.Source auth token',
+    'RedirectStandardInput = $true',
+    '$sshProcess.StandardInput.NewLine = "`n"',
     'StrictHostKeyChecking=yes'
 )) {
     if (-not $dreImagePublish.Contains($invariant)) {
