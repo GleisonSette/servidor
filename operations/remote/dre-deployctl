@@ -235,7 +235,7 @@ verify_protected_projects() {
     [[ -x "$controller" && ! -L "$controller" ]] \
       || fail "controlador de proteção ausente: ${controller}"
   done
-  /usr/local/sbin/blindou-deployctl verify >/dev/null \
+  /usr/local/sbin/blindou-deployctl status >/dev/null \
     || fail 'Blindou não está íntegro'
   slot_output="$(/usr/local/sbin/secondary-slotctl verify)" \
     || fail 'slot APIWPP/SaferWPP não está íntegro'

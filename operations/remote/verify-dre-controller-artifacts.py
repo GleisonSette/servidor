@@ -179,6 +179,7 @@ for invariant in (
     "deployment-gate=rollback-failed",
     'status:"started"',
     "verify_protected_projects",
+    "/usr/local/sbin/blindou-deployctl status",
     "protected_fingerprint",
     "occupant=(none|apiwpp|saferwpp)",
     "slot none possui workload ativo",
@@ -216,6 +217,8 @@ for invariant in (
 for forbidden in ("eval ", "bash -c", "sh -c", "kubectl $", "sudo -S"):
     if forbidden in controller:
         fail(f"interface genérica detectada no controlador: {forbidden}")
+if "/usr/local/sbin/blindou-deployctl verify " in controller:
+    fail("controlador DRE chama ação Blindou inexistente")
 
 release_verifier = read("operations/remote/dre-release-verify.py")
 for invariant in (
