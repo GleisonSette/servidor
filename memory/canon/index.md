@@ -65,12 +65,15 @@ corpus por padrão.
 - D029 definiu o DRE fora do slot, e D030 autorizou seu helper de bootstrap
   fechado. Fundação, controlador schema 2, identidade, cinco Secrets sem FCM,
   timers, alertas e métricas estão instalados. A release assinada
-  `dre-20260831T053100Z-57984e1c1902` passou em `dre-validation`: nove
+  `dre-20260831T202100Z-f6b06765ff61` passou em `dre-validation`: nove
   migrations, acessos, bootstrap, E2E e reinícios dos três componentes foram
   aprovados, e namespace/PVC/PV temporários foram removidos. Produção continua
   `release=none`, `gate=secrets-only`, sem PVC ou workload. D032 mantém a
   coordenação do token da ponte; migration/deploy, backup/restore de produção,
   HTTPS, contas, dispositivos e saldo inicial continuam gates independentes.
+- D036 está executada: `make release-check` e `make e2e` passaram no executor
+  rootless sintético do servidor, sem daemon ou acesso ao K3s, e os recursos
+  efêmeros foram descartados.
 - A execução I1 publicou o digest PostgreSQL final, instalou somente o
   `blindou-datactl`/quarentena e comprovou uma imagem, 15 blobs e 157.256.746
   bytes. O estado permanece `blocked`, sem objeto operacional, aguardando

@@ -1749,3 +1749,35 @@ pendentes neste registro.
   build, uidmap, `init` e podman-compose e apaga o storage ao terminar;
 - nenhum pacote, serviço, container, namespace, migration, Secret, workload ou
   dado foi alterado por esta preparação offline.
+
+## 2026-08-31 - Gates integrais e release final DRE validados
+
+Resultado: revisão final aprovada nos gates integrais e no controlador vivo,
+sem ativar produção; recursos descartáveis foram removidos.
+
+- O commit DRE `f6b06765ff6196eb8dbd4a9a9fd8c3a422c42ce2` concluiu
+  `make release-check` e, em uma stack sintética nova, `make e2e`. Os logs têm
+  SHA-256 `4facb3f38ba66e7bf01a1c4767aad2b2dd35e6476a2874bc9136f3b5ec3d0024`
+  e `422303c8796d137cd9909bb341bff11f6c0397b9b74b51dda1e41209a3ec423a`.
+- BuildKit efêmero produziu as três imagens `linux/amd64`; Syft gerou os SBOMs
+  SPDX e Trivy registrou zero vulnerabilidade alta ou crítica. O verificador do
+  slot encontrou uma corrida curta com o lock do coletor depois do build; os
+  artefatos foram conferidos independentemente e a fonte passou a repetir
+  somente esse erro transitório exato, mantendo qualquer divergência fail-closed.
+- Os digests publicados são `dre-app@sha256:4f91068dd559fe4852bdc19ee76ad2b4e700695364378265ce0674332891d3d6`,
+  `dre-postgres@sha256:029bb2112afae1fca539381bf338fb9c64443b668230c17cd51447c0efb7f2e1`
+  e `dre-validation-runner@sha256:7a62c80e8d0094f366d2dbfbfa6fa3c15b439aa20134e7450d63f981ce9615c5`.
+- A release `dre-20260831T202100Z-f6b06765ff61` foi empacotada duas vezes com
+  archive idêntico SHA-256
+  `05c14e22ffa092e16f4a7530c8ecddf5216ad6faa54be401ab48d1c5e90b954d`;
+  assinatura, conteúdo, SBOMs e scans passaram na importação fechada.
+- A operação `20260831T202626Z-f6b06765ff61` aprovou nove migrations, acessos,
+  duas contas/dispositivos sintéticos, fluxo financeiro, SSE e reinícios de
+  API, worker e PostgreSQL. Em sucesso, removeu namespace, PVC e PV.
+- A pós-condição manteve `dre-production` em `release=none`, gate
+  `secrets-only`, sem PVC e Ready `0/0/0`; `dre-validation` ficou ausente.
+  Blindou e o slot secundário passaram. Nenhuma migration persistente, rota,
+  conta, dispositivo ou dado real foi criado.
+- Containers, redes, volumes, imagens, processos, caches e raízes temporárias
+  do executor foram removidos por caminhos exatos. Os pacotes rootless sem
+  serviço ou socket permanecem instalados conforme D036.

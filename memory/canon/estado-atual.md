@@ -36,21 +36,25 @@ Secrets e release validada no cache, mas produção continua sem runtime.
 - Fundação, identidade, RBAC, admissão, sudoers, timers, alertas e métricas estão
   instalados. Os cinco Secrets pré-deploy sem FCM existem e
   `dre-production` está em `secrets-only`.
-- A release `dre-20260831T053100Z-57984e1c1902`, ligada ao commit DRE
-  `57984e1c19028f507acb0da5e7bd8c8af8f8c3bb`, foi aceita no cache com archive
-  SHA-256 `014440dca9f6e187e2da4078dbecbce08d65355953e05af412eb166978001629`.
+- A release `dre-20260831T202100Z-f6b06765ff61`, ligada ao commit DRE
+  `f6b06765ff6196eb8dbd4a9a9fd8c3a422c42ce2`, foi aceita no cache com archive
+  SHA-256 `05c14e22ffa092e16f4a7530c8ecddf5216ad6faa54be401ab48d1c5e90b954d`.
   O pacote e a assinatura foram reproduzidos e verificados independentemente.
-- Os digests finais são `dre-app@sha256:0bb138ec37338c4466acf50e6920894d5813fa5f39505e69b89359bb81869255`,
-  `dre-postgres@sha256:b78ad6ce6c7b376aa131eee464117fb26964f070ff5e336b99bbee1611c0bc06`
-  e `dre-validation-runner@sha256:3b3de731996456cedf999fe99afda3968c2a6a26a0998016cdfbcf87cf79d1cc`.
+- Os digests finais são `dre-app@sha256:4f91068dd559fe4852bdc19ee76ad2b4e700695364378265ce0674332891d3d6`,
+  `dre-postgres@sha256:029bb2112afae1fca539381bf338fb9c64443b668230c17cd51447c0efb7f2e1`
+  e `dre-validation-runner@sha256:7a62c80e8d0094f366d2dbfbfa6fa3c15b439aa20134e7450d63f981ce9615c5`.
   Os três scans registraram zero vulnerabilidade alta ou crítica e possuem SBOM
   SPDX no bundle.
 - O controlador instalado veio do bundle SHA-256
   `689c3f0f97c7d4f5e9d14d4cfe6e11b7582fa82071d94685a617d2f0d5d6b004`;
   a fonte foi publicada no commit de plataforma `4d0ed61`.
-- A operação `20260831T055000Z-57984e1c1902` aprovou nove migrations, papéis de
+- A operação `20260831T202626Z-f6b06765ff61` aprovou nove migrations, papéis de
   acesso, bootstrap sintético, E2E financeiro, SSE/queries e substituição de
   API, worker e PostgreSQL. Ao passar, removeu `dre-validation`, PVC e PV.
+- O executor rootless também aprovou `make release-check` e `make e2e` em uma
+  stack sintética nova. Containers, redes, volumes, imagens, processos e raízes
+  temporárias da execução foram removidos; somente as ferramentas de sistema
+  sem daemon previstas por D036 permanecem instaladas.
 - O estado final de produção continua `release=none`, `gate=secrets-only`, PVC
   ausente e Ready `api=0`, `worker=0`, `postgres=0`. Nenhuma migration
   persistente, banco, workload, backup/restore de dados ou rota HTTPS foi

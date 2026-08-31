@@ -150,11 +150,11 @@ $dreImageBuild = Get-Content -Raw -LiteralPath (
     Join-Path $root 'operations/Invoke-DreImageBuild.ps1'
 )
 foreach ($invariant in @(
-    '57984e1c19028f507acb0da5e7bd8c8af8f8c3bb',
-    'dre-image-build-57984e1c1902-20260831T051141Z',
-    '297024f977767406cc2ff6c03a647ddf3473a3702ccfe73b3fbc92f8d41f5ee8',
+    'f6b06765ff6196eb8dbd4a9a9fd8c3a422c42ce2',
+    'dre-image-build-f6b06765ff61-20260831T194256Z',
+    '5097b65eb68b6d841e0853dcce49b1194e9a3e62d64a1882ccd9a740352bfafd',
     '2975d0f651ad96ba8b80b9992ae1f9a964f4408569af5b6dc36544165c3926af',
-    '8ce089a85d4b51f15417f2a680225a58a72cfb0f4e2d9465c839130ddabb9cc7',
+    'ecf9961e3ec3a06b9b4521c234d8c838e02d9c1c8e41177a604fb1904656a30f',
     'StrictHostKeyChecking=yes'
 )) {
     if (-not $dreImageBuild.Contains($invariant)) {
@@ -187,7 +187,10 @@ foreach ($invariant in @(
     'maximum_buildkit_file_bytes = 96 * 1024 * 1024',
     'maximum_buildkit_total_bytes = 256 * 1024 * 1024',
     'rm -rf --one-file-system',
-    'ghcr.io/gleisonsette/dre-validation-runner'
+    'ghcr.io/gleisonsette/dre-validation-runner',
+    'for attempt in 1 2 3 4 5',
+    '[secondary-slotctl] ERRO: outra operação do slot está em andamento',
+    'sleep "$attempt"'
 )) {
     if (-not $dreImageBuildScript.Contains($invariant)) {
         throw "Build efêmero DRE perdeu a invariante: $invariant"
@@ -203,8 +206,7 @@ $unlockEnd = $dreImageBuildScript.IndexOf(
 )
 foreach ($controllerCheck in @(
     '/usr/local/sbin/dre-deployctl status',
-    '/usr/local/sbin/blindou-deployctl status',
-    '/usr/local/sbin/secondary-slotctl verify'
+    '/usr/local/sbin/blindou-deployctl status'
 )) {
     $firstCheck = $dreImageBuildScript.IndexOf(
         $controllerCheck,
@@ -223,6 +225,26 @@ foreach ($controllerCheck in @(
         ) -ne $secondCheck) {
         throw "Verificação do build DRE pode executar sob lock próprio: $controllerCheck"
     }
+}
+$slotCheckToken = 'verify_secondary_slot \'
+if ([regex]::Matches(
+        $dreImageBuildScript,
+        [regex]::Escape($slotCheckToken)
+    ).Count -ne 2) {
+    throw 'O build DRE deve verificar o slot antes e depois dos locks.'
+}
+$firstSlotCheck = $dreImageBuildScript.IndexOf(
+    $slotCheckToken,
+    [StringComparison]::Ordinal
+)
+$secondSlotCheck = $dreImageBuildScript.IndexOf(
+    $slotCheckToken,
+    $firstSlotCheck + $slotCheckToken.Length,
+    [StringComparison]::Ordinal
+)
+if ($firstSlotCheck -lt 0 -or $firstSlotCheck -ge $lockStart -or
+    $secondSlotCheck -le $unlockEnd) {
+    throw 'A verificação classificada do slot não envolve corretamente os locks.'
 }
 if ([regex]::Matches(
         $dreImageBuildScript,

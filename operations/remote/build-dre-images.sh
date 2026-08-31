@@ -10,6 +10,29 @@ fail() {
   exit 1
 }
 
+verify_secondary_slot() {
+  local attempt output result
+  for attempt in 1 2 3 4 5; do
+    set +e
+    output="$(/usr/local/sbin/secondary-slotctl verify 2>&1)"
+    result="$?"
+    set -e
+    if [[ "$result" -eq 0 ]]; then
+      return 0
+    fi
+    if [[ "$output" != \
+      '[secondary-slotctl] ERRO: outra operação do slot está em andamento' ]]; then
+      printf '%s\n' "$output" >&2
+      return "$result"
+    fi
+    if [[ "$attempt" -lt 5 ]]; then
+      sleep "$attempt"
+    fi
+  done
+  printf '%s\n' "$output" >&2
+  return "$result"
+}
+
 [[ "$#" -eq 4 ]] \
   || fail 'uso fechado: REMOTE_ROOT SOURCE_REVISION SOURCE_SHA256 BUILDKIT_SHA256'
 readonly remote_root="$1"
@@ -70,7 +93,7 @@ done
   || fail 'controlador DRE não está íntegro'
 /usr/local/sbin/blindou-deployctl status >/dev/null \
   || fail 'Blindou não está íntegro'
-/usr/local/sbin/secondary-slotctl verify >/dev/null \
+verify_secondary_slot \
   || fail 'slot secundário não está íntegro'
 
 exec 6>"$build_lock"
@@ -355,7 +378,7 @@ exec 6>&-
   || fail 'controlador DRE divergiu após o build'
 /usr/local/sbin/blindou-deployctl status >/dev/null \
   || fail 'Blindou divergiu após o build'
-/usr/local/sbin/secondary-slotctl verify >/dev/null \
+verify_secondary_slot \
   || fail 'slot secundário divergiu após o build'
 
 printf 'dre_image_build=passed source_revision=%s output=%s\n' \

@@ -3,8 +3,8 @@
 ## Estado e limite
 
 O controlador schema 2 e a fundação Kubernetes do DRE estão instalados no
-servidor. A release schema 2 `dre-20260831T053100Z-57984e1c1902` passou na
-operação descartável `20260831T055000Z-57984e1c1902`; nove migrations,
+servidor. A release schema 2 `dre-20260831T202100Z-f6b06765ff61` passou na
+operação descartável `20260831T202626Z-f6b06765ff61`; nove migrations,
 bootstrap, E2E e reinícios dos três componentes foram comprovados, e
 `dre-validation`/PVC/PV foram removidos. Ela não é a release corrente. Os cinco
 Secrets permanentes sem FCM existem, o gate pré-deploy é `secrets-only` e PVC,
@@ -62,6 +62,12 @@ build. O helper root copia as entradas para staging privado, usa worker OCI
 encerra o daemon no `trap`. K3s/containerd nunca é backend do builder. A saída
 são `rust.oci.tar`, `postgres.oci.tar` e `validation.oci.tar`, metadados e
 recibo ligados ao SHA Git.
+
+A verificação do slot secundário anterior e posterior ao build repete somente
+o erro transitório exato de lock do coletor, por no máximo cinco tentativas e
+espera limitada. Qualquer outro erro falha imediatamente. Isso evita classificar
+como falha de integridade a corrida curta com o timer, sem ocultar divergência
+real de APIWPP/SaferWPP.
 
 Depois, sem sudo:
 
