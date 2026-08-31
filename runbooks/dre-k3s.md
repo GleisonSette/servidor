@@ -218,7 +218,16 @@ bootstrap de duas contas/dispositivos sintéticos e o E2E assinado. API, worker
 e PostgreSQL são reiniciados separadamente e precisam recuperar readiness e as
 nove migrations. Sucesso registra archive/digests, remove namespace, PVC e PV e
 libera a criação do plano. Falha preserva o namespace com gate `blocked`. O
-diagnóstico fechado e somente leitura informa fase do recibo, pods, workloads,
+Job de acessos pode conter somente o `initContainer` opcional
+`wait-for-postgres`, preso à mesma imagem PostgreSQL por digest, com comando,
+script, recursos e segurança exatos. Ele aguarda no máximo 12 vezes o Service
+interno, com atraso exponencial limitado a cinco segundos, para absorver a
+convergência da `NetworkPolicy` no IP do próprio Pod. A ausência continua aceita
+somente para compatibilidade de releases antigas; container extra, script
+alterado ou espera em outro workload são recusados. O helper principal não
+recebe retry e continua falhando definitivamente em erro de autenticação ou SQL.
+O diagnóstico fechado e somente leitura informa fase do recibo, pods,
+workloads,
 os 25 eventos Kubernetes mais recentes, IP interno do Pod PostgreSQL, contrato
 do Service, probes TCP fixas por `pg_isready`, log técnico do banco e até 16
 KiB/80 linhas de cada contêiner falho, com URLs e credenciais redigidas. As

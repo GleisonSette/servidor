@@ -153,6 +153,41 @@ EXPECTED_ALERTS = {
     "DreK3sPersistentVolumeLost",
     "DreK3sPostgresVolumeMetricsMissing",
 }
+EXPECTED_REGULAR_CONTAINERS = {
+    "StatefulSet/dre-postgres": ("postgres",),
+    "Job/dre-database-migrate": ("migrate",),
+    "Job/dre-database-access": ("database-access",),
+    "Deployment/dre-api": ("api",),
+    "Deployment/dre-worker": ("worker",),
+    "Job/dre-validation-bootstrap": ("bootstrap",),
+    "Job/dre-validation-e2e": ("e2e",),
+}
+WAIT_FOR_POSTGRES_SCRIPT = "\n".join(
+    (
+        "attempt=1",
+        'while [ "$attempt" -le 12 ]; do',
+        "  if /usr/local/bin/pg_isready \\",
+        "    --host=dre-postgres \\",
+        "    --port=5432 \\",
+        "    --username=dre_postgres_admin \\",
+        "    --dbname=dre \\",
+        "    --timeout=3; then",
+        "    exit 0",
+        "  fi",
+        '  if [ "$attempt" -eq 12 ]; then',
+        "    printf 'PostgreSQL não ficou pronto para o bootstrap de acesso\\n' >&2",
+        "    exit 1",
+        "  fi",
+        "  delay=$((1 << (attempt - 1)))",
+        '  if [ "$delay" -gt 5 ]; then',
+        "    delay=5",
+        "  fi",
+        '  sleep "$delay"',
+        "  attempt=$((attempt + 1))",
+        "done",
+        "",
+    )
+)
 
 
 def fail(message: str) -> None:
@@ -262,6 +297,7 @@ def validate_container(
     component_by_container = {
         "postgres": "postgres",
         "database-access": "postgres",
+        "wait-for-postgres": "postgres",
         "e2e": "validation",
         "api": "rust",
         "worker": "rust",
@@ -292,6 +328,39 @@ def validate_container(
             fail(f"hostPort proibido em {resource}")
 
 
+def validate_wait_for_postgres(container: dict[str, Any], resource: str) -> None:
+    if resource != "Job/dre-database-access":
+        fail(f"wait-for-postgres fora do Job autorizado em {resource}")
+    expected_keys = {
+        "name",
+        "image",
+        "imagePullPolicy",
+        "command",
+        "args",
+        "resources",
+        "securityContext",
+    }
+    if set(container) != expected_keys:
+        fail("campos do wait-for-postgres divergem do contrato fechado")
+    if container.get("imagePullPolicy") != "IfNotPresent":
+        fail("política de imagem do wait-for-postgres diverge")
+    if container.get("command") != ["/bin/sh", "-ec"]:
+        fail("comando do wait-for-postgres diverge")
+    if container.get("args") != [WAIT_FOR_POSTGRES_SCRIPT]:
+        fail("script do wait-for-postgres diverge")
+    if container.get("resources") != {
+        "requests": {"cpu": "10m", "memory": "32Mi"},
+        "limits": {"cpu": "100m", "memory": "64Mi"},
+    }:
+        fail("recursos do wait-for-postgres divergem")
+    if container.get("securityContext") != {
+        "allowPrivilegeEscalation": False,
+        "capabilities": {"drop": ["ALL"]},
+        "readOnlyRootFilesystem": True,
+    }:
+        fail("segurança do wait-for-postgres diverge")
+
+
 def validate_pod_spec(
     spec: dict[str, Any], resource: str, expected_images: dict[str, str]
 ) -> None:
@@ -305,13 +374,32 @@ def validate_pod_spec(
         fail(f"runAsNonRoot ausente em {resource}")
     if security.get("seccompProfile", {}).get("type") != "RuntimeDefault":
         fail(f"seccomp RuntimeDefault ausente em {resource}")
-    containers = (spec.get("initContainers", []) or []) + (
-        spec.get("containers", []) or []
-    )
-    if not containers:
+    regular_containers = spec.get("containers")
+    init_containers = spec.get("initContainers", []) or []
+    if not isinstance(regular_containers, list) or not regular_containers:
         fail(f"workload sem container em {resource}")
-    for container in containers:
+    if not isinstance(init_containers, list) or not all(
+        isinstance(container, dict) for container in init_containers
+    ):
+        fail(f"initContainers inválidos em {resource}")
+    if not all(isinstance(container, dict) for container in regular_containers):
+        fail(f"containers inválidos em {resource}")
+    expected_regular = EXPECTED_REGULAR_CONTAINERS.get(resource)
+    regular_names = tuple(container.get("name") for container in regular_containers)
+    if expected_regular is None or regular_names != expected_regular:
+        fail(f"containers regulares divergem em {resource}")
+    init_names = tuple(container.get("name") for container in init_containers)
+    allowed_init_names = (
+        {(), ("wait-for-postgres",)}
+        if resource == "Job/dre-database-access"
+        else {()}
+    )
+    if init_names not in allowed_init_names:
+        fail(f"initContainers divergem em {resource}")
+    for container in init_containers + regular_containers:
         validate_container(container, resource, expected_images)
+        if container.get("name") == "wait-for-postgres":
+            validate_wait_for_postgres(container, resource)
     for volume in spec.get("volumes", []) or []:
         if "hostPath" in volume:
             fail(f"hostPath proibido em {resource}")

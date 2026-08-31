@@ -128,6 +128,25 @@ def workload_document(
             }
         ],
     }
+    if name == "dre-database-access":
+        pod_spec["initContainers"] = [
+            {
+                "name": "wait-for-postgres",
+                "image": POSTGRES_IMAGE,
+                "imagePullPolicy": "IfNotPresent",
+                "command": ["/bin/sh", "-ec"],
+                "args": [VERIFY.WAIT_FOR_POSTGRES_SCRIPT],
+                "resources": {
+                    "requests": {"cpu": "10m", "memory": "32Mi"},
+                    "limits": {"cpu": "100m", "memory": "64Mi"},
+                },
+                "securityContext": {
+                    "allowPrivilegeEscalation": False,
+                    "capabilities": {"drop": ["ALL"]},
+                    "readOnlyRootFilesystem": True,
+                },
+            }
+        ]
     document["spec"] = {
         "selector": {"matchLabels": {"app": name}},
         "template": {"metadata": {"labels": {"app": name}}, "spec": pod_spec},
@@ -404,6 +423,67 @@ class ReleaseVerifierTests(unittest.TestCase):
             create_archive(root, archive, required_files)
             rejected = run_verify(archive, Path(temporary) / "swapped-image")
             self.assertNotEqual(rejected.returncode, 0)
+
+    def test_accepts_legacy_database_access_without_wait_init_container(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "tree"
+            root.mkdir()
+            required_files = create_tree(root)
+            access_path = root / "20-database-access.yaml"
+            documents = list(yaml.safe_load_all(access_path.read_text()))
+            access = next(document for document in documents if document.get("kind") == "Job")
+            access["spec"]["template"]["spec"].pop("initContainers")
+            write_yaml(access_path, documents)
+            release = json.loads((root / "release.json").read_text())
+            release["stage_sha256"][access_path.name] = sha256(access_path)
+            (root / "release.json").write_text(json.dumps(release), encoding="utf-8")
+            archive = Path(temporary) / "legacy-without-wait.tar.gz"
+            create_archive(root, archive, required_files)
+            accepted = run_verify(archive, Path(temporary) / "legacy-without-wait")
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+    def test_rejects_altered_or_misplaced_database_wait_init_container(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "tree"
+            root.mkdir()
+            required_files = create_tree(root, schema=2)
+            access_path = root / "42-validation-database-access.yaml"
+            access_documents = list(yaml.safe_load_all(access_path.read_text()))
+            access = next(
+                document for document in access_documents if document.get("kind") == "Job"
+            )
+            wait = access["spec"]["template"]["spec"]["initContainers"][0]
+            wait["command"] = ["/bin/sh", "-c"]
+            write_yaml(access_path, access_documents)
+            release = json.loads((root / "release.json").read_text())
+            release["stage_sha256"][access_path.name] = sha256(access_path)
+            (root / "release.json").write_text(json.dumps(release), encoding="utf-8")
+            altered_archive = Path(temporary) / "altered-wait.tar.gz"
+            create_archive(root, altered_archive, required_files)
+            altered = run_verify(altered_archive, Path(temporary) / "altered-wait")
+            self.assertNotEqual(altered.returncode, 0)
+
+            wait["command"] = ["/bin/sh", "-ec"]
+            write_yaml(access_path, access_documents)
+            runtime_path = root / "43-validation-runtime.yaml"
+            runtime_documents = list(yaml.safe_load_all(runtime_path.read_text()))
+            api = next(
+                document
+                for document in runtime_documents
+                if document.get("kind") == "Deployment"
+                and document.get("metadata", {}).get("name") == "dre-api"
+            )
+            api["spec"]["template"]["spec"]["initContainers"] = [dict(wait)]
+            write_yaml(runtime_path, runtime_documents)
+            release["stage_sha256"][access_path.name] = sha256(access_path)
+            release["stage_sha256"][runtime_path.name] = sha256(runtime_path)
+            (root / "release.json").write_text(json.dumps(release), encoding="utf-8")
+            misplaced_archive = Path(temporary) / "misplaced-wait.tar.gz"
+            create_archive(root, misplaced_archive, required_files)
+            misplaced = run_verify(
+                misplaced_archive, Path(temporary) / "misplaced-wait"
+            )
+            self.assertNotEqual(misplaced.returncode, 0)
 
 
 if __name__ == "__main__":
