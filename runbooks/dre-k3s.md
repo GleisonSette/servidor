@@ -218,8 +218,10 @@ bootstrap de duas contas/dispositivos sintéticos e o E2E assinado. API, worker
 e PostgreSQL são reiniciados separadamente e precisam recuperar readiness e as
 nove migrations. Sucesso registra archive/digests, remove namespace, PVC e PV e
 libera a criação do plano. Falha preserva o namespace com gate `blocked`. O
-diagnóstico fechado e somente leitura informa fase do recibo, pods, workloads e
-os 25 eventos Kubernetes mais recentes, sem permitir shell ou `kubectl` livre:
+diagnóstico fechado e somente leitura informa fase do recibo, pods, workloads,
+os 25 eventos Kubernetes mais recentes e até 16 KiB/80 linhas de cada contêiner
+falho, com URLs e credenciais redigidas. Ele não permite shell ou `kubectl`
+livre:
 
 ```text
 sudo -n /usr/local/sbin/dre-deployctl diagnose-validation

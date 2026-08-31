@@ -757,6 +757,28 @@ restart_validation_component() {
   [[ "$before_uid" != "$after_uid" ]] || fail "pod de ${component} não foi substituído"
 }
 
+wait_for_job_completion() {
+  local namespace="$1" job="$2" timeout_seconds="$3" deadline state reason
+  [[ "$timeout_seconds" =~ ^[1-9][0-9]*$ ]] || fail 'timeout interno de Job inválido'
+  deadline=$((SECONDS + timeout_seconds))
+  while true; do
+    state="$(kube -n "$namespace" get job "$job" -o json)"
+    if jq -e 'any(.status.conditions[]?; .type == "Complete" and .status == "True")' \
+        <<<"$state" >/dev/null; then
+      return
+    fi
+    if jq -e 'any(.status.conditions[]?; .type == "Failed" and .status == "True")' \
+        <<<"$state" >/dev/null; then
+      reason="$(jq -r \
+        '[.status.conditions[]? | select(.type == "Failed" and .status == "True") | .reason] | first // "Unknown"' \
+        <<<"$state")"
+      fail "Job ${job} falhou: ${reason}"
+    fi
+    ((SECONDS < deadline)) || fail "Job ${job} excedeu ${timeout_seconds}s"
+    sleep 2
+  done
+}
+
 validate_release_disposable() {
   [[ "$#" -eq 2 ]] || fail 'uso: validate-release RELEASE_ID OPERATION_ID'
   local release_id="$1" operation_id="$2" protected_before phase=preflight
@@ -823,8 +845,7 @@ validate_release_disposable() {
     --ignore-not-found --wait=true >/dev/null
   kube apply --server-side --field-manager=dre-deployctl \
     -f "$(release_file "$release_id" 41-validation-migrations.yaml)" >/dev/null
-  kube -n "$VALIDATION_NAMESPACE" wait --for=condition=complete \
-    job/dre-database-migrate --timeout=660s >/dev/null
+  wait_for_job_completion "$VALIDATION_NAMESPACE" dre-database-migrate 660
   migration_count="$(validation_migration_count)"
   [[ "${migration_count//[[:space:]]/}" == 9 ]] \
     || fail 'Job de migration descartável não confirmou nove migrations'
@@ -835,8 +856,7 @@ validate_release_disposable() {
     --ignore-not-found --wait=true >/dev/null
   kube apply --server-side --field-manager=dre-deployctl \
     -f "$(release_file "$release_id" 42-validation-database-access.yaml)" >/dev/null
-  kube -n "$VALIDATION_NAMESPACE" wait --for=condition=complete \
-    job/dre-database-access --timeout=360s >/dev/null
+  wait_for_job_completion "$VALIDATION_NAMESPACE" dre-database-access 360
 
   phase=runtime
   register_exit_trap validation_failed "$release_id" "$operation_id" "$receipt" "$phase"
@@ -850,8 +870,7 @@ validate_release_disposable() {
     --ignore-not-found --wait=true >/dev/null
   kube apply --server-side --field-manager=dre-deployctl \
     -f "$(release_file "$release_id" 44-validation-bootstrap.yaml)" >/dev/null
-  kube -n "$VALIDATION_NAMESPACE" wait --for=condition=complete \
-    job/dre-validation-bootstrap --timeout=660s >/dev/null
+  wait_for_job_completion "$VALIDATION_NAMESPACE" dre-validation-bootstrap 660
 
   phase=e2e
   register_exit_trap validation_failed "$release_id" "$operation_id" "$receipt" "$phase"
@@ -861,8 +880,7 @@ validate_release_disposable() {
     -f "$(release_file "$release_id" 45-validation-e2e.yaml)" >/dev/null
   [[ "$(kube -n "$VALIDATION_NAMESPACE" get job dre-validation-e2e -o jsonpath='{.spec.template.spec.containers[0].image}')" == "$(release_validation_image "$release_id")" ]] \
     || fail 'Job E2E não usa a imagem de validação assinada'
-  kube -n "$VALIDATION_NAMESPACE" wait --for=condition=complete \
-    job/dre-validation-e2e --timeout=960s >/dev/null
+  wait_for_job_completion "$VALIDATION_NAMESPACE" dre-validation-e2e 960
 
   phase=restarts
   register_exit_trap validation_failed "$release_id" "$operation_id" "$receipt" "$phase"
@@ -1182,11 +1200,11 @@ deploy_release() {
   kube -n "$NAMESPACE" delete job dre-database-migrate --ignore-not-found --wait=true >/dev/null
   kube apply --server-side --field-manager=dre-deployctl \
     -f "$(release_file "$release_id" 10-migrations.yaml)" >/dev/null
-  kube -n "$NAMESPACE" wait --for=condition=complete job/dre-database-migrate --timeout=660s >/dev/null
+  wait_for_job_completion "$NAMESPACE" dre-database-migrate 660
   kube -n "$NAMESPACE" delete job dre-database-access --ignore-not-found --wait=true >/dev/null
   kube apply --server-side --field-manager=dre-deployctl \
     -f "$(release_file "$release_id" 20-database-access.yaml)" >/dev/null
-  kube -n "$NAMESPACE" wait --for=condition=complete job/dre-database-access --timeout=360s >/dev/null
+  wait_for_job_completion "$NAMESPACE" dre-database-access 360
   kube apply --server-side --field-manager=dre-deployctl \
     -f "$(release_file "$release_id" 30-runtime.yaml)" >/dev/null
   kube -n "$NAMESPACE" rollout status deployment/dre-api --timeout=180s >/dev/null
@@ -1437,7 +1455,8 @@ write_metrics() {
 
 diagnose_validation() {
   [[ "$#" -eq 0 ]] || fail 'uso: diagnose-validation'
-  local gate release_id operation_id receipt receipt_state pods workloads events
+  local gate release_id operation_id receipt receipt_state pods workloads events failed_logs
+  local pod container raw_log sanitized_log
   verify_foundation
   gate="$(admin_kube get namespace "$VALIDATION_NAMESPACE" \
     -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}' 2>/dev/null \
@@ -1493,6 +1512,24 @@ diagnose_validation() {
       count:(.count // 1),
       last_seen:(.eventTime // .lastTimestamp // .metadata.creationTimestamp)
     }]')"
+  failed_logs='[]'
+  while IFS=$'\t' read -r pod container; do
+    [[ -n "$pod" && -n "$container" ]] || continue
+    raw_log="$(admin_kube -n "$VALIDATION_NAMESPACE" logs "$pod" \
+      --container "$container" --tail=80 --limit-bytes=16384 2>&1 || true)"
+    sanitized_log="$(printf '%s' "$raw_log" | sed -E \
+      -e 's#(postgres(ql)?://)[^/@[:space:]]+:[^/@[:space:]]+@#\1[redacted]:[redacted]@#gI' \
+      -e 's#((password|token|secret|api[_-]?key)[=:])[[:graph:]]+#\1[redacted]#gI')"
+    failed_logs="$(jq -cn \
+      --argjson current "$failed_logs" \
+      --arg pod "$pod" \
+      --arg container "$container" \
+      --arg log "$sanitized_log" \
+      '$current + [{pod:$pod,container:$container,log:$log}]')"
+  done < <(admin_kube -n "$VALIDATION_NAMESPACE" get pods \
+    -l app.kubernetes.io/part-of=dre-familiar -o json \
+    | jq -r '[.items[] | select(.status.phase == "Failed")][0:5][] |
+      .metadata.name as $pod | .spec.containers[] | [$pod,.name] | @tsv')
   jq -cn \
     --arg gate "$gate" \
     --arg release "$release_id" \
@@ -1501,7 +1538,8 @@ diagnose_validation() {
     --argjson pods "$pods" \
     --argjson workloads "$workloads" \
     --argjson events "$events" \
-    '{schema:1,namespace:"dre-validation",gate:$gate,release:$release,operation_id:$operation_id,receipt:$receipt,pods:$pods,workloads:$workloads,events:$events}'
+    --argjson failed_logs "$failed_logs" \
+    '{schema:1,namespace:"dre-validation",gate:$gate,release:$release,operation_id:$operation_id,receipt:$receipt,pods:$pods,workloads:$workloads,events:$events,failed_logs:$failed_logs}'
 }
 
 status() {
