@@ -10,6 +10,10 @@ fail() {
   exit 1
 }
 
+stage() {
+  printf 'dre_validation_executor_bootstrap_stage=%s\n' "$1"
+}
+
 if (($# != 2)); then
   fail 'uso interno: bootstrap-dre-validation-executor.sh <commit> <archive-sha256>'
 fi
@@ -18,6 +22,7 @@ readonly source_archive_sha256="$2"
 [[ "$source_commit" =~ ^[0-9a-f]{40}$ ]] || fail 'commit de origem inválido'
 [[ "$source_archive_sha256" =~ ^[0-9a-f]{64}$ ]] \
   || fail 'SHA-256 do archive inválido'
+stage identity
 
 [[ "$EUID" -eq 0 ]] || fail 'execute como root'
 [[ "$(hostname)" == apiwpp ]] || fail 'hostname inesperado'
@@ -33,6 +38,7 @@ for command in apt-cache apt-get awk comm cut date dpkg-query find getent \
 done
 getent passwd apiadmin >/dev/null || fail 'usuário apiadmin ausente'
 [[ "$(id -u apiadmin)" -ge 1000 ]] || fail 'UID de apiadmin fora do contrato'
+stage host
 
 readonly -a packages=(
   'podman=4.9.3+ds1-1ubuntu0.2'
@@ -106,6 +112,7 @@ readonly subgid_before="$(grep -E '^apiadmin:[0-9]+:[0-9]+$' /etc/subgid || true
   || fail 'mapeamento subuid de apiadmin diverge'
 [[ "$subgid_before" == 'apiadmin:100000:65536' ]] \
   || fail 'mapeamento subgid de apiadmin diverge'
+stage identity-boundary
 
 readonly k3s_config_metadata_before="$(
   stat -c '%U:%G:%a:%h' /etc/rancher/k3s/k3s.yaml
@@ -118,13 +125,16 @@ if [[ -S /run/k3s/containerd/containerd.sock ]]; then
   runuser -u apiadmin -- test ! -r /run/k3s/containerd/containerd.sock \
     || fail 'apiadmin já consegue acessar o containerd do K3s'
 fi
+stage k3s-boundary
 
 for unit in "${forbidden_enabled_units[@]}"; do
   [[ "$(systemctl is-active "$unit" 2>/dev/null || true)" != active ]] \
     || fail "unit já estava ativa antes da instalação: ${unit}"
 done
+stage daemon-boundary
 
 DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update -qq
+stage apt-index
 for package in "${packages[@]}"; do
   name="${package%%=*}"
   expected="${package#*=}"
@@ -135,6 +145,7 @@ for package in "${packages[@]}"; do
   [[ -z "$installed" || "$installed" == "$expected" ]] \
     || fail "versão preexistente divergente para ${name}: ${installed}"
 done
+stage package-candidates
 
 simulation="$(
   DEBIAN_FRONTEND=noninteractive apt-get --simulate --no-remove --no-upgrade \
@@ -143,10 +154,12 @@ simulation="$(
 if grep -Eq '^(Remv|Inst [^ ]+ \[|Conf [^ ]+ \[)' <<<"$simulation"; then
   fail 'a transação APT simulada removeria ou atualizaria pacote existente'
 fi
+stage apt-simulation
 
 changed=true
 DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
   apt-get install --yes --no-remove --no-upgrade "${packages[@]}"
+stage packages-installed
 
 for package in "${packages[@]}"; do
   name="${package%%=*}"
@@ -163,6 +176,7 @@ for helper in /usr/bin/newuidmap /usr/bin/newgidmap; do
   [[ "$(stat -c '%U:%G:%a:%h' "$helper")" == root:root:4755:1 ]] \
     || fail "helper de mapeamento possui metadados inseguros: ${helper}"
 done
+stage tools
 
 [[ "$(id -nG apiadmin)" == "$groups_before" ]] \
   || fail 'a instalação alterou os grupos de apiadmin'
@@ -179,6 +193,7 @@ if [[ -S /run/k3s/containerd/containerd.sock ]]; then
   runuser -u apiadmin -- test ! -r /run/k3s/containerd/containerd.sock \
     || fail 'apiadmin passou a acessar o containerd do K3s'
 fi
+stage identity-postcondition
 
 for unit in "${forbidden_enabled_units[@]}"; do
   active_state="$(systemctl is-active "$unit" 2>/dev/null || true)"
@@ -202,6 +217,7 @@ if [[ -d /home/apiadmin/.config/systemd/user ]]; then
   [[ -z "$(find /home/apiadmin/.config/systemd/user -type l -iname '*podman*' -print -quit)" ]] \
     || fail 'Podman recebeu ativação persistente no systemd do usuário'
 fi
+stage daemon-postcondition
 
 installed_package_names >"$packages_after"
 comm -13 "$packages_before" "$packages_after" >"$new_packages"
@@ -249,6 +265,7 @@ payload = {
 target.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
 PY
 install -o root -g root -m 0600 "$receipt_temporary" "$receipt_path"
+stage receipt
 
 complete=true
 printf 'dre_validation_executor_bootstrap=passed rootless=true daemon=false k3s_access=false'
