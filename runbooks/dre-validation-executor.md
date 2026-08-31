@@ -33,8 +33,11 @@ O bootstrap aceita Ubuntu 24.04 amd64 no host `apiwpp` e fixa:
 
 Antes e depois da transação são conferidos grupos, `subuid`, `subgid`,
 metadados e inacessibilidade do kubeconfig/socket K3s. Units e sockets Podman
-devem permanecer inativos e não habilitados. Falha antes do recibo remove
-somente pacotes que não existiam na fotografia inicial.
+devem permanecer inativos e não habilitados. Durante o APT, um `policy-rc.d`
+temporário impede partidas; imediatamente depois, o bootstrap desabilita todos
+os presets Podman, recusa listener e remove socket sem listener antes de aceitar
+a transação. Falha antes do recibo para units/sockets, remove somente pacotes
+que não existiam na fotografia inicial e repete a negativa de runtime.
 
 O recibo root-only em
 `/var/lib/servidor-local/dre-validation-executor/state.json` registra commit,

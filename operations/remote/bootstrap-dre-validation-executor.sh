@@ -33,7 +33,8 @@ source /etc/os-release
   || fail 'sistema operacional fora do contrato Ubuntu 24.04'
 
 for command in apt-cache apt-get awk comm cut date dpkg-query find getent \
-  grep id install mktemp python3 rm runuser sha256sum sort stat systemctl; do
+  grep id install mktemp python3 rm rmdir runuser sha256sum sort ss stat \
+  systemctl; do
   command -v "$command" >/dev/null || fail "dependência ausente: ${command}"
 done
 getent passwd apiadmin >/dev/null || fail 'usuário apiadmin ausente'
@@ -56,6 +57,7 @@ readonly -a forbidden_enabled_units=(
   podman.socket
   podman-auto-update.service
   podman-auto-update.timer
+  podman-clean-transient.service
   podman-restart.service
 )
 readonly state_root='/var/lib/servidor-local/dre-validation-executor'
@@ -67,8 +69,10 @@ readonly packages_before="${work_directory}/packages-before.txt"
 readonly packages_after="${work_directory}/packages-after.txt"
 readonly new_packages="${work_directory}/new-packages.txt"
 readonly receipt_temporary="${work_directory}/state.json"
+readonly policy_rc_d='/usr/sbin/policy-rc.d'
 changed=false
 complete=false
+policy_created=false
 
 installed_package_names() {
   dpkg-query -W -f='${binary:Package}\t${db:Status-Abbrev}\n' 2>/dev/null |
@@ -76,6 +80,7 @@ installed_package_names() {
 }
 
 rollback_new_packages() {
+  reconcile_podman_units || return 1
   installed_package_names >"$packages_after"
   comm -13 "$packages_before" "$packages_after" >"$new_packages"
   if [[ ! -s "$new_packages" ]]; then
@@ -89,6 +94,44 @@ rollback_new_packages() {
   mapfile -t rollback_packages <"$new_packages"
   DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
     apt-get purge --yes -- "${rollback_packages[@]}" >/dev/null
+  reconcile_podman_units || return 1
+}
+
+podman_socket_is_listening() {
+  ss -H -xl |
+    awk 'index($0, "/run/podman/podman.sock") {found=1} END {exit found ? 0 : 1}'
+}
+
+reconcile_podman_units() {
+  systemctl disable --now "${forbidden_enabled_units[@]}" >/dev/null 2>&1 || true
+  systemctl daemon-reload
+  systemctl reset-failed "${forbidden_enabled_units[@]}" >/dev/null 2>&1 || true
+  if podman_socket_is_listening; then
+    printf '[bootstrap-dre-validation-executor] ERRO: socket Podman continua com listener depois da parada fechada\n' >&2
+    return 1
+  fi
+  if [[ -S /run/podman/podman.sock ]]; then
+    rm -f -- /run/podman/podman.sock
+  fi
+  if [[ -d /run/podman ]]; then
+    rmdir -- /run/podman 2>/dev/null || true
+  fi
+}
+
+install_service_start_block() {
+  if [[ -e "$policy_rc_d" || -L "$policy_rc_d" ]]; then
+    fail 'policy-rc.d preexistente exige decisão operacional separada'
+  fi
+  printf '#!/bin/sh\nexit 101\n' >"${work_directory}/policy-rc.d"
+  install -o root -g root -m 0755 "${work_directory}/policy-rc.d" "$policy_rc_d"
+  policy_created=true
+}
+
+remove_service_start_block() {
+  if [[ "$policy_created" == true ]]; then
+    rm -f -- "$policy_rc_d"
+    policy_created=false
+  fi
 }
 
 cleanup() {
@@ -99,6 +142,7 @@ cleanup() {
       printf '[bootstrap-dre-validation-executor] ERRO: rollback de pacotes falhou\n' >&2
     fi
   fi
+  remove_service_start_block
   rm -rf --one-file-system -- "$work_directory"
   exit "$result"
 }
@@ -113,6 +157,12 @@ readonly subgid_before="$(grep -E '^apiadmin:[0-9]+:[0-9]+$' /etc/subgid || true
 [[ "$subgid_before" == 'apiadmin:100000:65536' ]] \
   || fail 'mapeamento subgid de apiadmin diverge'
 stage identity-boundary
+
+if ! dpkg-query -W -f='${db:Status-Abbrev}' podman 2>/dev/null |
+    awk 'BEGIN {installed=0} /^ii/ {installed=1} END {exit installed ? 0 : 1}'; then
+  reconcile_podman_units || fail 'não foi possível reconciliar resíduo Podman anterior'
+fi
+stage stale-runtime-reconciled
 
 readonly k3s_config_metadata_before="$(
   stat -c '%U:%G:%a:%h' /etc/rancher/k3s/k3s.yaml
@@ -131,6 +181,8 @@ for unit in "${forbidden_enabled_units[@]}"; do
   [[ "$(systemctl is-active "$unit" 2>/dev/null || true)" != active ]] \
     || fail "unit já estava ativa antes da instalação: ${unit}"
 done
+[[ ! -S /run/podman/podman.sock ]] \
+  || fail 'socket Podman já estava presente antes da instalação'
 stage daemon-boundary
 
 DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update -qq
@@ -159,10 +211,15 @@ if grep -Eq '^(Remv|Inst [^ ]+ \[|Conf [^ ]+ \[)' <<<"$simulation"; then
 fi
 stage apt-simulation
 
+install_service_start_block
+stage service-start-block
 changed=true
 DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
   apt-get install --yes --no-remove --no-upgrade "${packages[@]}"
 stage packages-installed
+reconcile_podman_units || fail 'não foi possível desabilitar presets Podman'
+remove_service_start_block
+stage package-presets-disabled
 
 for package in "${packages[@]}"; do
   name="${package%%=*}"

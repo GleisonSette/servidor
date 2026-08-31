@@ -132,6 +132,7 @@ if test -S /run/k3s/containerd/containerd.sock; then
   test ! -r /run/k3s/containerd/containerd.sock
 fi
 test ! -e /home/apiadmin/.local/share/containers/storage
+test ! -e /usr/sbin/policy-rc.d
 sudo -n /usr/local/sbin/dre-deployctl status >/dev/null
 sudo -n /usr/local/sbin/blindou-deployctl status >/dev/null
 sudo -n /usr/local/sbin/secondary-slotctl verify >/dev/null

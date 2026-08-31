@@ -47,7 +47,15 @@ for invariant in (
     "runuser -u apiadmin -- test ! -r /run/k3s/containerd/containerd.sock",
     "podman.socket",
     "podman-auto-update.timer",
+    "podman-clean-transient.service",
     "podman-restart.service",
+    "policy-rc.d",
+    "exit 101",
+    "systemctl disable --now",
+    "podman_socket_is_listening",
+    "stage stale-runtime-reconciled",
+    "stage service-start-block",
+    "stage package-presets-disabled",
     "persistent_daemon\": False",
     "k3s_access_granted\": False",
     "/var/lib/servidor-local/dre-validation-executor",
@@ -105,6 +113,7 @@ for invariant in (
     "system reset --force",
     "test ! -r /etc/rancher/k3s/k3s.yaml",
     "test ! -r /run/k3s/containerd/containerd.sock",
+    "test ! -e /usr/sbin/policy-rc.d",
     "dre_validation_executor_smoke=passed",
 ):
     if invariant not in orchestrator:
