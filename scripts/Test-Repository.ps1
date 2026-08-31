@@ -95,8 +95,8 @@ $dreBootstrap = Get-Content -Raw -LiteralPath (
 )
 foreach ($invariant in @(
     'apiadmin@192.168.100.59',
-    'dre-controller-bootstrap-4902604dad96-20260831T014745Z',
-    'e737f48edd3028e23eea7a40161360ff54c05a00974ca1eda358e7acb5656efe',
+    'dre-controller-bootstrap-4902604dad96-20260831T015553Z',
+    'f0afac68574513d19e5ca4c1294bc172dc9077235ef2fb129cc4b78175133b39',
     '4902604dad96d9b07f4010308d30e3815cb4e76446855d925079be0e3b922ce9',
     'StrictHostKeyChecking=yes'
 )) {
