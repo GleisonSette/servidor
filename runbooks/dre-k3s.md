@@ -26,7 +26,9 @@ também entram obrigatoriamente na proteção.
   pertence a `system:masters` e usa kubeconfig root-only próprio.
 - A admissão `dre-controller-only` falha fechada para os recursos do DRE. O
   acesso `system:admin` continua sendo break-glass do administrador root e não
-  é interface de automação cotidiana.
+  é interface de automação cotidiana. O `system:kube-scheduler` recebe somente
+  a exceção de `UPDATE` em PVC necessária ao `WaitForFirstConsumer`; isso não o
+  autoriza a criar, apagar ou alterar outros recursos DRE.
 - O sudoers permite somente ações enumeradas do controlador; não concede shell,
   `kubectl`, caminho de manifesto, kubeconfig ou variável de ambiente livre.
 - A chave privada de assinatura nunca entra neste repositório nem no servidor.

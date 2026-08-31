@@ -479,6 +479,9 @@ spec:
     - expression: >-
         request.userInfo.username == 'dre-deployctl' ||
         request.userInfo.username == 'system:kube-controller-manager' ||
+        (request.userInfo.username == 'system:kube-scheduler' &&
+          request.operation == 'UPDATE' &&
+          request.resource.resource == 'persistentvolumeclaims') ||
         request.userInfo.username.startsWith('system:node:') ||
         request.userInfo.username.startsWith('system:serviceaccount:kube-system:') ||
         (request.userInfo.username == 'system:admin' &&

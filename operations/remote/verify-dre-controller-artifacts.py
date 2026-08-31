@@ -151,6 +151,9 @@ validation_text = "\n".join(
 for invariant in (
     "request.userInfo.username == 'dre-deployctl'",
     "system:kube-controller-manager",
+    "request.userInfo.username == 'system:kube-scheduler'",
+    "request.operation == 'UPDATE'",
+    "request.resource.resource == 'persistentvolumeclaims'",
     "system:serviceaccount:kube-system:",
 ):
     if invariant not in validation_text:
