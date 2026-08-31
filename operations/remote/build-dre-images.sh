@@ -75,15 +75,15 @@ done
 
 exec 6>"$build_lock"
 chmod 0600 "$build_lock"
-flock -n 6 || fail 'outro build DRE está em andamento'
+flock --timeout 30 6 || fail 'outro build DRE está em andamento'
 exec 7>"$controller_lock"
-flock -n 7 || fail 'operação DRE está em andamento'
+flock --timeout 30 7 || fail 'operação DRE está em andamento'
 exec 8>"$blindou_lock"
-flock -n 8 || fail 'operação Blindou está em andamento'
+flock --timeout 30 8 || fail 'operação Blindou está em andamento'
 [[ -f "$slot_lock" && ! -L "$slot_lock" ]] \
   || fail 'lock do slot secundário ausente ou inseguro'
 exec 9<>"$slot_lock"
-flock -n 9 || fail 'transição APIWPP/SaferWPP está em andamento'
+flock --timeout 30 9 || fail 'transição APIWPP/SaferWPP está em andamento'
 
 work_directory="$(mktemp -d \
   "/var/tmp/dre-image-build.${source_revision:0:12}.XXXXXX")"

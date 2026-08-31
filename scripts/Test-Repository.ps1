@@ -143,7 +143,7 @@ foreach ($invariant in @(
     'dre-image-build-25dc4f899669-20260830T221500Z',
     'a5303a241928ea78223bf7cddfb5425fc77d14acbc96c9c249dcca586ad70099',
     '2975d0f651ad96ba8b80b9992ae1f9a964f4408569af5b6dc36544165c3926af',
-    'd34ae693248abf822831c3b7706a0e285fcc15cd2b8449fe64059ce49e5552a3',
+    '8ce089a85d4b51f15417f2a680225a58a72cfb0f4e2d9465c839130ddabb9cc7',
     'StrictHostKeyChecking=yes'
 )) {
     if (-not $dreImageBuild.Contains($invariant)) {
@@ -212,6 +212,12 @@ foreach ($controllerCheck in @(
         ) -ne $secondCheck) {
         throw "Verificação do build DRE pode executar sob lock próprio: $controllerCheck"
     }
+}
+if ([regex]::Matches(
+        $dreImageBuildScript,
+        'flock --timeout 30 [6-9]'
+    ).Count -ne 4) {
+    throw 'Locks do build DRE perderam o timeout limitado de 30 segundos.'
 }
 
 $dataBootstrap = Get-Content -Raw -LiteralPath (
