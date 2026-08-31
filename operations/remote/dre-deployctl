@@ -1453,10 +1453,17 @@ write_metrics() {
   mv -fT -- "$temporary" "$METRICS_FILE"
 }
 
+sanitize_diagnostic_output() {
+  sed -E \
+    -e 's#(postgres(ql)?://)[^/@[:space:]]+:[^/@[:space:]]+@#\1[redacted]:[redacted]@#gI' \
+    -e 's#((password|token|secret|api[_-]?key)[=:])[[:graph:]]+#\1[redacted]#gI'
+}
+
 diagnose_validation() {
   [[ "$#" -eq 0 ]] || fail 'uso: diagnose-validation'
   local gate release_id operation_id receipt receipt_state pods workloads events failed_logs
-  local pod container raw_log sanitized_log
+  local pod container raw_log sanitized_log postgres_pod postgres_ip postgres_logs
+  local postgres_diagnostics service_state probe_host probe_output probe_code probe_status probes
   verify_foundation
   gate="$(admin_kube get namespace "$VALIDATION_NAMESPACE" \
     -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}' 2>/dev/null \
@@ -1481,6 +1488,7 @@ diagnose_validation() {
   pods="$(admin_kube -n "$VALIDATION_NAMESPACE" get pods -o json | jq -c '
     [.items[] | {
       name:.metadata.name,
+      pod_ip:(.status.podIP // null),
       phase:(.status.phase // "Unknown"),
       ready:([.status.containerStatuses[]? | select(.ready == true)] | length),
       containers:(.spec.containers | length),
@@ -1512,14 +1520,58 @@ diagnose_validation() {
       count:(.count // 1),
       last_seen:(.eventTime // .lastTimestamp // .metadata.creationTimestamp)
     }]')"
+  service_state="$(admin_kube -n "$VALIDATION_NAMESPACE" get service dre-postgres -o json \
+    | jq -c '{name:.metadata.name,cluster_ip:(.spec.clusterIP // null),selector:.spec.selector,ports:[.spec.ports[]? | {name,port,target_port:.targetPort,protocol}]}')"
+  postgres_pod="$(admin_kube -n "$VALIDATION_NAMESPACE" get pods \
+    -l app.kubernetes.io/name=dre-postgres,app.kubernetes.io/component=database \
+    -o json | jq -r '.items | sort_by(.metadata.name) | .[0].metadata.name // empty')"
+  postgres_diagnostics="$(jq -cn \
+    --argjson service "$service_state" \
+    '{status:"pod-absent",pod:null,pod_ip:null,service:$service,probes:[],log:""}')"
+  if [[ -n "$postgres_pod" ]]; then
+    postgres_ip="$(admin_kube -n "$VALIDATION_NAMESPACE" get pod "$postgres_pod" \
+      -o jsonpath='{.status.podIP}')"
+    raw_log="$(admin_kube -n "$VALIDATION_NAMESPACE" logs "$postgres_pod" \
+      --container postgres --tail=80 --limit-bytes=16384 2>&1 || true)"
+    postgres_logs="$(printf '%s' "$raw_log" | sanitize_diagnostic_output)"
+    probes='[]'
+    for probe_host in 127.0.0.1 "$postgres_ip"; do
+      [[ -n "$probe_host" ]] || continue
+      set +e
+      probe_output="$(admin_kube -n "$VALIDATION_NAMESPACE" exec "$postgres_pod" \
+        --container postgres -- /usr/local/bin/pg_isready \
+        --host="$probe_host" --port=5432 --username=dre_postgres_admin \
+        --dbname=dre --timeout=3 2>&1)"
+      probe_code=$?
+      set -e
+      probe_output="$(printf '%s' "$probe_output" | sanitize_diagnostic_output)"
+      if [[ "$probe_code" -eq 0 ]]; then
+        probe_status=accepting
+      else
+        probe_status=failed
+      fi
+      probes="$(jq -cn \
+        --argjson current "$probes" \
+        --arg host "$probe_host" \
+        --arg status "$probe_status" \
+        --argjson exit_code "$probe_code" \
+        --arg output "$probe_output" \
+        '$current + [{host:$host,status:$status,exit_code:$exit_code,output:$output}]')"
+    done
+    postgres_diagnostics="$(jq -cn \
+      --arg pod "$postgres_pod" \
+      --arg pod_ip "$postgres_ip" \
+      --argjson service "$service_state" \
+      --argjson probes "$probes" \
+      --arg log "$postgres_logs" \
+      '{status:"observed",pod:$pod,pod_ip:$pod_ip,service:$service,probes:$probes,log:$log}')"
+  fi
   failed_logs='[]'
   while IFS=$'\t' read -r pod container; do
     [[ -n "$pod" && -n "$container" ]] || continue
     raw_log="$(admin_kube -n "$VALIDATION_NAMESPACE" logs "$pod" \
       --container "$container" --tail=80 --limit-bytes=16384 2>&1 || true)"
-    sanitized_log="$(printf '%s' "$raw_log" | sed -E \
-      -e 's#(postgres(ql)?://)[^/@[:space:]]+:[^/@[:space:]]+@#\1[redacted]:[redacted]@#gI' \
-      -e 's#((password|token|secret|api[_-]?key)[=:])[[:graph:]]+#\1[redacted]#gI')"
+    sanitized_log="$(printf '%s' "$raw_log" | sanitize_diagnostic_output)"
     failed_logs="$(jq -cn \
       --argjson current "$failed_logs" \
       --arg pod "$pod" \
@@ -1538,8 +1590,9 @@ diagnose_validation() {
     --argjson pods "$pods" \
     --argjson workloads "$workloads" \
     --argjson events "$events" \
+    --argjson postgres "$postgres_diagnostics" \
     --argjson failed_logs "$failed_logs" \
-    '{schema:1,namespace:"dre-validation",gate:$gate,release:$release,operation_id:$operation_id,receipt:$receipt,pods:$pods,workloads:$workloads,events:$events,failed_logs:$failed_logs}'
+    '{schema:1,namespace:"dre-validation",gate:$gate,release:$release,operation_id:$operation_id,receipt:$receipt,pods:$pods,workloads:$workloads,events:$events,postgres:$postgres,failed_logs:$failed_logs}'
 }
 
 status() {
