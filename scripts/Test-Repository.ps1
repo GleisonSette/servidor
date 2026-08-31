@@ -143,7 +143,7 @@ foreach ($invariant in @(
     'dre-image-build-25dc4f899669-20260830T221500Z',
     'a5303a241928ea78223bf7cddfb5425fc77d14acbc96c9c249dcca586ad70099',
     '2975d0f651ad96ba8b80b9992ae1f9a964f4408569af5b6dc36544165c3926af',
-    '627c7655b922333dfe32a34002bbe1e5e15f4643871235084e599ec8f416bf8c',
+    'd34ae693248abf822831c3b7706a0e285fcc15cd2b8449fe64059ce49e5552a3',
     'StrictHostKeyChecking=yes'
 )) {
     if (-not $dreImageBuild.Contains($invariant)) {
@@ -168,7 +168,8 @@ $dreImageBuildScript = Get-Content -Raw -LiteralPath (
 )
 foreach ($invariant in @(
     '--containerd-worker=false',
-    '--oci-worker-snapshotter=native',
+    '--oci-worker-snapshotter=overlayfs',
+    "grep -qw overlay /proc/filesystems",
     '--oci-worker-net=bridge',
     '--oci-cni-binary-dir',
     '--oci-max-parallelism=2',

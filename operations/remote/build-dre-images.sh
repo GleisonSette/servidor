@@ -35,10 +35,11 @@ readonly build_lock='/run/lock/dre-image-build.lock'
 [[ "$remote_root" =~ ^/home/apiadmin/dre-image-build-[0-9a-f]{12}-[0-9]{8}T[0-9]{6}Z$ ]] \
   || fail 'staging remoto possui formato inválido'
 
-for command in awk chmod chown cut date df find flock install ionice jq kill \
+for command in awk chmod chown cut date df find flock grep install ionice jq kill \
   mkdir mktemp mv nice nproc python3 rm seq sha256sum sleep stat tail tar tr; do
   command -v "$command" >/dev/null || fail "dependência ausente: ${command}"
 done
+grep -qw overlay /proc/filesystems || fail 'overlayfs indisponível no host'
 [[ "$(nproc)" -ge 4 ]] || fail 'host possui menos de quatro CPUs'
 memory_available="$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)"
 disk_available="$(df -B1 --output=avail /var/lib/rancher/k3s \
@@ -271,7 +272,7 @@ nice -n 10 ionice -c 2 -n 7 "$buildkitd" \
   --addr "$socket" \
   --containerd-worker=false \
   --oci-worker=true \
-  --oci-worker-snapshotter=native \
+  --oci-worker-snapshotter=overlayfs \
   --oci-worker-net=bridge \
   --oci-cni-binary-dir "${work_directory}/cni" \
   --oci-worker-binary "${work_directory}/buildkit/bin/buildkit-runc" \
