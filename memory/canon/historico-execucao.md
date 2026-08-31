@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-historico-execucao
   source_path: memory/canon/historico-execucao.md
   generated_from: auditorias e implementações autorizadas no laboratório
-  updated_at: 2026-08-29
+  updated_at: 2026-08-31
   status: canonical
 
 ## Regra de registro
@@ -1656,3 +1656,76 @@ anterior preservada, ainda sem Secrets ou ativação.
   PostgreSQL nativo preexistente em 5432 também exposto na LAN administrativa;
 - nenhum Secret, PVC, Service, Pod, workload, migration, backup de dados,
   restore, origem HTTPS ou dado financeiro foi criado ou alterado.
+
+## 2026-08-31 - Candidata DRE schema 2 construída e publicada
+
+Resultado: três imagens finais publicadas e release assinada importada sem
+ativar produção.
+
+- O commit DRE `57984e1c19028f507acb0da5e7bd8c8af8f8c3bb` foi construído no
+  executor BuildKit efêmero do servidor, sem Docker/WSL na estação e sem acesso
+  ao containerd do K3s.
+- `dre-app`, `dre-postgres` e `dre-validation-runner` foram publicados pelos
+  digests `sha256:0bb138ec37338c4466acf50e6920894d5813fa5f39505e69b89359bb81869255`,
+  `sha256:b78ad6ce6c7b376aa131eee464117fb26964f070ff5e336b99bbee1611c0bc06`
+  e `sha256:3b3de731996456cedf999fe99afda3968c2a6a26a0998016cdfbcf87cf79d1cc`.
+- Syft 1.51.0 gerou SBOMs SPDX e Trivy 0.72.0 registrou zero vulnerabilidade
+  alta ou crítica para as três imagens. A credencial GHCR atravessou SSH apenas
+  por `stdin` e não entrou em recibo ou argumento.
+- A release `dre-20260831T053100Z-57984e1c1902` foi empacotada duas vezes com
+  bytes idênticos. O archive SHA-256 é
+  `014440dca9f6e187e2da4078dbecbce08d65355953e05af412eb166978001629`;
+  a assinatura Ed25519 foi verificada independentemente e o controlador aceitou
+  o bundle no cache root-only.
+- Antes da validação, `dre-production` permaneceu em `release=none`, gate
+  `secrets-only`, sem PVC e com Ready `0/0/0`; `dre-validation` estava ausente.
+
+## 2026-08-31 - Falhas da validação schema 2 corrigidas por evidência viva
+
+Resultado: quatro incompatibilidades foram corrigidas sem tocar produção e com
+limpeza explícita de cada ambiente descartável bloqueado.
+
+- A candidata `f270fd7` aprovou migrations e acessos, mas o runtime recusou
+  `SET ROLE` porque os grupos funcionais estavam `SET FALSE`. O commit DRE
+  `2a580fe` preservou `NOINHERIT` e concedeu somente `SET TRUE` aos logins que
+  precisam assumir esses grupos.
+- O controlador aprendeu no commit servidor `70fe4b2` o único `initContainer`
+  `wait-for-postgres` admitido, com espera limitada para a convergência de rede;
+  `91838ef` fixou esse verificador no bundle instalado.
+- A candidata `2a580fe` deixou API, worker e PostgreSQL Ready, mas o E2E usou
+  `/events` fora do prefixo `/v1`. `2ae2673` centralizou a derivação do endpoint
+  e preservou o prefixo; a tentativa seguinte revelou rejeição indevida de
+  query relativa. `57984e1` passou a aceitar query segura e a recusar URL
+  absoluta, origem alternativa e escape de prefixo.
+- Na operação `20260831T053600Z-57984e1c1902`, migrations, acessos, bootstrap,
+  E2E e reinícios terminaram, mas o gate final chamou
+  `blindou-deployctl status` enquanto o próprio DRE ainda mantinha o lock
+  Blindou. O recibo falhou em `restarts` e preservou `dre-validation` para
+  diagnóstico, sem alteração em produção.
+
+## 2026-08-31 - Controlador corrigido e validação DRE concluída
+
+Resultado: controlador publicado/instalado, validação integral aprovada e
+ambiente descartável removido.
+
+- O controlador passou a comparar fingerprints sob os locks e a liberá-los em
+  ordem inversa antes de chamar os verificadores independentes. O gate estático
+  cobre `validate-release`, `cleanup-validation` e `deploy`.
+- O repositório servidor passou no gate integral e publicou o commit
+  `4d0ed61`. O bundle de instalação SHA-256
+  `689c3f0f97c7d4f5e9d14d4cfe6e11b7582fa82071d94685a617d2f0d5d6b004`
+  foi reproduzido, verificado e instalado com backup transacional em
+  `/var/backups/servidor-local/dre-controller-bootstrap/20260831T054354Z`.
+- `cleanup-validation` removeu o namespace/PVC/PV preservado. A operação final
+  `20260831T055000Z-57984e1c1902` confirmou nove migrations, papéis de acesso,
+  bootstrap de contas sintéticas, E2E financeiro, SSE/queries e substituição
+  controlada de API, worker e PostgreSQL; em sucesso, removeu novamente o
+  namespace, PVC e PV.
+- O estado final permaneceu `dre-production release=none gate=secrets-only`,
+  PVC ausente e Ready `0/0/0`; `dre-validation` ficou ausente. Nenhuma migration
+  persistente, banco, workload, backup/restore, rota HTTPS, conta ou dado real
+  foi criado.
+- `blindou-deployctl status` confirmou a release
+  `ee4a335236b0e99e5fac4ee3e30a986f0ddc8bb2`, 12 migrations e gates saudáveis.
+  `secondary-slotctl verify` passou na geração 2 com ocupante `none`, e
+  `systemctl --failed` retornou zero unidade.

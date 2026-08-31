@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-indice-canonico
   source_path: memory/canon/index.md
   generated_from: decisão do usuário e auditoria do servidor em 2026-08-15
-  updated_at: 2026-08-30
+  updated_at: 2026-08-31
   status: canonical
 
 ## Regra de entrada
@@ -34,17 +34,17 @@ corpus por padrão.
   Pod Security, cotas, limites, negação de rede e admissão privada.
 - PostgreSQL 18.6, pgBackRest 2.59 e K3s v1.36.2 estão saudáveis; audit log do
   Kubernetes está ativo e há backup consistente do cluster com checksum.
-- APIWPP e Blindou possuem runtime implantado; DRE possui somente fundação
-  vazia/controlador, enquanto Pixel e SaferWPP continuam sem runtime.
+- Blindou possui runtime implantado. O slot APIWPP/SaferWPP está sem ocupante;
+  DRE possui fundação, Secrets e release validada, mas produção continua sem
+  runtime. Pixel e SaferWPP permanecem sem runtime.
 - Os cinco projetos possuem fronteiras documentadas. APIWPP, Blindou e DRE têm
   controladores próprios instalados; Pixel e SaferWPP falham fechados para
   alterações.
 - D022 mantém o Blindou sempre ativo e reserva a capacidade residual a um slot
-  alternável entre APIWPP e SaferWPP, com exclusão mútua. Em 2026-08-27,
-  `secondary-slotctl` foi instalado e inicializado na geração 1, com atestado
-  root-only, APIWPP ativo, SaferWPP vazio, admissão fail-closed, reconciliação,
-  métricas e alertas. Fundação e controladores SaferWPP continuam ausentes;
-  Pixel/CIA não recebe novos workloads.
+  alternável entre APIWPP e SaferWPP, com exclusão mútua. Em 2026-08-31,
+  `secondary-slotctl verify` aprovou a geração 2 com ocupante `none` e zero
+  workload nos dois membros. Fundação e controladores SaferWPP continuam
+  ausentes; Pixel/CIA não recebe novos workloads.
 - D024 está implantada. `blindou_redirect_login` usa o grupo mínimo
   `blindou_redirector`, sem `BYPASSRLS`; a migration `0012` está registrada e a
   release `d5766d87a0cf5ba1d5827fa35e8e6a0cac801185` está ativa. O link Amazon
@@ -62,16 +62,15 @@ corpus por padrão.
   escrita; o bundle aceita somente as linhas imutáveis Trivy 0.67.2 normal ou
   Trivy 0.70.0 com recibo D064; `foundation`, dados, K3s e I2 permanecem fora
   do escopo.
-- D029 definiu o DRE sempre ativo fora do slot e D030 autorizou seu helper de
-  bootstrap estritamente fechado. A fundação vazia, controlador, identidade,
-  sudoers, timers, alertas e métricas estão instalados. Em 2026-08-30, imagens
-  privadas foram publicadas e a release assinada
-  `dre-20260830T010200Z-29aeeb82d5bc` foi importada no cache. A release corrente
-  continua `none`, gate `blocked`, e PVC/workloads/Secrets/Services/portas DRE
-  estão ausentes.
-  D032 corrigiu e instalou a coordenação do token da ponte; a release foi
-  reverificada no cache e permanece sem ativação. Credenciais, Secrets,
-  migration, backup/restore de dados, HTTPS e deploy continuam gates separados.
+- D029 definiu o DRE fora do slot, e D030 autorizou seu helper de bootstrap
+  fechado. Fundação, controlador schema 2, identidade, cinco Secrets sem FCM,
+  timers, alertas e métricas estão instalados. A release assinada
+  `dre-20260831T053100Z-57984e1c1902` passou em `dre-validation`: nove
+  migrations, acessos, bootstrap, E2E e reinícios dos três componentes foram
+  aprovados, e namespace/PVC/PV temporários foram removidos. Produção continua
+  `release=none`, `gate=secrets-only`, sem PVC ou workload. D032 mantém a
+  coordenação do token da ponte; migration/deploy, backup/restore de produção,
+  HTTPS, contas, dispositivos e saldo inicial continuam gates independentes.
 - A execução I1 publicou o digest PostgreSQL final, instalou somente o
   `blindou-datactl`/quarentena e comprovou uma imagem, 15 blobs e 157.256.746
   bytes. O estado permanece `blocked`, sem objeto operacional, aguardando

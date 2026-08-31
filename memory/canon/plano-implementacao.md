@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-plano-implementacao
   source_path: memory/canon/plano-implementacao.md
   generated_from: plano aprovado pelo usuário em 2026-08-15
-  updated_at: 2026-08-29
+  updated_at: 2026-08-31
   status: canonical
 
 ## Regra de continuidade
@@ -421,12 +421,14 @@ Aceite manual:
 
 ## Fase 3B - DRE familiar independente
 
-Status: preparação offline e fundação vazia concluídas em 2026-08-29. O
-controlador, identidade, sudoers, timers, alertas, namespaces, StorageClasses,
-RBAC e admissão estão instalados. Em 2026-08-30, imagens privadas foram
-publicadas e a release assinada `dre-20260830T010200Z-29aeeb82d5bc` foi
-importada no cache fechado, sem se tornar corrente. Secret, PVC, workload,
-migration, backup/restore de dados e rota continuam ausentes.
+Status: preparação, fundação vazia, Secrets pré-deploy e validação descartável
+schema 2 concluídas. Em 2026-08-31, a release assinada
+`dre-20260831T053100Z-57984e1c1902` foi importada e aprovada em
+`dre-validation`; nove migrations, acessos, bootstrap sintético, E2E e
+reinícios de API, worker e PostgreSQL passaram. Namespace, PVC e PV temporários
+foram removidos. Produção continua com release `none`, gate `secrets-only`,
+PVC ausente e Ready `0/0/0`. Migration persistente, deploy, backup/restore de
+produção e rota HTTPS permanecem ausentes e sem autorização neste registro.
 
 Ordem obrigatória:
 
@@ -443,11 +445,13 @@ Ordem obrigatória:
 6. concluído em 2026-08-30 sob D032: corrigir, publicar e instalar o contrato
    para que o token da ponte seja coordenado em memória com o Cloudflare antes
    da inicialização, sem criar Secrets;
-7. em trabalho separado, criar credenciais mínimas GHCR/R2, gravar o token da
-   ponte no Pages e criar Secrets por entrada protegida;
-8. somente com autorização explícita de migration e deploy, aplicar a primeira
+7. concluído: criar credenciais mínimas GHCR/R2, coordenar o token da ponte e
+   criar os cinco Secrets por entrada protegida, mantendo FCM desabilitado;
+8. concluído em 2026-08-31: publicar as três imagens finais, importar o bundle
+   schema 2 e aprová-lo integralmente em `dre-validation` descartável;
+9. somente com autorização explícita de migration e deploy, aplicar a primeira
    release, comprovar backup/restore e manter a API somente em ClusterIP;
-9. rota HTTPS, contas, dispositivos e saldo inicial permanecem fases
+10. rota HTTPS, contas, dispositivos e saldo inicial permanecem fases
    posteriores e independentes.
 
 Aceite automatizado offline:
@@ -470,6 +474,8 @@ Aceite operacional:
   o ocupante do slot secundário;
 - concluído: controlador instalado declara
   `bridge_token_source=orchestrator-stdin` e preserva o cache da release;
+- concluído: release schema 2 aprovada no ambiente sintético, inclusive E2E e
+  reinícios, com remoção comprovada de namespace/PVC/PV;
 - backup offsite e restore descartável comprovados com a release implantada;
 - API, worker e PostgreSQL saudáveis sem exposição pública ou acesso cruzado.
 

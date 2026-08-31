@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-arquitetura-plataforma
   source_path: memory/canon/arquitetura-plataforma.md
   generated_from: decisão do usuário, auditoria e requisitos de apiwpp/Blindou/SaferWPP
-  updated_at: 2026-08-29
+  updated_at: 2026-08-31
   status: canonical
 
 ## Objetivo e limite
@@ -109,6 +109,21 @@ e o pipeline executa migrations, bootstrap, E2E e substituição de API, worker 
 PostgreSQL. Sucesso remove namespace/PVC/PV; falha preserva o namespace com gate
 `blocked` para diagnóstico. Produção não pode receber plano sem recibo aprovado
 do mesmo archive e digests.
+
+A convergência inicial da NetworkPolicy é absorvida somente pelo `initContainer`
+fechado `wait-for-postgres` nos Jobs de migration e acesso. Ele usa a mesma
+imagem PostgreSQL por digest, comando, recursos e segurança exatos e tem espera
+exponencial limitada; o processo principal não recebe retry de autenticação ou
+SQL. Os logins runtime permanecem `NOINHERIT`, mas possuem `SET TRUE` somente
+para os grupos funcionais necessários. O runner E2E deriva todo endpoint da
+origem e do prefixo `/v1`, aceita query relativa e recusa URL absoluta, origem
+alternativa e escape de prefixo.
+
+As operações DRE mantêm os locks de Blindou e do slot durante a comparação dos
+fingerprints. Antes de invocar os controladores independentes no gate final,
+liberam explicitamente esses locks em ordem inversa. Assim, a verificação
+externa não herda nem disputa uma trava mantida pelo próprio `dre-deployctl`;
+validação, limpeza e deploy compartilham a mesma invariante testada offline.
 
 O namespace de restauração usa PVC e StorageClass descartáveis e nunca aponta
 para o volume de produção. A prova desliga arquivamento de WAL no banco

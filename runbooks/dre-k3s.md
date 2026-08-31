@@ -3,10 +3,12 @@
 ## Estado e limite
 
 O controlador schema 2 e a fundação Kubernetes do DRE estão instalados no
-servidor. A release legada `dre-20260830T010200Z-29aeeb82d5bc` permanece no
-cache somente para rollback e não é a release corrente. Os cinco Secrets
-permanentes sem FCM existem, o gate pré-deploy é `secrets-only` e PVC, banco,
-workloads e `dre-validation` permanecem ausentes. Migration persistente,
+servidor. A release schema 2 `dre-20260831T053100Z-57984e1c1902` passou na
+operação descartável `20260831T055000Z-57984e1c1902`; nove migrations,
+bootstrap, E2E e reinícios dos três componentes foram comprovados, e
+`dre-validation`/PVC/PV foram removidos. Ela não é a release corrente. Os cinco
+Secrets permanentes sem FCM existem, o gate pré-deploy é `secrets-only` e PVC,
+banco e workloads de produção permanecem ausentes. Migration persistente,
 backup/restore de dados e deploy exigem janelas e autorizações operacionais
 próprias.
 
@@ -268,6 +270,12 @@ sudo -n /usr/local/sbin/dre-deployctl verify RELEASE_ID
 11. confirma exatamente `api`, `worker` e `postgres`, Services ClusterIP, PVC
     Bound e fingerprint inalterado de APIWPP/Blindou;
 12. só então publica o ponteiro root-only da release.
+
+Depois de comparar o fingerprint sob os locks compartilhados, o controlador
+libera explicitamente os locks de PostgreSQL Blindou, slot e Blindou antes de
+chamar os verificadores independentes. O gate offline exige essa ordem em
+`validate-release`, `cleanup-validation` e `deploy`, evitando auto-contenção do
+próprio controlador.
 
 Falha restaura a plataforma e o runtime anteriores; na primeira release remove
 somente os dois Deployments, Services e PDBs de aplicação. PVC, PostgreSQL,

@@ -4,68 +4,62 @@ metadata:
   canon_id: canon-estado-atual
   source_path: memory/canon/estado-atual.md
   generated_from: auditoria SSH, runtime K3s, Prometheus e repositórios locais
-  updated_at: 2026-08-29
+  updated_at: 2026-08-31
   status: canonical
 
 ## Escopo e data da evidência
 
 Este canon reúne o estado atual do host: versões, portas, capacidade, backups,
 workloads e serviços. A última auditoria de capacidade ocorreu em 2026-08-26 e
-a última operação Blindou foi concluída em 2026-08-27. APIWPP continua ativo,
-SaferWPP continua vazio e o Blindou permanece ativo.
+a última operação DRE foi concluída em 2026-08-31. O Blindou permanece ativo;
+o slot APIWPP/SaferWPP está sem ocupante na geração 2. O DRE possui fundação,
+Secrets e release validada no cache, mas produção continua sem runtime.
 
-## Controlador do slot secundário ativo em 2026-08-27
+## Controlador do slot secundário verificado em 2026-08-31
 
-- `secondary-slotctl` está instalado como arquivo root-owned, com sudoers
+- `secondary-slotctl` permanece instalado como arquivo root-owned, com sudoers
   restrito, admissão fail-closed, timer de métricas e regras Prometheus.
-- O atestado root-only está válido na geração 1, com `apiwpp` como ocupante,
-  um workload APIWPP, zero workload SaferWPP e nenhuma transição pendente.
-- A admissão compartilhada está instalada. APIWPP permaneceu Ready com 18
-  migrations; `blindou-deployctl status` e `blindou-hostctl verify` passaram
-  depois da inicialização.
-- A release da plataforma instalada veio do commit
-  `76fec3cad8d2f58a37e43fc7bf6ce6ba095cf4cf`, SHA-256
-  `5cd4b2ecfbf4199feb3509791b8602d786bef87e14f117132afafe4e2653bfcd`.
+- O atestado root-only está válido na geração 2, com ocupante `none`, zero
+  workload APIWPP e zero workload SaferWPP.
+- A verificação posterior à validação DRE retornou
+  `secondary_slot_verify=passed`; o DRE continua fora desse slot.
 - Fundação PostgreSQL, controladores e workloads SaferWPP continuam ausentes.
-  O próximo gate permanece a fundação vazia exclusiva do produto.
 
-## Fundação DRE instalada e release importada em 2026-08-30
+## DRE schema 2 validado sem ativar produção em 2026-08-31
 
-- D029 mantém o DRE sempre ativo e independente do slot APIWPP/SaferWPP. D030
-  permite que somente `Dre.SudoBootstrap.psm1` entregue `KEY_SERVIDOR` por
-  `stdin` ao bootstrap fechado; não existe `sudo` genérico.
-- A auditoria viva aprovou quatro CPUs, 10.671.804 KiB de memória disponível,
-  183.666.928 KiB livres no filesystem K3s, K3s `v1.36.2+k3s1`, zero units
-  falhas e integridade de Blindou, APIWPP e slot.
-- A chave privada Ed25519 está protegida fora do servidor e dos repositórios. O
-  host recebeu somente a chave pública com SHA-256
+- D029 mantém o DRE independente do slot APIWPP/SaferWPP. D030 permite que
+  somente `Dre.SudoBootstrap.psm1` entregue `KEY_SERVIDOR` por `stdin` ao
+  bootstrap fechado; não existe `sudo` genérico.
+- A chave privada Ed25519 permanece fora do servidor e dos repositórios. O host
+  possui somente a chave pública SHA-256
   `4902604dad96d9b07f4010308d30e3815cb4e76446855d925079be0e3b922ce9`.
-- `dre-production` e `dre-restore-drill`, StorageClasses, RBAC, admissão
-  fail-closed, identidade exclusiva, controlador, sudoers, timers, alertas e
-  métricas estão instalados. A prova negativa de admissão passou.
-- A release assinada `dre-20260830T010200Z-29aeeb82d5bc`, ligada ao commit DRE
-  `29aeeb82d5bc52ea72632e7d027a41a2030c6737`, foi aceita e armazenada no cache
-  root-only. O archive usa SHA-256
-  `fa48fd316cee2e4c8553232dc0b3ef218b63555c72f9dda537e38ebb4a379ffe`.
-- O estado operacional permanece vazio e bloqueado: release corrente `none`,
-  gate `blocked`, PVC ausente, zero API/worker/PostgreSQL Ready e zero objeto
-  operacional, Secret, Service ou volume DRE. Nenhuma imagem foi puxada no host
-  e nenhuma migration, banco, backup de dados, restore, rota HTTPS ou
-  implantação foi executada.
-- A verificação posterior confirmou APIWPP, Blindou e slot íntegros, com
-  APIWPP como único ocupante do slot. Não há listener em 443 ou 8080; 8443 está
-  restrita à interface privada `10.203.0.2`. A porta 5432 do PostgreSQL nativo
-  preexistente escuta também em `192.168.100.59`; essa exposição pertence ao
-  banco compartilhado anterior usado por Blindou/clone_wpp, não ao DRE, e exige
-  avaliação corretiva separada.
-- D032 corrige o contrato que antes gerava o token da ponte dentro do servidor
-  sem caminho seguro para o Pages. A fonte recebe o mesmo token forte por
-  `stdin`. O controlador corrigido foi instalado pelo bundle SHA-256
-  `85063b55e3a0325616bba69d28362a3aac1a175768a7c3394bebbc97efcceb2d` e
-  declara `bridge_token_source=orchestrator-stdin`. A release anterior foi
-  reverificada no cache com o mesmo digest e permaneceu sem ativação.
-  Credenciais e Secrets continuam gates separados; migration e deploy
-  permanecem sem autorização.
+- Fundação, identidade, RBAC, admissão, sudoers, timers, alertas e métricas estão
+  instalados. Os cinco Secrets pré-deploy sem FCM existem e
+  `dre-production` está em `secrets-only`.
+- A release `dre-20260831T053100Z-57984e1c1902`, ligada ao commit DRE
+  `57984e1c19028f507acb0da5e7bd8c8af8f8c3bb`, foi aceita no cache com archive
+  SHA-256 `014440dca9f6e187e2da4078dbecbce08d65355953e05af412eb166978001629`.
+  O pacote e a assinatura foram reproduzidos e verificados independentemente.
+- Os digests finais são `dre-app@sha256:0bb138ec37338c4466acf50e6920894d5813fa5f39505e69b89359bb81869255`,
+  `dre-postgres@sha256:b78ad6ce6c7b376aa131eee464117fb26964f070ff5e336b99bbee1611c0bc06`
+  e `dre-validation-runner@sha256:3b3de731996456cedf999fe99afda3968c2a6a26a0998016cdfbcf87cf79d1cc`.
+  Os três scans registraram zero vulnerabilidade alta ou crítica e possuem SBOM
+  SPDX no bundle.
+- O controlador instalado veio do bundle SHA-256
+  `689c3f0f97c7d4f5e9d14d4cfe6e11b7582fa82071d94685a617d2f0d5d6b004`;
+  a fonte foi publicada no commit de plataforma `4d0ed61`.
+- A operação `20260831T055000Z-57984e1c1902` aprovou nove migrations, papéis de
+  acesso, bootstrap sintético, E2E financeiro, SSE/queries e substituição de
+  API, worker e PostgreSQL. Ao passar, removeu `dre-validation`, PVC e PV.
+- O estado final de produção continua `release=none`, `gate=secrets-only`, PVC
+  ausente e Ready `api=0`, `worker=0`, `postgres=0`. Nenhuma migration
+  persistente, banco, workload, backup/restore de dados ou rota HTTPS foi
+  aplicada.
+- A verificação posterior confirmou Blindou íntegro na release
+  `ee4a335236b0e99e5fac4ee3e30a986f0ddc8bb2`, 12 migrations, slot `none` na
+  geração 2 e zero unit systemd falha.
+- Próximos gates independentes: autorização de migration/deploy em produção,
+  backup/restore real, rota HTTPS, contas, dispositivos e saldo inicial.
 
 ## PostgreSQL dedicado Blindou I1 autorizado em 2026-08-29
 
