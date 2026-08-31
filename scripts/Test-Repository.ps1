@@ -95,8 +95,8 @@ $dreBootstrap = Get-Content -Raw -LiteralPath (
 )
 foreach ($invariant in @(
     'apiadmin@192.168.100.59',
-    'dre-controller-bootstrap-4902604dad96-20260831T035500Z',
-    'ad8f59b2620be9d4aa58d5d51a57747810e974b2d6ac61c3ea016d2374df1177',
+    'dre-controller-bootstrap-4902604dad96-20260831T054500Z',
+    '689c3f0f97c7d4f5e9d14d4cfe6e11b7582fa82071d94685a617d2f0d5d6b004',
     '4902604dad96d9b07f4010308d30e3815cb4e76446855d925079be0e3b922ce9',
     'StrictHostKeyChecking=yes'
 )) {
@@ -146,9 +146,9 @@ $dreImageBuild = Get-Content -Raw -LiteralPath (
     Join-Path $root 'operations/Invoke-DreImageBuild.ps1'
 )
 foreach ($invariant in @(
-    '83dac279717415208cf21088e48c3717c1ee22a1',
-    'dre-image-build-83dac2797174-20260831T005034Z',
-    '2c46296debb924714186100867ca6eee82e72536cd543080bcc26d8c81805cc1',
+    '57984e1c19028f507acb0da5e7bd8c8af8f8c3bb',
+    'dre-image-build-57984e1c1902-20260831T051141Z',
+    '297024f977767406cc2ff6c03a647ddf3473a3702ccfe73b3fbc92f8d41f5ee8',
     '2975d0f651ad96ba8b80b9992ae1f9a964f4408569af5b6dc36544165c3926af',
     '8ce089a85d4b51f15417f2a680225a58a72cfb0f4e2d9465c839130ddabb9cc7',
     'StrictHostKeyChecking=yes'

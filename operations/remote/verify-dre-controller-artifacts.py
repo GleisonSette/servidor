@@ -182,6 +182,7 @@ for invariant in (
     "deployment-gate=rollback-failed",
     'status:"started"',
     "verify_protected_projects",
+    "release_shared_maintenance_locks",
     "/usr/local/sbin/blindou-deployctl status",
     "protected_fingerprint",
     "occupant=(none|apiwpp|saferwpp)",
@@ -236,6 +237,26 @@ for forbidden in ("eval ", "bash -c", "sh -c", "kubectl $", "sudo -S"):
         fail(f"interface genérica detectada no controlador: {forbidden}")
 if "/usr/local/sbin/blindou-deployctl verify " in controller:
     fail("controlador DRE chama ação Blindou inexistente")
+
+for function_name in (
+    "validate_release_disposable",
+    "cleanup_validation",
+    "deploy_release",
+):
+    function_match = re.search(
+        rf"(?ms)^{function_name}\(\) \{{.*?(?=^[a-z_][a-z0-9_]*\(\) \{{)",
+        controller,
+    )
+    if function_match is None:
+        fail(f"função do controlador ausente: {function_name}")
+    function = function_match.group(0)
+    acquire = function.find("acquire_shared_maintenance_locks")
+    release = function.find("release_shared_maintenance_locks")
+    final_gate = function.find("verify_protected_projects", acquire)
+    if acquire < 0 or release < 0 or final_gate < 0 or not acquire < release < final_gate:
+        fail(
+            f"{function_name} chama controlador protegido enquanto ainda mantém seus locks"
+        )
 
 release_verifier = read("operations/remote/dre-release-verify.py")
 for invariant in (

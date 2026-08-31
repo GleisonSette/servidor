@@ -171,6 +171,21 @@ acquire_shared_maintenance_locks() {
   fi
 }
 
+release_shared_maintenance_locks() {
+  if [[ -e /proc/$$/fd/10 ]]; then
+    flock --unlock 10 || fail 'não foi possível liberar o lock do PostgreSQL Blindou'
+    exec 10>&-
+  fi
+  if [[ -e /proc/$$/fd/9 ]]; then
+    flock --unlock 9 || fail 'não foi possível liberar o lock do slot secundário'
+    exec 9>&-
+  fi
+  if [[ -e /proc/$$/fd/8 ]]; then
+    flock --unlock 8 || fail 'não foi possível liberar o lock Blindou'
+    exec 8>&-
+  fi
+}
+
 release_directory() {
   printf '%s/%s' "$RELEASE_CACHE" "$1"
 }
@@ -892,6 +907,7 @@ validate_release_disposable() {
   verify_validation_runtime "$release_id"
   [[ "$(protected_fingerprint)" == "$protected_before" ]] \
     || fail 'recurso protegido mudou durante a validação DRE'
+  release_shared_maintenance_locks
   verify_protected_projects
 
   phase=cleanup
@@ -961,6 +977,7 @@ cleanup_validation() {
     "$release_id" "$operation_id" "$receipt" "$phase"
   [[ "$(protected_fingerprint)" == "$protected_before" ]] \
     || fail 'recurso protegido mudou durante a limpeza DRE'
+  release_shared_maintenance_locks
   verify_protected_projects
   jq -cn \
     --arg release_id "$release_id" \
@@ -1219,6 +1236,7 @@ deploy_release() {
   verify_runtime_core "$release_id"
   [[ "$(protected_fingerprint)" == "$protected_before" ]] \
     || fail 'recurso protegido mudou durante o deploy DRE'
+  release_shared_maintenance_locks
   verify_protected_projects
   printf '%s\n' "$release_id" | atomic_write "$CURRENT_RELEASE" 0600
   jq -cn \

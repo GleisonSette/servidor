@@ -7,11 +7,11 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Dre.ImageBuild.psm1') -Force
 
 $server = 'apiadmin@192.168.100.59'
-$sourceRevision = '83dac279717415208cf21088e48c3717c1ee22a1'
+$sourceRevision = '57984e1c19028f507acb0da5e7bd8c8af8f8c3bb'
 $remoteRoot =
-    '/home/apiadmin/dre-image-build-83dac2797174-20260831T005034Z'
+    '/home/apiadmin/dre-image-build-57984e1c1902-20260831T051141Z'
 $sourceArchiveSha256 =
-    '2c46296debb924714186100867ca6eee82e72536cd543080bcc26d8c81805cc1'
+    '297024f977767406cc2ff6c03a647ddf3473a3702ccfe73b3fbc92f8d41f5ee8'
 $buildKitArchiveSha256 =
     '2975d0f651ad96ba8b80b9992ae1f9a964f4408569af5b6dc36544165c3926af'
 $buildScriptSha256 =
