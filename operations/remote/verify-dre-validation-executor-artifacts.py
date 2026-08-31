@@ -65,6 +65,7 @@ for forbidden in (
     "kubectl",
     "k3s kubectl",
     "docker.service",
+    "awk '/Candidate:/ {print $2; exit}'",
 ):
     if forbidden in bootstrap:
         fail(f"operação proibida no bootstrap: {forbidden}")

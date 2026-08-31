@@ -138,7 +138,10 @@ stage apt-index
 for package in "${packages[@]}"; do
   name="${package%%=*}"
   expected="${package#*=}"
-  candidate="$(apt-cache policy "$name" | awk '/Candidate:/ {print $2; exit}')"
+  candidate="$(
+    apt-cache policy "$name" |
+      awk '/Candidate:/ {candidate=$2} END {if (candidate != "") print candidate}'
+  )"
   [[ "$candidate" == "$expected" ]] \
     || fail "candidato APT divergente para ${name}: ${candidate:-ausente}"
   installed="$(dpkg-query -W -f='${Version}' "$name" 2>/dev/null || true)"
