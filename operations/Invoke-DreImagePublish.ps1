@@ -5,11 +5,11 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $server = 'apiadmin@192.168.100.59'
-$sourceRevision = '25dc4f8996699a5c9870294666391eb8bbab7c3e'
+$sourceRevision = '83dac279717415208cf21088e48c3717c1ee22a1'
 $remoteRoot =
-    '/home/apiadmin/dre-image-build-25dc4f899669-20260830T221500Z'
+    '/home/apiadmin/dre-image-build-83dac2797174-20260831T005034Z'
 $publishScriptSha256 =
-    '92776fcbf215e5bdd32e86f80530714983f84f4d96be91fc5bde51c391523d7a'
+    'eb56421e194ddad8d8239907064aabd8b3132230bfb372ff92ee10e983908c63'
 $regctlSha256 =
     'c93aa7638749f5aaac1a8e01787321889c78f0101809bb2880343478d0ba0467'
 $syftSha256 =

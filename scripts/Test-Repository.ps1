@@ -108,7 +108,7 @@ $dreImagePublish = Get-Content -Raw -LiteralPath (
     Join-Path $root 'operations/Invoke-DreImagePublish.ps1'
 )
 foreach ($invariant in @(
-    '92776fcbf215e5bdd32e86f80530714983f84f4d96be91fc5bde51c391523d7a',
+    'eb56421e194ddad8d8239907064aabd8b3132230bfb372ff92ee10e983908c63',
     'c93aa7638749f5aaac1a8e01787321889c78f0101809bb2880343478d0ba0467',
     '5a8b71e94f4607973145f02e27e01d50b9f7c7bc41e38d40b39606ad138b43b5',
     '0e69edd134a3c338baa1a6806920773615d682b18cbc6a0cba2a3b658ef9b63e',
@@ -124,8 +124,13 @@ $dreImagePublishScript = Get-Content -Raw -LiteralPath (
 )
 foreach ($invariant in @(
     'oci-archive:',
+    'temporary_oci=',
+    'digest OCI divergente',
+    '--input "${temporary_oci}/${component}"',
     '--severity HIGH,CRITICAL',
     '--exit-code 1',
+    '--skip-version-check',
+    'exibindo no máximo 20',
     'registry login ghcr.io',
     '--pass-stdin',
     'ghcr.io/gleisonsette/dre-validation-runner'
@@ -139,9 +144,9 @@ $dreImageBuild = Get-Content -Raw -LiteralPath (
     Join-Path $root 'operations/Invoke-DreImageBuild.ps1'
 )
 foreach ($invariant in @(
-    '25dc4f8996699a5c9870294666391eb8bbab7c3e',
-    'dre-image-build-25dc4f899669-20260830T221500Z',
-    'a5303a241928ea78223bf7cddfb5425fc77d14acbc96c9c249dcca586ad70099',
+    '83dac279717415208cf21088e48c3717c1ee22a1',
+    'dre-image-build-83dac2797174-20260831T005034Z',
+    '2c46296debb924714186100867ca6eee82e72536cd543080bcc26d8c81805cc1',
     '2975d0f651ad96ba8b80b9992ae1f9a964f4408569af5b6dc36544165c3926af',
     '8ce089a85d4b51f15417f2a680225a58a72cfb0f4e2d9465c839130ddabb9cc7',
     'StrictHostKeyChecking=yes'

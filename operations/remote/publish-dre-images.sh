@@ -38,8 +38,8 @@ done
 [[ "$remote_root" =~ ^/home/apiadmin/dre-image-build-[0-9a-f]{12}-[0-9]{8}T[0-9]{6}Z$ ]] \
   || fail 'staging remoto possui formato inválido'
 
-for command in chmod cut date find flock id jq mkdir mktemp mv rm sha256sum \
-  stat; do
+for command in chmod cut date find flock id jq mkdir mktemp mv python3 rm \
+  sha256sum stat; do
   command -v "$command" >/dev/null || fail "dependência ausente: ${command}"
 done
 [[ -d "$output_directory" && ! -L "$output_directory" ]] \
@@ -83,9 +83,18 @@ flock -n 8 || fail 'outra publicação DRE está em andamento'
 temporary="$(mktemp -d /tmp/dre-image-publish.XXXXXX)"
 temporary_evidence="${temporary}/evidence"
 temporary_home="${temporary}/home"
+temporary_oci="${temporary}/oci"
 mkdir -m 0700 "$temporary_evidence" "$temporary_home" \
   "${temporary_evidence}/sbom" "${temporary_evidence}/scan" \
-  "${temporary_evidence}/raw" "$cache_directory"
+  "${temporary_evidence}/raw" "$temporary_oci"
+if [[ -e "$cache_directory" || -L "$cache_directory" ]]; then
+  [[ -d "$cache_directory" && ! -L "$cache_directory" \
+      && "$(stat -c '%U:%G:%a' "$cache_directory")" == \
+        'apiadmin:apiadmin:700' ]] \
+    || fail 'cache Trivy preexistente é inseguro'
+else
+  mkdir -m 0700 "$cache_directory"
+fi
 token=''
 cleanup() {
   local result="$?"
@@ -99,8 +108,126 @@ cleanup() {
 }
 trap cleanup EXIT
 
+python3 - "$output_directory" "$temporary_oci" <<'PY'
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+from pathlib import Path, PurePosixPath
+import re
+import stat
+import sys
+import tarfile
+
+output_directory = Path(sys.argv[1])
+destination_root = Path(sys.argv[2]).resolve()
+components = ("rust", "postgres", "validation")
+blob_pattern = re.compile(r"^blobs/sha256/([0-9a-f]{64})$")
+allowed_directories = {"blobs", "blobs/sha256"}
+required_files = {"index.json", "oci-layout"}
+maximum_members = 4096
+maximum_file_bytes = 1024 * 1024 * 1024
+maximum_total_bytes = 2 * 1024 * 1024 * 1024
+
+
+def validated_name(raw_name: str) -> str:
+    path = PurePosixPath(raw_name)
+    normalized = str(path)
+    if (
+        not raw_name
+        or path.is_absolute()
+        or normalized != raw_name.rstrip("/")
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        raise SystemExit(f"caminho inválido no OCI: {raw_name!r}")
+    return normalized
+
+
+for component in components:
+    archive = output_directory / f"{component}.oci.tar"
+    destination = destination_root / component
+    destination.mkdir(mode=0o700)
+    names: set[str] = set()
+    regular_files: set[str] = set()
+    total_bytes = 0
+    with tarfile.open(archive, mode="r:") as image:
+        members = image.getmembers()
+        if not members or len(members) > maximum_members:
+            raise SystemExit(f"quantidade de membros OCI inválida: {component}")
+        for member in members:
+            name = validated_name(member.name)
+            if name in names:
+                raise SystemExit(f"membro OCI duplicado: {component}:{name}")
+            names.add(name)
+            if member.isdir():
+                if name not in allowed_directories:
+                    raise SystemExit(f"diretório OCI inesperado: {component}:{name}")
+                continue
+            blob_match = blob_pattern.fullmatch(name)
+            if not member.isreg() or (
+                name not in required_files and blob_match is None
+            ):
+                raise SystemExit(f"membro OCI inesperado: {component}:{name}")
+            if member.size <= 0 or member.size > maximum_file_bytes:
+                raise SystemExit(f"tamanho OCI inválido: {component}:{name}")
+            total_bytes += member.size
+            if total_bytes > maximum_total_bytes:
+                raise SystemExit(f"OCI excede o limite total: {component}")
+
+            target = destination.joinpath(*PurePosixPath(name).parts)
+            target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            source = image.extractfile(member)
+            if source is None:
+                raise SystemExit(f"membro OCI ilegível: {component}:{name}")
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC
+            flags |= getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(target, flags, 0o600)
+            digest = hashlib.sha256()
+            try:
+                with source:
+                    while chunk := source.read(1024 * 1024):
+                        digest.update(chunk)
+                        view = memoryview(chunk)
+                        while view:
+                            written = os.write(descriptor, view)
+                            if written <= 0:
+                                raise SystemExit(
+                                    f"gravação OCI interrompida: {component}:{name}"
+                                )
+                            view = view[written:]
+                os.fsync(descriptor)
+                metadata = os.fstat(descriptor)
+                if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                    raise SystemExit(f"alvo OCI inseguro: {component}:{name}")
+            finally:
+                os.close(descriptor)
+            if blob_match is not None and digest.hexdigest() != blob_match.group(1):
+                raise SystemExit(f"digest OCI divergente: {component}:{name}")
+            regular_files.add(name)
+
+    if not required_files.issubset(regular_files):
+        raise SystemExit(f"layout OCI incompleto: {component}")
+    layout = json.loads((destination / "oci-layout").read_text(encoding="utf-8"))
+    if layout.get("imageLayoutVersion") != "1.0.0":
+        raise SystemExit(f"versão do layout OCI inválida: {component}")
+    index = json.loads((destination / "index.json").read_text(encoding="utf-8"))
+    manifests = index.get("manifests")
+    if index.get("schemaVersion") != 2 or not isinstance(manifests, list) or not manifests:
+        raise SystemExit(f"índice OCI inválido: {component}")
+    for manifest in manifests:
+        if not isinstance(manifest, dict):
+            raise SystemExit(f"descritor OCI inválido: {component}")
+        digest = manifest.get("digest")
+        if not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+            raise SystemExit(f"digest do índice OCI inválido: {component}")
+        if not (destination / "blobs" / "sha256" / digest.removeprefix("sha256:")).is_file():
+            raise SystemExit(f"manifesto OCI ausente: {component}")
+PY
+
 for component in rust postgres validation; do
   archive="${output_directory}/${component}.oci.tar"
+  raw="${temporary_evidence}/raw/${component}.trivy.json"
   "$syft" scan "oci-archive:${archive}" --quiet \
     --output "spdx-json=${temporary_evidence}/sbom/${component}.spdx.json"
   jq -e '.spdxVersion | startswith("SPDX-2.")' \
@@ -109,16 +236,46 @@ for component in rust postgres validation; do
   jq -e '.packages | type == "array"' \
     "${temporary_evidence}/sbom/${component}.spdx.json" >/dev/null \
     || fail "SBOM sem packages: ${component}"
-  "$trivy" image --input "$archive" --scanners vuln \
+  trivy_result=0
+  "$trivy" image --input "${temporary_oci}/${component}" --scanners vuln \
     --severity HIGH,CRITICAL --exit-code 1 --format json \
+    --skip-version-check \
     --cache-dir "$cache_directory" \
-    --output "${temporary_evidence}/raw/${component}.trivy.json"
+    --output "$raw" \
+    || trivy_result=$?
+  [[ -s "$raw" ]] \
+    || fail "Trivy não produziu relatório: ${component}"
   critical="$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' \
-    "${temporary_evidence}/raw/${component}.trivy.json")"
+    "$raw")"
   high="$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH")] | length' \
-    "${temporary_evidence}/raw/${component}.trivy.json")"
-  [[ "$critical" -eq 0 && "$high" -eq 0 ]] \
-    || fail "scan contém vulnerabilidade alta/crítica: ${component}"
+    "$raw")"
+  if [[ "$critical" -ne 0 || "$high" -ne 0 ]]; then
+    finding_count="$(jq '
+      [.Results[]?.Vulnerabilities[]?
+       | select(.Severity == "HIGH" or .Severity == "CRITICAL")
+       | {id:.VulnerabilityID,package:.PkgName,installed:.InstalledVersion,
+          fixed:(.FixedVersion // "indisponível"),severity:.Severity,
+          status:(.Status // "desconhecido")}]
+      | unique_by([.id,.package,.installed,.fixed,.severity])
+      | length
+    ' "$raw")"
+    printf '[dre-image-publish] %s possui %s achado(s) único(s); exibindo no máximo 20:\n' \
+      "$component" "$finding_count" >&2
+    jq -r '
+      [.Results[]?.Vulnerabilities[]?
+       | select(.Severity == "HIGH" or .Severity == "CRITICAL")
+       | {id:.VulnerabilityID,package:.PkgName,installed:.InstalledVersion,
+          fixed:(.FixedVersion // "indisponível"),severity:.Severity,
+          status:(.Status // "desconhecido")}]
+      | unique_by([.id,.package,.installed,.fixed,.severity])
+      | sort_by(.severity,.package,.id)
+      | .[:20][]
+      | "\(.severity) \(.id) pacote=\(.package) instalado=\(.installed) corrigido=\(.fixed) status=\(.status)"
+    ' "$raw" >&2
+    fail "scan contém vulnerabilidade alta/crítica: ${component}"
+  fi
+  [[ "$trivy_result" -eq 0 ]] \
+    || fail "Trivy encerrou com erro não classificado: ${component}"
 done
 
 IFS= read -r token || fail 'credencial GHCR ausente no stdin'
