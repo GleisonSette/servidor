@@ -114,6 +114,18 @@ atomic_write() {
   mv -fT -- "$temporary" "$destination"
 }
 
+register_exit_trap() {
+  local handler="$1" command argument
+  shift
+  printf -v command '%q "$?"' "$handler"
+  for argument in "$@"; do
+    printf -v command '%s %q' "$command" "$argument"
+  done
+  # A string foi construída com %q; "$?" precisa ser avaliado apenas no EXIT.
+  # shellcheck disable=SC2064
+  trap "$command" EXIT
+}
+
 audit_event() {
   local action="$1" result="$2" release_id="${3:-none}" operation_id="${4:-none}"
   local now
@@ -547,9 +559,9 @@ initialize_secrets() {
     fail 'credencial FCM fornecida para release com FCM desabilitado'
   fi
   rollback_secret_creation() {
-    local code=$?
+    local code="$1" release_id="$2" temporary="$3" created="$4"
     set +e
-    if $created; then
+    if [[ "$created" == true ]]; then
       kube -n "$NAMESPACE" delete secret \
         "${REQUIRED_SECRETS[@]}" dre-fcm-runtime --ignore-not-found >/dev/null 2>&1 || true
     fi
@@ -557,8 +569,9 @@ initialize_secrets() {
     audit_event initialize-secrets failed "$release_id"
     exit "$code"
   }
-  trap rollback_secret_creation EXIT
+  register_exit_trap rollback_secret_creation "$release_id" "$temporary" false
   created=true
+  register_exit_trap rollback_secret_creation "$release_id" "$temporary" "$created"
   create_secret "$NAMESPACE" dre-registry-pull kubernetes.io/dockerconfigjson "${temporary}/registry"
   create_secret "$NAMESPACE" dre-postgres-admin opaque "${temporary}/postgres-admin"
   create_secret "$NAMESPACE" dre-database-access opaque "${temporary}/database-access"
@@ -771,9 +784,11 @@ validate_release_disposable() {
     '{schema:2,status:"started",release_id:$release_id,archive_sha256:$archive_sha256,operation_id:$operation_id,namespace:"dre-validation",started_at_utc:$started_at_utc}' \
     | atomic_write "$receipt" 0600
   validation_failed() {
-    local code=$?
+    local code="$1" release_id="$2" operation_id="$3" receipt="$4" phase="$5"
+    local preserved=false
     set +e
     if admin_kube get namespace "$VALIDATION_NAMESPACE" >/dev/null 2>&1; then
+      preserved=true
       admin_kube label namespace "$VALIDATION_NAMESPACE" \
         platform.servidor.local/deployment-gate=blocked --overwrite >/dev/null 2>&1 || true
     fi
@@ -782,24 +797,28 @@ validate_release_disposable() {
       --arg archive_sha256 "$(release_archive_sha "$release_id")" \
       --arg operation_id "$operation_id" \
       --arg phase "$phase" \
+      --argjson preserved "$preserved" \
       --arg failed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      '{schema:2,status:"failed",release_id:$release_id,archive_sha256:$archive_sha256,operation_id:$operation_id,namespace:"dre-validation",phase:$phase,preserved:true,failed_at_utc:$failed_at_utc}' \
+      '{schema:2,status:"failed",release_id:$release_id,archive_sha256:$archive_sha256,operation_id:$operation_id,namespace:"dre-validation",phase:$phase,preserved:$preserved,failed_at_utc:$failed_at_utc}' \
       | atomic_write "$receipt" 0600 || true
     audit_event validate-release failed "$release_id" "$operation_id"
     exit "$code"
   }
-  trap validation_failed EXIT
+  register_exit_trap validation_failed "$release_id" "$operation_id" "$receipt" "$phase"
 
   phase=namespace
+  register_exit_trap validation_failed "$release_id" "$operation_id" "$receipt" "$phase"
   create_validation_namespace "$release_id" "$operation_id"
   create_validation_secrets "$release_id"
   phase=platform
+  register_exit_trap validation_failed "$release_id" "$operation_id" "$receipt" "$phase"
   kube apply --server-side --field-manager=dre-deployctl \
     -f "$(release_file "$release_id" 40-validation-platform.yaml)" >/dev/null
   kube -n "$VALIDATION_NAMESPACE" rollout status statefulset/dre-postgres \
     --timeout=300s >/dev/null
 
   phase=migrations
+  register_exit_trap validation_failed "$release_id" "$operation_id" "$receipt" "$phase"
   kube -n "$VALIDATION_NAMESPACE" delete job dre-database-migrate \
     --ignore-not-found --wait=true >/dev/null
   kube apply --server-side --field-manager=dre-deployctl \
@@ -811,6 +830,7 @@ validate_release_disposable() {
     || fail 'Job de migration descartável não confirmou nove migrations'
 
   phase=database-access
+  register_exit_trap validation_failed "$release_id" "$operation_id" "$receipt" "$phase"
   kube -n "$VALIDATION_NAMESPACE" delete job dre-database-access \
     --ignore-not-found --wait=true >/dev/null
   kube apply --server-side --field-manager=dre-deployctl \
@@ -819,11 +839,13 @@ validate_release_disposable() {
     job/dre-database-access --timeout=360s >/dev/null
 
   phase=runtime
+  register_exit_trap validation_failed "$release_id" "$operation_id" "$receipt" "$phase"
   kube apply --server-side --field-manager=dre-deployctl \
     -f "$(release_file "$release_id" 43-validation-runtime.yaml)" >/dev/null
   verify_validation_runtime "$release_id"
 
   phase=bootstrap
+  register_exit_trap validation_failed "$release_id" "$operation_id" "$receipt" "$phase"
   kube -n "$VALIDATION_NAMESPACE" delete job dre-validation-bootstrap \
     --ignore-not-found --wait=true >/dev/null
   kube apply --server-side --field-manager=dre-deployctl \
@@ -832,6 +854,7 @@ validate_release_disposable() {
     job/dre-validation-bootstrap --timeout=660s >/dev/null
 
   phase=e2e
+  register_exit_trap validation_failed "$release_id" "$operation_id" "$receipt" "$phase"
   kube -n "$VALIDATION_NAMESPACE" delete job dre-validation-e2e \
     --ignore-not-found --wait=true >/dev/null
   kube apply --server-side --field-manager=dre-deployctl \
@@ -842,6 +865,7 @@ validate_release_disposable() {
     job/dre-validation-e2e --timeout=960s >/dev/null
 
   phase=restarts
+  register_exit_trap validation_failed "$release_id" "$operation_id" "$receipt" "$phase"
   restart_validation_component api
   verify_validation_runtime "$release_id"
   restart_validation_component worker
@@ -853,6 +877,7 @@ validate_release_disposable() {
   verify_protected_projects
 
   phase=cleanup
+  register_exit_trap validation_failed "$release_id" "$operation_id" "$receipt" "$phase"
   admin_kube label namespace "$VALIDATION_NAMESPACE" \
     platform.servidor.local/deployment-gate=passed --overwrite >/dev/null
   validation_cleanup_internal "$release_id"
@@ -894,7 +919,7 @@ cleanup_validation() {
     '{schema:2,status:"started",release_id:$release_id,archive_sha256:$archive_sha256,operation_id:$operation_id,namespace:"dre-validation",started_at_utc:$started_at_utc}' \
     | atomic_write "$receipt" 0600
   cleanup_validation_failed() {
-    local code=$?
+    local code="$1" release_id="$2" operation_id="$3" receipt="$4" phase="$5"
     set +e
     jq -cn \
       --arg release_id "$release_id" \
@@ -907,10 +932,15 @@ cleanup_validation() {
     audit_event cleanup-validation failed "$release_id" "$operation_id"
     exit "$code"
   }
-  trap cleanup_validation_failed EXIT
+  register_exit_trap cleanup_validation_failed \
+    "$release_id" "$operation_id" "$receipt" "$phase"
   phase=cleanup
+  register_exit_trap cleanup_validation_failed \
+    "$release_id" "$operation_id" "$receipt" "$phase"
   validation_cleanup_internal "$release_id"
   phase=protected_projects
+  register_exit_trap cleanup_validation_failed \
+    "$release_id" "$operation_id" "$receipt" "$phase"
   [[ "$(protected_fingerprint)" == "$protected_before" ]] \
     || fail 'recurso protegido mudou durante a limpeza DRE'
   verify_protected_projects
@@ -1106,9 +1136,10 @@ deploy_release() {
     '{schema:1,status:"started",release_id:$release_id,operation_id:$operation_id,previous_release:$previous_release,started_at_utc:$started_at_utc}' \
     | atomic_write "${RECEIPT_ROOT}/deploy-${operation_id}.json" 0600
   deploy_failed() {
-    local code=$? rollback_result=not-required
+    local code="$1" release_id="$2" operation_id="$3" previous="$4"
+    local alert_backup="$5" work_started="$6" rollback_result=not-required
     set +e
-    if $work_started; then
+    if [[ "$work_started" == true ]]; then
       if rollback_runtime_internal "$previous"; then
         rollback_result=passed
       else
@@ -1138,8 +1169,11 @@ deploy_release() {
     audit_event deploy failed "$release_id" "$operation_id"
     exit "$code"
   }
-  trap deploy_failed EXIT
+  register_exit_trap deploy_failed \
+    "$release_id" "$operation_id" "$previous" "$alert_backup" false
   work_started=true
+  register_exit_trap deploy_failed \
+    "$release_id" "$operation_id" "$previous" "$alert_backup" "$work_started"
   kube apply --server-side --field-manager=dre-deployctl \
     -f "$(release_file "$release_id" 00-platform.yaml)" >/dev/null
   kube -n "$NAMESPACE" rollout status statefulset/dre-postgres --timeout=240s >/dev/null
@@ -1215,7 +1249,7 @@ backup_database() {
     '{schema:1,status:"started",type:$type,operation_id:$operation_id,release_id:$release_id,started_at_utc:$started_at_utc}' \
     | atomic_write "${RECEIPT_ROOT}/backup-${operation_id}.json" 0600
   backup_failed() {
-    local code=$?
+    local code="$1" backup_type="$2" operation_id="$3" release_id="$4"
     set +e
     jq -cn \
       --arg type "$backup_type" \
@@ -1227,7 +1261,7 @@ backup_database() {
     audit_event backup failed "$release_id" "$operation_id"
     exit "$code"
   }
-  trap backup_failed EXIT
+  register_exit_trap backup_failed "$backup_type" "$operation_id" "$release_id"
   kube -n "$NAMESPACE" exec dre-postgres-0 -- dre-pgbackrest "$backup_type" >/dev/null
   info="$(kube -n "$NAMESPACE" exec dre-postgres-0 -- dre-pgbackrest info)"
   jq -e 'type == "array" and length == 1 and .[0].name == "dre" and .[0].status.code == 0' \
@@ -1271,7 +1305,7 @@ restore_drill() {
   temporary="$(mktemp -d /run/dre-restore.XXXXXX)"
   trap 'rm -rf -- "$temporary"' RETURN
   restore_failed() {
-    local code=$?
+    local code="$1" release_id="$2" operation_id="$3" target="$4" temporary="$5"
     set +e
     kube -n "$RESTORE_NAMESPACE" delete statefulset dre-restore-postgres --ignore-not-found --wait=true >/dev/null 2>&1
     kube -n "$RESTORE_NAMESPACE" delete service dre-restore-postgres --ignore-not-found >/dev/null 2>&1
@@ -1288,7 +1322,8 @@ restore_drill() {
     rm -rf -- "$temporary"
     exit "$code"
   }
-  trap restore_failed EXIT
+  register_exit_trap restore_failed \
+    "$release_id" "$operation_id" "$target" "$temporary"
   python3 "$RESTORE_RENDERER" \
     "$(release_file "$release_id" 00-platform.yaml)" \
     "$(release_postgres_image "$release_id")" "$operation_id" "$target" \
@@ -1400,6 +1435,75 @@ write_metrics() {
   mv -fT -- "$temporary" "$METRICS_FILE"
 }
 
+diagnose_validation() {
+  [[ "$#" -eq 0 ]] || fail 'uso: diagnose-validation'
+  local gate release_id operation_id receipt receipt_state pods workloads events
+  verify_foundation
+  gate="$(admin_kube get namespace "$VALIDATION_NAMESPACE" \
+    -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}' 2>/dev/null \
+    || printf absent)"
+  [[ "$gate" == blocked ]] \
+    || fail 'diagnóstico exige uma validação preservada com gate blocked'
+  release_id="$(admin_kube get namespace "$VALIDATION_NAMESPACE" \
+    -o jsonpath='{.metadata.labels.dre\.familiar/release-id}')"
+  operation_id="$(admin_kube get namespace "$VALIDATION_NAMESPACE" \
+    -o jsonpath='{.metadata.labels.dre\.familiar/operation-id}')"
+  require_release_id "$release_id"
+  require_operation_id "$operation_id"
+  receipt="${RECEIPT_ROOT}/validation-${operation_id}.json"
+  if [[ -f "$receipt" && ! -L "$receipt" ]]; then
+    require_root_file "$receipt" '^600$'
+    receipt_state="$(jq -c \
+      '{status:(.status // "unknown"),phase:(.phase // "unknown"),preserved:(.preserved // null)}' \
+      "$receipt")"
+  else
+    receipt_state='{"status":"absent","phase":"unknown","preserved":null}'
+  fi
+  pods="$(admin_kube -n "$VALIDATION_NAMESPACE" get pods -o json | jq -c '
+    [.items[] | {
+      name:.metadata.name,
+      phase:(.status.phase // "Unknown"),
+      ready:([.status.containerStatuses[]? | select(.ready == true)] | length),
+      containers:(.spec.containers | length),
+      restarts:([.status.containerStatuses[]?.restartCount] | add // 0),
+      waiting:[.status.containerStatuses[]? | select(.state.waiting != null) |
+        {container:.name,reason:(.state.waiting.reason // "Unknown")}],
+      terminated:[.status.containerStatuses[]? | select(.state.terminated != null) |
+        {container:.name,reason:(.state.terminated.reason // "Unknown"),exit_code:.state.terminated.exitCode}],
+      conditions:[.status.conditions[]? | select(.status == "False") |
+        {type:.type,reason:(.reason // "Unknown")}]
+    }]')"
+  workloads="$(admin_kube -n "$VALIDATION_NAMESPACE" \
+    get deployments.apps,statefulsets.apps,jobs.batch -o json | jq -c '
+      [.items[] | {
+        kind:.kind,
+        name:.metadata.name,
+        desired:(.spec.replicas // .spec.completions // 1),
+        ready:(.status.readyReplicas // .status.succeeded // 0),
+        failed:(.status.failed // 0),
+        conditions:[.status.conditions[]? | select(.status == "False" or .type == "Failed") |
+          {type:.type,reason:(.reason // "Unknown")}]
+      }]')"
+  events="$(admin_kube -n "$VALIDATION_NAMESPACE" get events -o json | jq -c '
+    [.items | sort_by(.metadata.creationTimestamp) | .[-25:][]? | {
+      type:(.type // "Unknown"),
+      reason:(.reason // "Unknown"),
+      object:{kind:(.involvedObject.kind // "Unknown"),name:(.involvedObject.name // "unknown")},
+      message:((.message // "") | tostring | .[0:512]),
+      count:(.count // 1),
+      last_seen:(.eventTime // .lastTimestamp // .metadata.creationTimestamp)
+    }]')"
+  jq -cn \
+    --arg gate "$gate" \
+    --arg release "$release_id" \
+    --arg operation_id "$operation_id" \
+    --argjson receipt "$receipt_state" \
+    --argjson pods "$pods" \
+    --argjson workloads "$workloads" \
+    --argjson events "$events" \
+    '{schema:1,namespace:"dre-validation",gate:$gate,release:$release,operation_id:$operation_id,receipt:$receipt,pods:$pods,workloads:$workloads,events:$events}'
+}
+
 status() {
   [[ "$#" -eq 0 ]] || fail 'uso: status'
   local release gate postgres_pvc api_ready worker_ready postgres_ready validation_gate validation_release
@@ -1421,7 +1525,7 @@ status() {
 
 contract() {
   [[ "$#" -eq 0 ]] || fail 'uso: contract'
-  jq -cn '{schema:2,controller:"dre-deployctl",namespace:"dre-production",validation_namespace:"dre-validation",restore_namespace:"dre-restore-drill",lifecycle:"always-active",secondary_slot_member:false,permanent_containers:["api","worker","postgres"],images:"digest-only",release_signature:"ed25519",release_schemas:{import:[1,2],deploy:[2],rollback:[1,2]},migration_count:9,validation:{required_before_plan:true,disposable:true,preserve_on_failure:true,cleanup_on_success:true,restarts:["api","worker","postgres"]},secret_input_schema:1,bridge_token_source:"orchestrator-stdin",mutations:["import-release","initialize-secrets","validate-release","cleanup-validation","plan","deploy","backup","restore-drill"],generic_shell:false,generic_kubectl:false}'
+  jq -cn '{schema:2,controller:"dre-deployctl",namespace:"dre-production",validation_namespace:"dre-validation",restore_namespace:"dre-restore-drill",lifecycle:"always-active",secondary_slot_member:false,permanent_containers:["api","worker","postgres"],images:"digest-only",release_signature:"ed25519",release_schemas:{import:[1,2],deploy:[2],rollback:[1,2]},migration_count:9,validation:{required_before_plan:true,disposable:true,preserve_on_failure:true,cleanup_on_success:true,restarts:["api","worker","postgres"]},secret_input_schema:1,bridge_token_source:"orchestrator-stdin",read_only:["contract","status","diagnose-validation"],mutations:["import-release","initialize-secrets","validate-release","cleanup-validation","plan","deploy","backup","restore-drill"],generic_shell:false,generic_kubectl:false}'
 }
 
 main() {
@@ -1435,6 +1539,7 @@ main() {
   prune_expired_plans
   case "$action" in
     contract) contract "$@" ;;
+    diagnose-validation) diagnose_validation "$@" ;;
     import-release) import_release "$@" ;;
     initialize-secrets) initialize_secrets "$@" ;;
     validate-release) validate_release_disposable "$@" ;;

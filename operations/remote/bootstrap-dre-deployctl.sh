@@ -99,6 +99,51 @@ require_validation_namespace_absent() {
     || fail 'dre-validation existe; concluir diagnóstico/limpeza antes de atualizar o controlador'
 }
 
+require_validation_bootstrap_state() {
+  local gate project lifecycle release_id operation_id deletion_timestamp
+  if ! "$K3S" kubectl get namespace dre-validation >/dev/null 2>&1; then
+    return
+  fi
+  gate="$("$K3S" kubectl get namespace dre-validation \
+    -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}')"
+  project="$("$K3S" kubectl get namespace dre-validation \
+    -o jsonpath='{.metadata.labels.platform\.servidor\.local/project}')"
+  lifecycle="$("$K3S" kubectl get namespace dre-validation \
+    -o jsonpath='{.metadata.labels.dre\.familiar/lifecycle}')"
+  release_id="$("$K3S" kubectl get namespace dre-validation \
+    -o jsonpath='{.metadata.labels.dre\.familiar/release-id}')"
+  operation_id="$("$K3S" kubectl get namespace dre-validation \
+    -o jsonpath='{.metadata.labels.dre\.familiar/operation-id}')"
+  deletion_timestamp="$("$K3S" kubectl get namespace dre-validation \
+    -o jsonpath='{.metadata.deletionTimestamp}')"
+  [[ "$gate" == blocked && "$project" == dre && "$lifecycle" == disposable ]] \
+    || fail 'dre-validation existente não é uma validação DRE bloqueada'
+  [[ "$release_id" =~ ^dre-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$ ]] \
+    || fail 'release ID da validação bloqueada é inválido'
+  [[ "$operation_id" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$ ]] \
+    || fail 'operation ID da validação bloqueada é inválido'
+  [[ -z "$deletion_timestamp" ]] || fail 'dre-validation está em remoção'
+}
+
+validation_configuration_fingerprint() {
+  if ! "$K3S" kubectl get namespace dre-validation >/dev/null 2>&1; then
+    printf absent
+    return
+  fi
+  {
+    "$K3S" kubectl get namespace dre-validation -o json \
+      | jq -cS '{kind,metadata:{name:.metadata.name,uid:.metadata.uid,labels:.metadata.labels}}'
+    "$K3S" kubectl --namespace dre-validation \
+      get deployments.apps,statefulsets.apps,services,persistentvolumeclaims,jobs.batch,configmaps,secrets \
+      -o json \
+      | jq -cS '[.items[] | {
+          apiVersion,kind,
+          metadata:{name:.metadata.name,uid:.metadata.uid,labels:.metadata.labels,annotations:.metadata.annotations},
+          spec,data,stringData,type,immutable
+        }] | sort_by(.kind,.metadata.name)'
+  } | sha256sum | cut -d' ' -f1
+}
+
 wait_for_protected_locks_release() {
   local -a lock_files=(
     /run/lock/apiwpp-deploy.lock
@@ -245,6 +290,7 @@ rollback_needed=true
 foundation_created=false
 production_gate_before='blocked'
 production_secret_count=0
+validation_fingerprint_before=absent
 declare -a targets=(
   /usr/local/sbin/dre-deployctl
   /usr/local/sbin/dre-kube-identityctl
@@ -320,7 +366,8 @@ reset_dre_unit_failures
 if "$K3S" kubectl get validatingadmissionpolicy dre-controller-only >/dev/null 2>&1; then
   require_production_predeploy_state
   require_empty_namespace dre-restore-drill
-  require_validation_namespace_absent
+  require_validation_bootstrap_state
+  validation_fingerprint_before="$(validation_configuration_fingerprint)"
   production_gate_before="$(
     "$K3S" kubectl get namespace dre-production \
       -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}'
@@ -337,12 +384,13 @@ if "$K3S" kubectl get validatingadmissionpolicy dre-controller-only >/dev/null 2
       --overwrite >/dev/null
   fi
 else
+  require_validation_namespace_absent
   foundation_created=true
   "$K3S" kubectl apply -f "$FOUNDATION_SOURCE" >/dev/null
 fi
 require_production_predeploy_state
 require_empty_namespace dre-restore-drill
-require_validation_namespace_absent
+require_validation_bootstrap_state
 
 install -d -m 0700 -o root -g root "$CONFIG_ROOT" "$LIB_ROOT" "$STATE_ROOT" \
   "${STATE_ROOT}/releases" "${STATE_ROOT}/plans" "${STATE_ROOT}/receipts"
@@ -452,7 +500,9 @@ wait_for_protected_locks_release
 run_secondary_slot_gate
 require_production_predeploy_state
 require_empty_namespace dre-restore-drill
-require_validation_namespace_absent
+require_validation_bootstrap_state
+[[ "$(validation_configuration_fingerprint)" == "$validation_fingerprint_before" ]] \
+  || fail 'configuração da validação bloqueada mudou durante o bootstrap'
 
 rollback_needed=false
 trap - ERR EXIT

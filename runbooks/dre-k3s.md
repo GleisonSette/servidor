@@ -127,11 +127,15 @@ autorizada precisa ser recusado. Falha restaura arquivos e Prometheus; se a
 fundação era nova e ainda vazia, ela também é removida.
 
 Uma atualização do controlador é aceita somente enquanto produção não possui
-PVC/workload e `dre-validation` está ausente. Os cinco Secrets permanentes — e
-o sexto FCM opcional — podem existir; nomes diferentes ou gate além de
-`secrets-only` são recusados. A ampliação aditiva da fundação permanece
-compatível com o controlador anterior caso a troca dos arquivos precise ser
-revertida.
+PVC/workload. `dre-validation` deve estar ausente ou ser uma validação
+descartável autêntica com gate `blocked`, release e operação válidas. O segundo
+caso existe para instalar uma correção de diagnóstico sem apagar a evidência da
+falha; o bootstrap compara um fingerprint das configurações, workloads, PVCs e
+Secrets antes e depois e recusa qualquer alteração. Os cinco Secrets
+permanentes — e o sexto FCM opcional — podem existir; nomes diferentes ou gate
+de produção além de `secrets-only` são recusados. A ampliação aditiva da
+fundação permanece compatível com o controlador anterior caso a troca dos
+arquivos precise ser revertida.
 
 O backup transacional da instalação fica em
 `/var/backups/servidor-local/dre-controller-bootstrap/<timestamp>`. Rollback
@@ -211,8 +215,15 @@ Depois aplica PostgreSQL sem WAL/R2, nove migrations, papéis, API/worker,
 bootstrap de duas contas/dispositivos sintéticos e o E2E assinado. API, worker
 e PostgreSQL são reiniciados separadamente e precisam recuperar readiness e as
 nove migrations. Sucesso registra archive/digests, remove namespace, PVC e PV e
-libera a criação do plano. Falha preserva o namespace com gate `blocked`;
-depois do diagnóstico, a única remoção autorizada é:
+libera a criação do plano. Falha preserva o namespace com gate `blocked`. O
+diagnóstico fechado e somente leitura informa fase do recibo, pods, workloads e
+os 25 eventos Kubernetes mais recentes, sem permitir shell ou `kubectl` livre:
+
+```text
+sudo -n /usr/local/sbin/dre-deployctl diagnose-validation
+```
+
+Depois de registrar a causa, a única remoção autorizada é:
 
 ```text
 sudo -n /usr/local/sbin/dre-deployctl cleanup-validation RELEASE_ID OPERATION_ID

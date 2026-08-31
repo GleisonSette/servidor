@@ -195,6 +195,14 @@ for invariant in (
     "restore-drill",
     "validate-release",
     "cleanup-validation",
+    "diagnose-validation",
+    "register_exit_trap",
+    "register_exit_trap rollback_secret_creation",
+    "register_exit_trap validation_failed",
+    "register_exit_trap cleanup_validation_failed",
+    "register_exit_trap deploy_failed",
+    "register_exit_trap backup_failed",
+    "register_exit_trap restore_failed",
     "require_schema_two_release",
     "require_validation_receipt",
     "validation_cleanup_internal",
@@ -207,10 +215,6 @@ for invariant in (
     'backup_timestamp="${backup_timestamp:-0}"',
     'restore_timestamp="${restore_timestamp:-0}"',
     "valor interno de métrica DRE inválido",
-    "trap rollback_secret_creation EXIT",
-    "trap deploy_failed EXIT",
-    "trap backup_failed EXIT",
-    "trap restore_failed EXIT",
 ):
     if invariant not in controller:
         fail(f"invariante do controlador ausente: {invariant}")
@@ -237,6 +241,7 @@ lines = [line for line in sudoers.splitlines() if line.startswith("apiadmin ")]
 allowed_actions = {
     "contract",
     "status",
+    "diagnose-validation",
     "import-release *",
     "initialize-secrets *",
     "validate-release *",
@@ -254,6 +259,17 @@ if actual_actions != allowed_actions:
     fail("sudoers DRE diverge da interface fechada")
 if "SETENV" in sudoers or " /bin/" in sudoers or " /usr/bin/" in sudoers:
     fail("sudoers DRE concede ambiente ou comando genérico")
+
+for unsafe_trap in (
+    "trap rollback_secret_creation EXIT",
+    "trap validation_failed EXIT",
+    "trap cleanup_validation_failed EXIT",
+    "trap deploy_failed EXIT",
+    "trap backup_failed EXIT",
+    "trap restore_failed EXIT",
+):
+    if unsafe_trap in controller:
+        fail(f"trap EXIT sem contexto preservado: {unsafe_trap}")
 
 bootstrap = read("operations/remote/bootstrap-dre-deployctl.sh")
 for invariant in (
@@ -276,6 +292,9 @@ for invariant in (
     "require_production_predeploy_state",
     "require_empty_namespace dre-restore-drill",
     "require_validation_namespace_absent",
+    "require_validation_bootstrap_state",
+    "validation_configuration_fingerprint",
+    "configuração da validação bloqueada mudou durante o bootstrap",
     "production_gate_before='blocked'",
     "production_secret_count=0",
     '|| "$production_secret_count" -ge 5',
