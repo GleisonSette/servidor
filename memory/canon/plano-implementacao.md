@@ -421,17 +421,16 @@ Aceite manual:
 
 ## Fase 3B - DRE familiar independente
 
-Status: preparação, fundação vazia, Secrets pré-deploy e validação descartável
-schema 2 concluídas. Em 2026-08-31, a release assinada
-`dre-20260831T053100Z-57984e1c1902` foi importada e aprovada em
-`dre-validation`; nove migrations, acessos, bootstrap sintético, E2E e
-reinícios de API, worker e PostgreSQL passaram. Namespace, PVC e PV temporários
-foram removidos. Produção continua com release `none`, gate `secrets-only`,
-PVC ausente e Ready `0/0/0`. Migration persistente, deploy, backup/restore de
-produção e rota HTTPS permanecem ausentes e sem autorização neste registro.
-O executor rootless D036 dos gates integrais está preparado no repositório;
-instalação, `make release-check`, repetição literal de `make e2e` e limpeza
-comprovada ainda estão pendentes.
+Status: rollout persistente autorizado e em andamento. Fundação vazia, Secrets
+pré-deploy, validação descartável schema 2, executor rootless e gates integrais
+da release `dre-20260831T202100Z-f6b06765ff61` foram concluídos. Em 2026-09-01,
+o controlador ganhou leitura de capacidade corrigida e provisionamento atômico
+das contas por `stdin`; o bundle
+`56612eebcbd60726751dea0b30c04eebaad99f1ee2d5b151b615f652943603b7`
+foi instalado e `plan` retornou `status=passed`. Produção continua com release
+`none`, gate `secrets-only`, PVC ausente e Ready `0/0/0`. A nova release do
+commit DRE `e1423b7` precisa repetir build, `make release-check`, `make e2e` e
+`dre-validation` antes de migration/deploy persistentes.
 
 Ordem obrigatória:
 
@@ -455,10 +454,12 @@ Ordem obrigatória:
 9. concluído em 2026-08-31: executor rootless sem daemon e sem acesso ao K3s
    instalado; `make release-check` e `make e2e` aprovados em ambiente sintético
    descartável, com limpeza comprovada dos recursos da execução;
-10. somente com autorização explícita de migration e deploy, aplicar a primeira
-   release, comprovar backup/restore e manter a API somente em ClusterIP;
-11. rota HTTPS, contas, dispositivos e saldo inicial permanecem fases
-   posteriores e independentes.
+10. em andamento sob autorização explícita de 2026-09-01: construir e validar a
+   release `e1423b7`, aplicar migrations/deploy persistentes, criar contas
+   atomicamente e comprovar backup/restore;
+11. em andamento sob a mesma autorização: criar rota HTTPS, configurar
+   `DRE_API_ORIGIN` e chave Android definitiva. FCM, saldo inicial e dados
+   financeiros reais permanecem fora desta operação.
 
 Aceite automatizado offline:
 

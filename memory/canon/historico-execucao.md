@@ -1781,3 +1781,28 @@ sem ativar produção; recursos descartáveis foram removidos.
 - Containers, redes, volumes, imagens, processos, caches e raízes temporárias
   do executor foram removidos por caminhos exatos. Os pacotes rootless sem
   serviço ou socket permanecem instalados conforme D036.
+
+## 2026-09-01 - Controlador DRE preparado para o primeiro deploy persistente
+
+Resultado: bloqueio do plano corrigido, provisionamento atômico fechado e
+controlador instalado sem ativar produção.
+
+- O `plan` encerrava silenciosamente porque `capacity_values` não terminava sua
+  saída com quebra de linha e o `read` retornava EOF sob `set -e`. O commit
+  servidor `e26c528` adicionou a quebra de linha e um gate estático específico.
+- O commit DRE `e1423b7` adicionou `provision-private-family`: Argon2id é
+  calculado fora do executor assíncrono, as duas senhas chegam por `stdin` e o
+  núcleo com Gleison/Aline é gravado em uma única transação. O controlador
+  expõe somente `provision-accounts`, com UUIDs validados e recibo sem segredo.
+- A suíte integral do repositório servidor passou no Windows sem WSL; o teste
+  de modo `0600` foi tornado portável e continua exigindo o modo real em POSIX.
+  O bundle de 18 arquivos teve SHA-256
+  `56612eebcbd60726751dea0b30c04eebaad99f1ee2d5b151b615f652943603b7`.
+- O helper D030 instalou o bundle e registrou backup transacional em
+  `/var/backups/servidor-local/dre-controller-bootstrap/20260901T151732Z`.
+  Hash vivo/fonte coincidiram; contrato, bootstrap, admissão e projetos
+  protegidos passaram.
+- `dre-deployctl status` permaneceu em release `none`, gate `secrets-only`, PVC
+  ausente e Ready `0/0/0`. O primeiro `plan` depois da correção retornou
+  `status=passed` para a release já validada. Nenhum PVC, migration persistente,
+  workload, conta, rota ou dado financeiro foi criado neste passo.

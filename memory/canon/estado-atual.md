@@ -4,14 +4,14 @@ metadata:
   canon_id: canon-estado-atual
   source_path: memory/canon/estado-atual.md
   generated_from: auditoria SSH, runtime K3s, Prometheus e repositórios locais
-  updated_at: 2026-08-31
+  updated_at: 2026-09-01
   status: canonical
 
 ## Escopo e data da evidência
 
 Este canon reúne o estado atual do host: versões, portas, capacidade, backups,
 workloads e serviços. A última auditoria de capacidade ocorreu em 2026-08-26 e
-a última operação DRE foi concluída em 2026-08-31. O Blindou permanece ativo;
+a última operação DRE foi concluída em 2026-09-01. O Blindou permanece ativo;
 o slot APIWPP/SaferWPP está sem ocupante na geração 2. O DRE possui fundação,
 Secrets e release validada no cache, mas produção continua sem runtime.
 
@@ -25,7 +25,7 @@ Secrets e release validada no cache, mas produção continua sem runtime.
   `secondary_slot_verify=passed`; o DRE continua fora desse slot.
 - Fundação PostgreSQL, controladores e workloads SaferWPP continuam ausentes.
 
-## DRE schema 2 validado sem ativar produção em 2026-08-31
+## DRE schema 2 e controlador de produção validados em 2026-09-01
 
 - D029 mantém o DRE independente do slot APIWPP/SaferWPP. D030 permite que
   somente `Dre.SudoBootstrap.psm1` entregue `KEY_SERVIDOR` por `stdin` ao
@@ -46,8 +46,15 @@ Secrets e release validada no cache, mas produção continua sem runtime.
   Os três scans registraram zero vulnerabilidade alta ou crítica e possuem SBOM
   SPDX no bundle.
 - O controlador instalado veio do bundle SHA-256
-  `689c3f0f97c7d4f5e9d14d4cfe6e11b7582fa82071d94685a617d2f0d5d6b004`;
-  a fonte foi publicada no commit de plataforma `4d0ed61`.
+  `56612eebcbd60726751dea0b30c04eebaad99f1ee2d5b151b615f652943603b7`;
+  a fonte foi publicada no commit de plataforma `e26c528` e o bundle foi
+  fixado em `d17bdff`. O bootstrap gerou backup transacional em
+  `/var/backups/servidor-local/dre-controller-bootstrap/20260901T151732Z`.
+- A correção adicionou a quebra de linha obrigatória da leitura de capacidade e
+  o único comando `provision-accounts`. O primeiro `plan` pós-instalação
+  retornou `status=passed`; o provisionamento envia duas senhas somente por
+  `stdin` e chama a transação atômica da release, sem senha em argumento ou
+  recibo.
 - A operação `20260831T202626Z-f6b06765ff61` aprovou nove migrations, papéis de
   acesso, bootstrap sintético, E2E financeiro, SSE/queries e substituição de
   API, worker e PostgreSQL. Ao passar, removeu `dre-validation`, PVC e PV.
@@ -62,8 +69,11 @@ Secrets e release validada no cache, mas produção continua sem runtime.
 - A verificação posterior confirmou Blindou íntegro na release
   `ee4a335236b0e99e5fac4ee3e30a986f0ddc8bb2`, 12 migrations, slot `none` na
   geração 2 e zero unit systemd falha.
-- Próximos gates independentes: autorização de migration/deploy em produção,
-  backup/restore real, rota HTTPS, contas, dispositivos e saldo inicial.
+- O rollout persistente, migrations, backup/restore, rota HTTPS, contas e chave
+  Android estão autorizados e em andamento. A nova release ligada ao commit DRE
+  `e1423b7` ainda precisa passar build, gates integrais e validação descartável
+  antes do deploy. FCM, dispositivo autorizado, saldo inicial e dados
+  financeiros reais continuam ausentes.
 
 ## PostgreSQL dedicado Blindou I1 autorizado em 2026-08-29
 
