@@ -39,6 +39,7 @@ readonly PLAN_RETENTION_DAYS=7
 readonly RELEASE_ID_PATTERN='^dre-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$'
 readonly SHA256_PATTERN='^[0-9a-f]{64}$'
 readonly OPERATION_ID_PATTERN='^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$'
+readonly UUID_PATTERN='^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
 readonly -a REQUIRED_SECRETS=(
   dre-registry-pull
   dre-postgres-admin
@@ -443,7 +444,7 @@ capacity_values() {
   ((disk_available >= MIN_AVAILABLE_DISK_KIB)) \
     || fail 'menos de 45 GiB livres no armazenamento K3s; capacidade DRE recusada'
   ((cpu_count >= 4)) || fail 'nó possui menos de quatro CPUs lógicas'
-  printf '%s %s %s' "$memory_available" "$disk_available" "$cpu_count"
+  printf '%s %s %s\n' "$memory_available" "$disk_available" "$cpu_count"
 }
 
 verify_cached_release_again() {
@@ -1266,6 +1267,87 @@ verify_release() {
   pass "release ${release_id} verificada com três containers permanentes e serviços privados"
 }
 
+provision_accounts() {
+  [[ "$#" -eq 5 ]] \
+    || fail 'uso: provision-accounts RELEASE_ID OPERATION_ID HOUSEHOLD_ID PRIMARY_USER_ID SECONDARY_USER_ID'
+  local release_id="$1" operation_id="$2" household_id="$3"
+  local primary_user_id="$4" secondary_user_id="$5" protected_before api_pod receipt
+  require_cached_release "$release_id"
+  require_schema_two_release "$release_id"
+  require_operation_id "$operation_id"
+  for identifier in "$household_id" "$primary_user_id" "$secondary_user_id"; do
+    [[ "$identifier" =~ $UUID_PATTERN ]] || fail 'UUID operacional inválido'
+  done
+  [[ "$household_id" != "$primary_user_id" \
+    && "$household_id" != "$secondary_user_id" \
+    && "$primary_user_id" != "$secondary_user_id" ]] \
+    || fail 'UUIDs operacionais devem ser distintos'
+  require_new_receipt accounts "$operation_id"
+  verify_cached_release_again "$release_id"
+  verify_foundation
+  verify_release_secret_inventory "$release_id"
+  [[ "$(current_release_id)" == "$release_id" ]] \
+    || fail 'release solicitada não é a corrente'
+  verify_runtime_core "$release_id"
+  verify_protected_projects
+  acquire_controller_lock
+  acquire_shared_maintenance_locks
+  protected_before="$(protected_fingerprint)"
+  receipt="${RECEIPT_ROOT}/accounts-${operation_id}.json"
+  jq -cn \
+    --arg release_id "$release_id" \
+    --arg operation_id "$operation_id" \
+    --arg started_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{schema:1,status:"started",release_id:$release_id,operation_id:$operation_id,started_at_utc:$started_at_utc}' \
+    | atomic_write "$receipt" 0600
+  provision_accounts_failed() {
+    local code="$1" release_id="$2" operation_id="$3" receipt="$4"
+    set +e
+    jq -cn \
+      --arg release_id "$release_id" \
+      --arg operation_id "$operation_id" \
+      --arg failed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{schema:1,status:"failed",release_id:$release_id,operation_id:$operation_id,atomic:true,failed_at_utc:$failed_at_utc}' \
+      | atomic_write "$receipt" 0600 || true
+    audit_event provision-accounts failed "$release_id" "$operation_id"
+    exit "$code"
+  }
+  register_exit_trap provision_accounts_failed \
+    "$release_id" "$operation_id" "$receipt"
+  api_pod="$(kube -n "$NAMESPACE" get pods \
+    -l app.kubernetes.io/name=dre-api,app.kubernetes.io/component=api -o json \
+    | jq -r '[.items[] | select(.status.phase == "Running" and any(.status.conditions[]; .type == "Ready" and .status == "True"))] | if length == 1 then .[0].metadata.name else empty end')"
+  [[ -n "$api_pod" ]] || fail 'não existe exatamente um Pod pronto da API para provisionamento'
+  kube --request-timeout=120s -n "$NAMESPACE" exec -i "$api_pod" --container api -- \
+    /app/dre-admin-cli provision-private-family \
+    --household-id "$household_id" \
+    --household-name 'Família' \
+    --primary-user-id "$primary_user_id" \
+    --primary-login gleison \
+    --primary-display-name Gleison \
+    --secondary-user-id "$secondary_user_id" \
+    --secondary-login aline \
+    --secondary-display-name Aline \
+    --passwords-stdin >/dev/null
+  verify_runtime_core "$release_id"
+  [[ "$(protected_fingerprint)" == "$protected_before" ]] \
+    || fail 'recurso protegido mudou durante o provisionamento das contas DRE'
+  release_shared_maintenance_locks
+  verify_protected_projects
+  jq -cn \
+    --arg release_id "$release_id" \
+    --arg operation_id "$operation_id" \
+    --arg household_id "$household_id" \
+    --arg primary_user_id "$primary_user_id" \
+    --arg secondary_user_id "$secondary_user_id" \
+    --arg completed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{schema:1,status:"passed",release_id:$release_id,operation_id:$operation_id,household_id:$household_id,user_ids:[$primary_user_id,$secondary_user_id],accounts:["gleison","aline"],atomic:true,completed_at_utc:$completed_at_utc}' \
+    | atomic_write "$receipt" 0600
+  trap - EXIT
+  audit_event provision-accounts passed "$release_id" "$operation_id"
+  pass 'núcleo privado e contas Gleison/Aline provisionados atomicamente'
+}
+
 backup_database() {
   [[ "$#" -eq 2 ]] || fail 'uso: backup {full|diff} OPERATION_ID'
   local backup_type="$1" operation_id="$2" release_id info stop
@@ -1634,7 +1716,7 @@ status() {
 
 contract() {
   [[ "$#" -eq 0 ]] || fail 'uso: contract'
-  jq -cn '{schema:2,controller:"dre-deployctl",namespace:"dre-production",validation_namespace:"dre-validation",restore_namespace:"dre-restore-drill",lifecycle:"always-active",secondary_slot_member:false,permanent_containers:["api","worker","postgres"],images:"digest-only",release_signature:"ed25519",release_schemas:{import:[1,2],deploy:[2],rollback:[1,2]},migration_count:9,validation:{required_before_plan:true,disposable:true,preserve_on_failure:true,cleanup_on_success:true,restarts:["api","worker","postgres"]},secret_input_schema:1,bridge_token_source:"orchestrator-stdin",read_only:["contract","status","diagnose-validation"],mutations:["import-release","initialize-secrets","validate-release","cleanup-validation","plan","deploy","backup","restore-drill"],generic_shell:false,generic_kubectl:false}'
+  jq -cn '{schema:2,controller:"dre-deployctl",namespace:"dre-production",validation_namespace:"dre-validation",restore_namespace:"dre-restore-drill",lifecycle:"always-active",secondary_slot_member:false,permanent_containers:["api","worker","postgres"],images:"digest-only",release_signature:"ed25519",release_schemas:{import:[1,2],deploy:[2],rollback:[1,2]},migration_count:9,validation:{required_before_plan:true,disposable:true,preserve_on_failure:true,cleanup_on_success:true,restarts:["api","worker","postgres"]},secret_input_schema:1,bridge_token_source:"orchestrator-stdin",read_only:["contract","status","diagnose-validation"],mutations:["import-release","initialize-secrets","validate-release","cleanup-validation","plan","deploy","provision-accounts","backup","restore-drill"],generic_shell:false,generic_kubectl:false}'
 }
 
 main() {
@@ -1656,6 +1738,7 @@ main() {
     plan) create_plan "$@" ;;
     deploy) deploy_release "$@" ;;
     verify) verify_release "$@" ;;
+    provision-accounts) provision_accounts "$@" ;;
     backup) backup_database "$@" ;;
     restore-drill) restore_drill "$@" ;;
     metrics) write_metrics "$@" ;;

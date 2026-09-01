@@ -291,6 +291,28 @@ compensação fecha o gate como `rollback-failed`. Cada `operation_id` é de uso
 silenciosamente uma operação interrompida. Migration destrutiva não pertence ao
 contrato.
 
+## Provisionamento privado das contas iniciais
+
+Depois que a release corrente estiver saudável, o único caminho autorizado para
+criar o núcleo familiar e as contas Gleison/Aline é:
+
+```text
+sudo -n /usr/local/sbin/dre-deployctl provision-accounts RELEASE_ID OPERATION_ID HOUSEHOLD_ID GLEISON_USER_ID ALINE_USER_ID
+```
+
+Os cinco identificadores não secretos são validados e permanecem estáveis. As
+duas senhas chegam exclusivamente por `stdin`, uma por linha, e nunca entram em
+argumento, variável de ambiente, audit log ou recibo. O controlador seleciona
+exatamente um Pod pronto da API e chama o binário assinado
+`dre-admin-cli provision-private-family --passwords-stdin`. Núcleo, usuários e
+auditorias são gravados em uma única transação PostgreSQL: falha em qualquer
+conta reverte tudo. O recibo root-only registra somente release, operação,
+identificadores, logins e o atestado `atomic=true`.
+
+Essa ação é de uso único para a primeira família. Troca de senha, dispositivo e
+saldo inicial continuam fluxos administrativos separados e exigem autorização
+própria.
+
 ## Backup e restauração
 
 Operações autorizadas:
@@ -321,6 +343,6 @@ fica em `/var/lib/dre-deployctl/receipts`.
 
 Este controlador não cria Ingress, NodePort, LoadBalancer, `hostPort`, regra
 UFW, Tunnel ou rota Cloudflare. Após deploy, backup e restore aprovados, a API
-continua ClusterIP. Rota HTTPS, contas, dispositivos Android e saldo inicial
+continua ClusterIP. Rota HTTPS, dispositivos Android e saldo inicial
 são operações posteriores e separadamente autorizadas. PostgreSQL e métricas
 nunca recebem exposição pública.

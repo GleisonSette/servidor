@@ -10,5 +10,6 @@ apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl cleanup-validation *
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl plan *
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl deploy *
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl verify *
+apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl provision-accounts *
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl backup *
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl restore-drill *

@@ -446,7 +446,7 @@ promtool check config "$PROMETHEUS_CONFIG" >/dev/null
 /usr/local/sbin/dre-kube-identityctl reconcile >/dev/null
 /usr/local/sbin/dre-kube-identityctl verify >/dev/null
 sudo -u apiadmin sudo -n /usr/local/sbin/dre-deployctl contract \
-  | jq -e '.schema == 2 and .controller == "dre-deployctl" and .validation_namespace == "dre-validation" and .validation.required_before_plan == true and .generic_shell == false and .secondary_slot_member == false and .bridge_token_source == "orchestrator-stdin"' \
+  | jq -e '.schema == 2 and .controller == "dre-deployctl" and .validation_namespace == "dre-validation" and .validation.required_before_plan == true and (.mutations | index("provision-accounts")) != null and .generic_shell == false and .secondary_slot_member == false and .bridge_token_source == "orchestrator-stdin"' \
   >/dev/null
 
 negative_manifest="$(mktemp)"

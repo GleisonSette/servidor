@@ -175,10 +175,15 @@ for invariant in (
     "readonly MIN_AVAILABLE_MEMORY_KIB=$((5 * 1024 * 1024))",
     "readonly MIN_AVAILABLE_DISK_KIB=$((45 * 1024 * 1024))",
     "readonly PLAN_RETENTION_DAYS=7",
+    "printf '%s %s %s\\n' \"$memory_available\" \"$disk_available\" \"$cpu_count\"",
     "openssl pkeyutl -verify -pubin",
     "verify_cached_release_again",
     "verify_release_secret_inventory",
     "require_new_receipt",
+    "provision_accounts",
+    "/app/dre-admin-cli provision-private-family",
+    "--passwords-stdin",
+    "atomic:true",
     "deployment-gate=rollback-failed",
     'status:"started"',
     "verify_protected_projects",
@@ -242,6 +247,7 @@ for function_name in (
     "validate_release_disposable",
     "cleanup_validation",
     "deploy_release",
+    "provision_accounts",
 ):
     function_match = re.search(
         rf"(?ms)^{function_name}\(\) \{{.*?(?=^[a-z_][a-z0-9_]*\(\) \{{)",
@@ -283,6 +289,7 @@ allowed_actions = {
     "plan *",
     "deploy *",
     "verify *",
+    "provision-accounts *",
     "backup *",
     "restore-drill *",
 }
