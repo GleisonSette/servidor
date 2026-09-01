@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import stat
 import subprocess
@@ -85,9 +86,13 @@ class ValidationMaterialTests(unittest.TestCase):
                 if path.is_file()
             }
             self.assertEqual(actual, expected)
-            for path in output.rglob("*"):
-                if path.is_file():
-                    self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            if os.name == "posix":
+                for path in output.rglob("*"):
+                    if path.is_file():
+                        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            else:
+                source = SCRIPT.read_text(encoding="utf-8")
+                self.assertIn("os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600", source)
             api_url = (output / "database-access/api-url").read_text()
             self.assertIn("dre-postgres.dre-validation.svc.cluster.local", api_url)
             primary = (output / "validation-accounts/primary-password").read_text()
