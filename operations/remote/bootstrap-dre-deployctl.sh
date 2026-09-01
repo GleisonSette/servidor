@@ -13,6 +13,7 @@ readonly SOURCE_DIRECTORY
 REPOSITORY_ROOT="$(cd "${SOURCE_DIRECTORY}/../.." && pwd)"
 readonly REPOSITORY_ROOT
 readonly FOUNDATION_SOURCE="${REPOSITORY_ROOT}/platform/dre/controller-foundation.yaml"
+readonly EDGE_RUNTIME_SOURCE="${REPOSITORY_ROOT}/platform/dre/edge-runtime.yaml"
 readonly CONTROLLER_ALERTS_SOURCE="${REPOSITORY_ROOT}/platform/dre/monitoring/prometheus-alerts.yaml"
 readonly VERIFIER_SOURCE="${SOURCE_DIRECTORY}/dre-release-verify.py"
 readonly SECRET_SOURCE="${SOURCE_DIRECTORY}/dre-secret-material.py"
@@ -92,6 +93,19 @@ require_production_predeploy_state() {
   esac
   [[ "$("$K3S" kubectl get namespace dre-production -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}')" =~ ^(blocked|secrets-only)$ ]] \
     || fail 'gate de produção já avançou além do estado autorizado para o bootstrap'
+}
+
+require_edge_bootstrap_state() {
+  if ! "$K3S" kubectl get namespace dre-edge >/dev/null 2>&1; then
+    return
+  fi
+  [[ "$("$K3S" kubectl get namespace dre-edge \
+    -o jsonpath='{.metadata.labels.platform\.servidor\.local/project}')" == dre ]] \
+    || fail 'namespace dre-edge saiu do ownership DRE'
+  [[ "$("$K3S" kubectl get namespace dre-edge \
+    -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}')" == blocked ]] \
+    || fail 'bootstrap exige dre-edge bloqueada antes do deploy persistente'
+  require_empty_namespace dre-edge
 }
 
 require_validation_namespace_absent() {
@@ -245,7 +259,7 @@ for command in python3 openssl sudo visudo promtool logrotate systemd-analyze in
   chmod chown stat sha256sum systemctl jq grep flock hostname date find wc mktemp sleep "$K3S"; do
   command -v "$command" >/dev/null || fail "dependência ausente: ${command}"
 done
-for source in "$FOUNDATION_SOURCE" "$CONTROLLER_ALERTS_SOURCE" "$VERIFIER_SOURCE" \
+for source in "$FOUNDATION_SOURCE" "$EDGE_RUNTIME_SOURCE" "$CONTROLLER_ALERTS_SOURCE" "$VERIFIER_SOURCE" \
   "$SECRET_SOURCE" "$VALIDATION_MATERIAL_SOURCE" "$RESTORE_SOURCE" "$CONTROLLER_SOURCE" "$IDENTITY_SOURCE" \
   "$SUDOERS_SOURCE" "$LOGROTATE_SOURCE" "$IDENTITY_SERVICE_SOURCE" "$IDENTITY_TIMER_SOURCE" \
   "$METRICS_SERVICE_SOURCE" "$METRICS_TIMER_SOURCE" "$ARTIFACT_VERIFIER" \
@@ -299,6 +313,7 @@ declare -a targets=(
   /usr/local/lib/dre-deployctl/dre-validation-material.py
   /usr/local/lib/dre-deployctl/validation-access.yaml
   /usr/local/lib/dre-deployctl/dre-restore-render.py
+  /usr/local/lib/dre-deployctl/edge-runtime.yaml
   /etc/dre-deployctl/release-signing.pub
   /etc/dre-deployctl/client.key
   /etc/dre-deployctl/client.crt
@@ -365,6 +380,7 @@ reset_dre_unit_failures
 
 if "$K3S" kubectl get validatingadmissionpolicy dre-controller-only >/dev/null 2>&1; then
   require_production_predeploy_state
+  require_edge_bootstrap_state
   require_empty_namespace dre-restore-drill
   require_validation_bootstrap_state
   validation_fingerprint_before="$(validation_configuration_fingerprint)"
@@ -389,6 +405,7 @@ else
   "$K3S" kubectl apply -f "$FOUNDATION_SOURCE" >/dev/null
 fi
 require_production_predeploy_state
+require_edge_bootstrap_state
 require_empty_namespace dre-restore-drill
 require_validation_bootstrap_state
 
@@ -402,6 +419,7 @@ install -m 0500 -o root -g root "$SECRET_SOURCE" "${LIB_ROOT}/dre-secret-materia
 install -m 0500 -o root -g root "$VALIDATION_MATERIAL_SOURCE" "${LIB_ROOT}/dre-validation-material.py"
 install -m 0600 -o root -g root "$VALIDATION_ACCESS_SOURCE" "${LIB_ROOT}/validation-access.yaml"
 install -m 0500 -o root -g root "$RESTORE_SOURCE" "${LIB_ROOT}/dre-restore-render.py"
+install -m 0600 -o root -g root "$EDGE_RUNTIME_SOURCE" "${LIB_ROOT}/edge-runtime.yaml"
 install -m 0644 -o root -g root "$PUBLIC_KEY" "${CONFIG_ROOT}/release-signing.pub"
 install -m 0440 -o root -g root "$SUDOERS_SOURCE" /etc/sudoers.d/dre-deployctl
 visudo -cf /etc/sudoers.d/dre-deployctl >/dev/null
@@ -446,7 +464,7 @@ promtool check config "$PROMETHEUS_CONFIG" >/dev/null
 /usr/local/sbin/dre-kube-identityctl reconcile >/dev/null
 /usr/local/sbin/dre-kube-identityctl verify >/dev/null
 sudo -u apiadmin sudo -n /usr/local/sbin/dre-deployctl contract \
-  | jq -e '.schema == 2 and .controller == "dre-deployctl" and .validation_namespace == "dre-validation" and .validation.required_before_plan == true and (.mutations | index("provision-accounts")) != null and .generic_shell == false and .secondary_slot_member == false and .bridge_token_source == "orchestrator-stdin"' \
+  | jq -e '.schema == 2 and .controller == "dre-deployctl" and .edge_namespace == "dre-edge" and .validation_namespace == "dre-validation" and .validation.required_before_plan == true and (.mutations | index("configure-edge")) != null and (.mutations | index("provision-accounts")) != null and .generic_shell == false and .secondary_slot_member == false and .bridge_token_source == "orchestrator-stdin" and .edge_token_source == "orchestrator-stdin"' \
   >/dev/null
 
 negative_manifest="$(mktemp)"

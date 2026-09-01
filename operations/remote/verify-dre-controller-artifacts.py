@@ -47,6 +47,7 @@ def by_kind_name(documents: list[dict], kind: str, name: str) -> dict:
 
 foundation = yaml_documents("platform/dre/controller-foundation.yaml")
 production = by_kind_name(foundation, "Namespace", "dre-production")
+edge = by_kind_name(foundation, "Namespace", "dre-edge")
 restore = by_kind_name(foundation, "Namespace", "dre-restore-drill")
 if any(
     document.get("kind") == "Namespace"
@@ -54,7 +55,7 @@ if any(
     for document in foundation
 ):
     fail("namespace descartável não pode permanecer na fundação")
-for namespace in (production, restore):
+for namespace in (production, edge, restore):
     labels = namespace["metadata"]["labels"]
     if labels.get("platform.servidor.local/project") != "dre":
         fail("namespace fora do ownership DRE")
@@ -66,10 +67,52 @@ if production["metadata"]["labels"].get("platform.servidor.local/deployment-gate
     fail("namespace de produção deve nascer blocked")
 if production["metadata"]["labels"].get("dre.familiar/lifecycle") != "always-active":
     fail("DRE não está declarado como sempre ativo")
+if edge["metadata"]["labels"].get("platform.servidor.local/deployment-gate") != "blocked":
+    fail("namespace de edge deve nascer bloqueado")
+if edge["metadata"]["labels"].get("dre.familiar/api-access") != "true":
+    fail("namespace de edge não possui acesso explícito à API")
+if edge["metadata"]["labels"].get("dre.familiar/lifecycle") != "edge-connector":
+    fail("lifecycle do edge diverge")
 if "platform.servidor.local/secondary-slot-member" in production["metadata"]["labels"]:
     fail("DRE não pode integrar o slot APIWPP/SaferWPP")
 if restore["metadata"]["labels"].get("platform.servidor.local/deployment-gate") != "restore-only":
     fail("namespace de restore não está fechado")
+
+edge_quota = by_kind_name(foundation, "ResourceQuota", "dre-edge-quota")
+edge_hard = edge_quota["spec"]["hard"]
+if (
+    edge_hard.get("pods") != "1"
+    or edge_hard.get("services") != "0"
+    or edge_hard.get("secrets") != "1"
+    or edge_hard.get("persistentvolumeclaims") != "0"
+    or edge_hard.get("count/deployments.apps") != "1"
+):
+    fail("quota do edge não limita exatamente um conector")
+by_kind_name(foundation, "LimitRange", "dre-edge-defaults")
+edge_account = by_kind_name(foundation, "ServiceAccount", "dre-cloudflared")
+if edge_account.get("metadata", {}).get("namespace") != "dre-edge" or edge_account.get(
+    "automountServiceAccountToken"
+) is not False:
+    fail("ServiceAccount do edge não está isolada")
+edge_policies = {
+    policy["metadata"]["name"]: policy
+    for policy in foundation
+    if policy.get("kind") == "NetworkPolicy"
+    and policy.get("metadata", {}).get("namespace") == "dre-edge"
+}
+if set(edge_policies) != {
+    "default-deny",
+    "allow-cluster-dns",
+    "allow-cloudflare-edge",
+    "allow-dre-api-origin",
+}:
+    fail("NetworkPolicies do edge divergem")
+cloudflare_ports = edge_policies["allow-cloudflare-edge"]["spec"]["egress"][0]["ports"]
+if cloudflare_ports != [{"protocol": "TCP", "port": 7844}]:
+    fail("edge permite saída pública além de TCP/7844")
+origin_rule = edge_policies["allow-dre-api-origin"]["spec"]["egress"][0]
+if origin_rule.get("ports") != [{"protocol": "TCP", "port": 8080}]:
+    fail("edge permite porta de origem diferente da API")
 
 retain = by_kind_name(foundation, "StorageClass", "dre-local-retain")
 delete = by_kind_name(foundation, "StorageClass", "dre-local-delete-drill")
@@ -114,13 +157,101 @@ namespace_rule = next(
 )
 if namespace_rule is None or set(namespace_rule.get("resourceNames", [])) != {
     "dre-production",
+    "dre-edge",
     "dre-restore-drill",
     "dre-validation",
 }:
-    fail("ClusterRole não limita os três namespaces DRE")
+    fail("ClusterRole não limita os quatro namespaces DRE")
 for rule in cluster_role.get("rules", []):
     if "secrets" in rule.get("resources", []) or "pods/exec" in rule.get("resources", []):
         fail("ClusterRole DRE ganhou acesso mutável global")
+
+edge_role_matches = [
+    document
+    for document in foundation
+    if document.get("kind") == "Role"
+    and document.get("metadata", {}).get("name") == "dre-deployctl"
+    and document.get("metadata", {}).get("namespace") == "dre-edge"
+]
+if len(edge_role_matches) != 1:
+    fail("Role fechada do edge ausente ou duplicada")
+edge_role = edge_role_matches[0]
+edge_resources = {
+    resource
+    for rule in edge_role.get("rules", [])
+    for resource in rule.get("resources", [])
+}
+if edge_resources != {"secrets", "deployments", "pods"}:
+    fail("RBAC do edge ganhou recurso não autorizado")
+edge_named_rules = [
+    rule
+    for rule in edge_role.get("rules", [])
+    if "resourceNames" in rule
+]
+if {tuple(rule["resourceNames"]) for rule in edge_named_rules} != {
+    ("dre-cloudflare-tunnel",),
+    ("dre-cloudflared",),
+}:
+    fail("RBAC de mutação do edge não está preso aos recursos aprovados")
+secret_rule = next(
+    rule for rule in edge_named_rules if rule["resourceNames"] == ["dre-cloudflare-tunnel"]
+)
+if set(secret_rule.get("verbs", [])) != {"delete", "get", "patch", "update"}:
+    fail("RBAC do token do túnel ganhou leitura ampla ou operação desnecessária")
+deployment_rule = next(
+    rule for rule in edge_named_rules if rule["resourceNames"] == ["dre-cloudflared"]
+)
+if set(deployment_rule.get("verbs", [])) != {"delete", "get", "patch", "update", "watch"}:
+    fail("RBAC do Deployment do edge diverge")
+edge_binding_matches = [
+    document
+    for document in foundation
+    if document.get("kind") == "RoleBinding"
+    and document.get("metadata", {}).get("name") == "dre-deployctl"
+    and document.get("metadata", {}).get("namespace") == "dre-edge"
+]
+if len(edge_binding_matches) != 1 or edge_binding_matches[0].get("subjects") != [
+    {"apiGroup": "rbac.authorization.k8s.io", "kind": "User", "name": "dre-deployctl"}
+]:
+    fail("RoleBinding do edge não usa a identidade DRE")
+
+edge_runtime = yaml_documents("platform/dre/edge-runtime.yaml")
+if len(edge_runtime) != 1:
+    fail("runtime do edge deve conter somente um Deployment")
+edge_deployment = by_kind_name(edge_runtime, "Deployment", "dre-cloudflared")
+if edge_deployment.get("metadata", {}).get("namespace") != "dre-edge":
+    fail("cloudflared saiu do namespace de edge")
+pod_spec = edge_deployment["spec"]["template"]["spec"]
+if pod_spec.get("automountServiceAccountToken") is not False:
+    fail("cloudflared permite token automático da ServiceAccount")
+containers = pod_spec.get("containers", [])
+if len(containers) != 1:
+    fail("edge deve conter exatamente um container")
+cloudflared = containers[0]
+if cloudflared.get("image") != (
+    "docker.io/cloudflare/cloudflared@sha256:"
+    "18626b1baac4450214535cd5bc40ef44c0635244d585ebf707749c22b6f3408f"
+):
+    fail("imagem cloudflared não está fixada no digest aprovado")
+if cloudflared.get("args") != [
+    "tunnel",
+    "--no-autoupdate",
+    "--protocol",
+    "http2",
+    "--metrics",
+    "0.0.0.0:20241",
+    "run",
+    "--token-file",
+    "/etc/cloudflared/token",
+]:
+    fail("argumentos fechados do cloudflared divergem")
+security = cloudflared.get("securityContext", {})
+if (
+    security.get("allowPrivilegeEscalation") is not False
+    or security.get("readOnlyRootFilesystem") is not True
+    or security.get("capabilities", {}).get("drop") != ["ALL"]
+):
+    fail("container cloudflared não usa o baseline restrito")
 
 validation_access = yaml_documents("platform/dre/validation-access.yaml")
 validation_role = by_kind_name(validation_access, "Role", "dre-deployctl")
@@ -168,6 +299,9 @@ if "dre-validation" not in match_condition_text:
 controller = read("operations/remote/dre-deployctl")
 for invariant in (
     "readonly NAMESPACE='dre-production'",
+    "readonly EDGE_NAMESPACE='dre-edge'",
+    "readonly EDGE_RUNTIME='/usr/local/lib/dre-deployctl/edge-runtime.yaml'",
+    "readonly EDGE_CONNECTOR_IMAGE='docker.io/cloudflare/cloudflared@sha256:",
     "readonly RESTORE_NAMESPACE='dre-restore-drill'",
     "readonly VALIDATION_NAMESPACE='dre-validation'",
     "readonly VALIDATION_MATERIAL='/usr/local/lib/dre-deployctl/dre-validation-material.py'",
@@ -181,6 +315,13 @@ for invariant in (
     "verify_release_secret_inventory",
     "require_new_receipt",
     "provision_accounts",
+    "configure_edge",
+    "rollback_edge_connector_internal",
+    "verify_edge_connector_runtime",
+    "--from-file=token=/dev/stdin",
+    "token_persisted_only_in_kubernetes:true",
+    "dre_controller_edge_expected",
+    "dre_controller_edge_ready",
     "/app/dre-admin-cli provision-private-family",
     "--passwords-stdin",
     "atomic:true",
@@ -247,6 +388,7 @@ for function_name in (
     "validate_release_disposable",
     "cleanup_validation",
     "deploy_release",
+    "configure_edge",
     "provision_accounts",
 ):
     function_match = re.search(
@@ -289,6 +431,7 @@ allowed_actions = {
     "plan *",
     "deploy *",
     "verify *",
+    "configure-edge *",
     "provision-accounts *",
     "backup *",
     "restore-drill *",
@@ -342,6 +485,10 @@ for invariant in (
     "platform.servidor.local/deployment-gate=secrets-only",
     "dre-validation-material.py",
     "validation-access.yaml",
+    "edge-runtime.yaml",
+    "require_edge_bootstrap_state",
+    'edge_namespace == "dre-edge"',
+    'index("configure-edge")',
     'for resource in "${resources[@]}"',
     "--ignore-not-found -o name | wc -l",
     "wait_for_protected_locks_release",
@@ -468,6 +615,7 @@ alert_names = {
 if alert_names != {
     "DreControllerFoundationUnavailable",
     "DreControllerReleaseUnavailable",
+    "DreControllerEdgeUnavailable",
     "DreControllerBackupStale",
     "DreControllerRestoreDrillStale",
     "DreControllerIdentityExpiring",

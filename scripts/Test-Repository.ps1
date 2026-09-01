@@ -73,6 +73,7 @@ $required = @(
     'operations/remote/bootstrap-dre-validation-executor.sh',
     'operations/remote/verify-dre-validation-executor-artifacts.py',
     'platform/dre/controller-foundation.yaml',
+    'platform/dre/edge-runtime.yaml',
     'platform/dre/validation-access.yaml',
     'platform/dre/monitoring/prometheus-alerts.yaml',
     'runbooks/dre-k3s.md',
@@ -99,8 +100,8 @@ $dreBootstrap = Get-Content -Raw -LiteralPath (
 )
 foreach ($invariant in @(
     'apiadmin@192.168.100.59',
-    'dre-controller-bootstrap-4902604dad96-20260901T151442Z',
-    '56612eebcbd60726751dea0b30c04eebaad99f1ee2d5b151b615f652943603b7',
+    'dre-controller-bootstrap-4902604dad96-20260901T213750Z',
+    '86909d98af30a98415bbb24d7f241bcb8bdb3edf0f32f3e742ef9f72a1070917',
     '4902604dad96d9b07f4010308d30e3815cb4e76446855d925079be0e3b922ce9',
     'StrictHostKeyChecking=yes'
 )) {
@@ -150,9 +151,9 @@ $dreImageBuild = Get-Content -Raw -LiteralPath (
     Join-Path $root 'operations/Invoke-DreImageBuild.ps1'
 )
 foreach ($invariant in @(
-    'f6b06765ff6196eb8dbd4a9a9fd8c3a422c42ce2',
-    'dre-image-build-f6b06765ff61-20260831T194256Z',
-    '5097b65eb68b6d841e0853dcce49b1194e9a3e62d64a1882ccd9a740352bfafd',
+    '67a6bb8b648c6ce34cdb47a9001598cf96a00f64',
+    'dre-image-build-67a6bb8b648c-20260901T215024Z',
+    '7262ae684b8a4ddab77b77e17f047a722ce87cdc2a02596f63e3e5cc0de44150',
     '2975d0f651ad96ba8b80b9992ae1f9a964f4408569af5b6dc36544165c3926af',
     'ecf9961e3ec3a06b9b4521c234d8c838e02d9c1c8e41177a604fb1904656a30f',
     'StrictHostKeyChecking=yes'

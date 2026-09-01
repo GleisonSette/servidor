@@ -18,6 +18,24 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
+  name: dre-edge
+  labels:
+    app.kubernetes.io/name: dre-edge
+    app.kubernetes.io/part-of: dre-familiar
+    platform.servidor.local/project: dre
+    platform.servidor.local/deployment-gate: blocked
+    dre.familiar/api-access: "true"
+    dre.familiar/lifecycle: edge-connector
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: v1.36
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: v1.36
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: v1.36
+---
+apiVersion: v1
+kind: Namespace
+metadata:
   name: dre-restore-drill
   labels:
     app.kubernetes.io/name: dre-restore-drill
@@ -68,6 +86,149 @@ metadata:
   labels:
     app.kubernetes.io/part-of: dre-familiar
 automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dre-cloudflared
+  namespace: dre-edge
+  labels:
+    app.kubernetes.io/name: dre-cloudflared
+    app.kubernetes.io/part-of: dre-familiar
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: dre-edge-quota
+  namespace: dre-edge
+spec:
+  hard:
+    requests.cpu: 25m
+    requests.memory: 32Mi
+    limits.cpu: 250m
+    limits.memory: 256Mi
+    pods: "1"
+    services: "0"
+    configmaps: "0"
+    secrets: "1"
+    persistentvolumeclaims: "0"
+    count/deployments.apps: "1"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: dre-edge-defaults
+  namespace: dre-edge
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 25m
+        memory: 32Mi
+      default:
+        cpu: 250m
+        memory: 256Mi
+      max:
+        cpu: 250m
+        memory: 256Mi
+      min:
+        cpu: 10m
+        memory: 16Mi
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: dre-edge
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-cluster-dns
+  namespace: dre-edge
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: dre-cloudflared
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-cloudflare-edge
+  namespace: dre-edge
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: dre-cloudflared
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 0.0.0.0/8
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.0.0.0/24
+              - 192.0.2.0/24
+              - 192.168.0.0/16
+              - 198.18.0.0/15
+              - 198.51.100.0/24
+              - 203.0.113.0/24
+              - 224.0.0.0/4
+              - 240.0.0.0/4
+      ports:
+        - protocol: TCP
+          port: 7844
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dre-api-origin
+  namespace: dre-edge
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: dre-cloudflared
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: dre-production
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: dre-api
+              app.kubernetes.io/component: api
+      ports:
+        - protocol: TCP
+          port: 8080
 ---
 apiVersion: v1
 kind: ResourceQuota
@@ -181,6 +342,7 @@ rules:
       - namespaces
     resourceNames:
       - dre-production
+      - dre-edge
       - dre-restore-drill
       - dre-validation
     verbs:
@@ -388,6 +550,62 @@ subjects:
     kind: User
     name: dre-deployctl
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dre-deployctl
+  namespace: dre-edge
+  labels:
+    app.kubernetes.io/part-of: dre-familiar
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    resourceNames:
+      - dre-cloudflare-tunnel
+    verbs:
+      - delete
+      - get
+      - patch
+      - update
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    resourceNames:
+      - dre-cloudflared
+    verbs:
+      - delete
+      - get
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dre-deployctl
+  namespace: dre-edge
+  labels:
+    app.kubernetes.io/part-of: dre-familiar
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: dre-deployctl
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: dre-deployctl
+---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -470,9 +688,9 @@ spec:
   matchConditions:
     - name: dre-scope-only
       expression: >-
-        request.namespace in ['dre-production', 'dre-restore-drill', 'dre-validation'] ||
+        request.namespace in ['dre-production', 'dre-edge', 'dre-restore-drill', 'dre-validation'] ||
         (request.resource.resource == 'namespaces' &&
-          request.name in ['dre-production', 'dre-restore-drill', 'dre-validation']) ||
+          request.name in ['dre-production', 'dre-edge', 'dre-restore-drill', 'dre-validation']) ||
         (request.resource.resource == 'storageclasses' &&
           request.name in ['dre-local-retain', 'dre-local-delete-drill'])
   validations:

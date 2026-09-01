@@ -19,6 +19,15 @@ groups:
           summary: Release corrente do DRE não passou na verificação
           runbook: /runbooks/dre-k3s.md
 
+      - alert: DreControllerEdgeUnavailable
+        expr: dre_controller_edge_expected == 1 and dre_controller_edge_ready != 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Conector HTTPS do DRE não está disponível
+          runbook: /runbooks/dre-k3s.md
+
       - alert: DreControllerBackupStale
         expr: dre_controller_release_expected == 1 and (time() - dre_controller_backup_last_success_timestamp_seconds > 129600)
         for: 15m

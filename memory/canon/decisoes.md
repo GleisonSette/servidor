@@ -779,3 +779,32 @@ operação separada e deve usar o inventário registrado, sem `autoremove` cego.
 
 D036 não autoriza migration ou deploy em `dre-production`, rota HTTPS,
 Cloudflare, R2 operacional, contas, dispositivos ou dados reais.
+
+## Resolvida D037 - Borda Cloudflare exclusiva e fechada para o DRE
+
+Em 2026-09-01, o usuário autorizou o deploy persistente do DRE e sua rota HTTPS
+no Cloudflare. Reutilizar `blindou-physical` ou qualquer conector de outro
+projeto violaria o isolamento aprovado; expor NodePort, Ingress, hostPort ou
+porta da LAN ampliaria a superfície do servidor sem necessidade.
+
+A decisão é criar um Tunnel Cloudflare e um namespace `dre-edge` exclusivos.
+O recurso Tunnel, o hostname e a regra pública continuam administrados no
+Cloudflare autenticado. O K3s recebe somente o token pela ação fechada
+`configure-edge`, via `stdin`, e o persiste no único Secret permitido,
+protegido pela criptografia de Secrets já ativa. O recibo e as métricas
+registram apenas estado, release e disponibilidade, nunca o token.
+
+O namespace nasce `blocked` e possui quota para exatamente um Pod, um Secret,
+zero Service/PVC/ConfigMap, ServiceAccount sem token e negação de rede por
+padrão. O único Deployment usa a imagem oficial `cloudflared` fixada por digest,
+sai por TCP/7844, consulta apenas o DNS do cluster e alcança somente a API DRE
+em TCP/8080. A ação exige release corrente saudável, locks dos projetos
+protegidos e rollback automático que remove Deployment/Secret e restaura o
+gate `blocked` em caso de falha.
+
+O hostname aprovado é `dre-api.fitdock.com.br`; ele encaminha somente para o
+Service ClusterIP do DRE. `/metrics` deve ser negado na borda e
+`DRE_API_ORIGIN` no Pages só é definido depois que a rota HTTPS passar nos
+smokes. Rotação ou retirada do token exige nova operação fechada; editar Secret
+ou workload manualmente não é procedimento operacional. Esta decisão não
+autoriza FCM, saldo inicial ou dados financeiros reais.

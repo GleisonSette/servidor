@@ -131,8 +131,9 @@ Somente em janela autorizada:
 
 O bootstrap valida todos os artefatos, sintaxe sudoers/systemd, K3s
 `v1.36.2+k3s1`, `x86_64` e integridade de APIWPP, Blindou e slot. Ele cria os
-dois namespaces permanentes, StorageClasses `Retain`/`Delete`, RBAC, admissão,
-identidade renovável, métricas e alertas. Um dry-run com identidade não
+três namespaces de base — produção, restauração e borda —, StorageClasses
+`Retain`/`Delete`, RBAC, admissão, identidade renovável, métricas e alertas.
+Um dry-run com identidade não
 autorizada precisa ser recusado. Falha restaura arquivos e Prometheus; se a
 fundação era nova e ainda vazia, ela também é removida.
 
@@ -146,6 +147,12 @@ permanentes — e o sexto FCM opcional — podem existir; nomes diferentes ou ga
 de produção além de `secrets-only` são recusados. A ampliação aditiva da
 fundação permanece compatível com o controlador anterior caso a troca dos
 arquivos precise ser revertida.
+
+`dre-edge` também precisa estar ausente ou com gate `blocked`, sem Deployment
+nem Secret, durante a atualização anterior ao primeiro deploy. Depois que o
+conector for configurado, uma nova versão do controlador exige procedimento de
+upgrade específico que preserve o Secret do túnel; o bootstrap inicial falha
+fechado e não tenta ler, copiar ou substituir o token.
 
 O backup transacional da instalação fica em
 `/var/backups/servidor-local/dre-controller-bootstrap/<timestamp>`. Rollback
@@ -191,7 +198,8 @@ inicialização Kubernetes não começa. Se a inicialização falhar, o controla
 remove todos os Secrets DRE criados naquela tentativa e o Pages pode receber um
 novo token antes da repetição. Não ler Secret Kubernetes para recuperar token,
 não colocar valor em argumento e não persistir o JSON em disco ou histórico.
-`DRE_API_ORIGIN` permanece ausente até a futura rota HTTPS ser autorizada.
+`DRE_API_ORIGIN` permanece ausente até a rota HTTPS ser autorizada, criada e
+verificada.
 
 O controlador gera senhas independentes para admin/API/worker/backup, URLs
 codificadas e cifra de backup em `/run`, cria Secrets por arquivo e apaga o
@@ -339,10 +347,43 @@ reconciliação explícita; nunca apaga ou restaura sobre `dre-postgres-data`.
 PITR aceita somente timestamp UTC `YYYY-MM-DDTHH:MM:SSZ`. O recibo do restore
 fica em `/var/lib/dre-deployctl/receipts`.
 
+## Borda HTTPS do DRE
+
+A borda usa um Tunnel Cloudflare exclusivo do DRE. O recurso externo, o DNS e
+a configuração do hostname são criados no painel autenticado; o servidor
+recebe somente o token desse túnel pela ação fechada:
+
+```text
+sudo -n /usr/local/sbin/dre-deployctl configure-edge RELEASE_ID OPERATION_ID
+```
+
+O token chega exclusivamente por `stdin` não interativo, nunca entra em
+argumento, arquivo de staging, recibo ou log e é persistido somente no Secret
+Kubernetes cifrado `dre-cloudflare-tunnel`. O controlador aceita a ação apenas
+para a release corrente saudável, com `dre-edge` bloqueado e vazio. Ele cria
+um único Deployment `dre-cloudflared`, fixado por digest, aguarda readiness,
+reverifica a API e os projetos protegidos e só então altera o gate para
+`connector-only`. Falha remove Deployment e Secret e retorna o namespace ao
+estado bloqueado.
+
+`dre-edge` possui quota para um Pod, um Secret, zero Service/PVC/ConfigMap,
+ServiceAccount sem token e NetworkPolicies de negação por padrão. O conector
+pode consultar DNS, sair somente por TCP/7844 para a borda pública e alcançar
+somente o Service `dre-api` em TCP/8080. Ele não recebe kubeconfig, credencial
+de registry, volume persistente ou acesso a outros projetos.
+
+O hostname público aponta para
+`http://dre-api.dre-production.svc.cluster.local:8080`. A configuração externa
+deve bloquear `/metrics`, confirmar HTTPS, health/readiness, autenticação e SSE
+e somente depois definir no Pages
+`DRE_API_ORIGIN=https://dre-api.fitdock.com.br`. Rollback desabilita primeiro
+o hostname/rota no Cloudflare e exige operação fechada futura para retirar ou
+rotacionar o conector; não apagar o Secret manualmente.
+
 ## Exposição e dados reais
 
 Este controlador não cria Ingress, NodePort, LoadBalancer, `hostPort`, regra
-UFW, Tunnel ou rota Cloudflare. Após deploy, backup e restore aprovados, a API
-continua ClusterIP. Rota HTTPS, dispositivos Android e saldo inicial
-são operações posteriores e separadamente autorizadas. PostgreSQL e métricas
-nunca recebem exposição pública.
+UFW, recurso Tunnel ou rota no painel Cloudflare. Ele pode materializar apenas
+o conector isolado de um Tunnel externo previamente criado e autorizado. A API
+continua ClusterIP; PostgreSQL e métricas nunca recebem exposição pública.
+Dispositivos Android e saldo inicial permanecem operações separadas.
