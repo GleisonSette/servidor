@@ -1846,3 +1846,28 @@ a candidata persistente passou a ser `69716bb` e produção permaneceu intacta.
 - O gate integral contínuo foi reiniciado para a nova candidata. Nenhuma
   imagem oficial, release, migration, PVC, workload, conta, rota ou dado real
   foi criado por esta renovação.
+
+## 2026-09-02 - Release oficial pronta e importação recusada antes da produção
+
+Resultado: candidata oficial, imagens e pacote assinado concluídos; a primeira
+importação falhou fechada antes de alterar o runtime persistente.
+
+- Os gates integrais do commit DRE
+  `69716bb0a23e02cc839f1adac0a41fbc521f7f04` passaram em duas pilhas sintéticas
+  independentes. As três imagens `linux/amd64` foram publicadas por digest com
+  SBOM e scan sem vulnerabilidade alta ou crítica.
+- A release `dre-20260902T061906Z-69716bb0a23e` foi empacotada duas vezes com
+  archive SHA-256
+  `ee4f050c5eb202745e85a0d7d05d7771d4c29bb2ed1c6e8bb2b304a394a1bd36`;
+  assinatura Ed25519 e envelope passaram na verificação independente.
+- `import-release` recusou a operação com `edge contém objeto proibido` antes
+  de copiar a candidata para o cache. A inspeção da fonte encontrou
+  `verify_edge_baseline` agrupando qualquer `ConfigMap` com recursos proibidos,
+  embora o Kubernetes materialize automaticamente `kube-root-ca.crt` no
+  namespace.
+- A correção mantém a quota em zero e admite no máximo esse único `ConfigMap`,
+  somente com `data.ca.crt` em PEM, sem `binaryData` e não imutável. Qualquer
+  outro nome, chave ou recurso continua falhando fechado.
+- O estado permaneceu `release=none`, gate `secrets-only`, PVC ausente e Ready
+  `0/0/0`. Nenhuma migration persistente, workload, conta, backup, rota ou dado
+  financeiro foi criado pela tentativa recusada.

@@ -795,8 +795,14 @@ protegido pela criptografia de Secrets já ativa. O recibo e as métricas
 registram apenas estado, release e disponibilidade, nunca o token.
 
 O namespace nasce `blocked` e possui quota para exatamente um Pod, um Secret,
-zero Service/PVC/ConfigMap, ServiceAccount sem token e negação de rede por
-padrão. O único Deployment usa a imagem oficial `cloudflared` fixada por digest,
+zero Service/PVC/ConfigMap de aplicação, ServiceAccount sem token e negação de
+rede por padrão. O `ConfigMap` sistêmico `kube-root-ca.crt`, materializado
+automaticamente pelo Kubernetes e não contabilizado como autoridade da
+aplicação, é a única exceção ao inventário vazio: o gate exige no máximo esse
+único nome, somente `data.ca.crt` em PEM, nenhum `binaryData` e `immutable`
+ausente ou falso. A quota de `ConfigMap` permanece zero e qualquer objeto
+adicional falha fechado. O único Deployment usa a imagem oficial
+`cloudflared` fixada por digest,
 sai por TCP/7844, consulta apenas o DNS do cluster e alcança somente a API DRE
 em TCP/8080. A ação exige release corrente saudável, locks dos projetos
 protegidos e rollback automático que remove Deployment/Secret e restaura o

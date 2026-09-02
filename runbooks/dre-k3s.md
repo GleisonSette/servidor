@@ -366,8 +366,14 @@ reverifica a API e os projetos protegidos e só então altera o gate para
 `connector-only`. Falha remove Deployment e Secret e retorna o namespace ao
 estado bloqueado.
 
-`dre-edge` possui quota para um Pod, um Secret, zero Service/PVC/ConfigMap,
-ServiceAccount sem token e NetworkPolicies de negação por padrão. O conector
+`dre-edge` possui quota para um Pod, um Secret, zero Service/PVC/ConfigMap de
+aplicação, ServiceAccount sem token e NetworkPolicies de negação por padrão.
+O único `ConfigMap` tolerado pelo gate é `kube-root-ca.crt`, criado
+automaticamente pelo controlador do Kubernetes: ele deve ser o único objeto
+desse tipo, conter somente `data.ca.crt` com certificado PEM, não possuir
+`binaryData` e não ser imutável. A quota continua em zero para impedir a
+criação de `ConfigMap` pela aplicação; qualquer outro objeto faz o controlador
+falhar fechado. O conector
 pode consultar DNS, sair somente por TCP/7844 para a borda pública e alcançar
 somente o Service `dre-api` em TCP/8080. Ele não recebe kubeconfig, credencial
 de registry, volume persistente ou acesso a outros projetos.

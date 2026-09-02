@@ -318,6 +318,12 @@ for invariant in (
     "configure_edge",
     "rollback_edge_connector_internal",
     "verify_edge_connector_runtime",
+    '(.items | length) <= 1',
+    '.metadata.name == "kube-root-ca.crt"',
+    '((.data // {}) | keys) == ["ca.crt"]',
+    'startswith("-----BEGIN CERTIFICATE-----")',
+    '((.binaryData // {}) | length) == 0',
+    "edge contém ConfigMap diferente da CA sistêmica do Kubernetes",
     "--from-file=token=/dev/stdin",
     "token_persisted_only_in_kubernetes:true",
     "dre_controller_edge_expected",
@@ -383,6 +389,8 @@ for forbidden in ("eval ", "bash -c", "sh -c", "kubectl $", "sudo -S"):
         fail(f"interface genérica detectada no controlador: {forbidden}")
 if "/usr/local/sbin/blindou-deployctl verify " in controller:
     fail("controlador DRE chama ação Blindou inexistente")
+if "get statefulset,daemonset,job,cronjob,service,pvc,configmap" in controller:
+    fail("CA sistêmica do namespace voltou a ser tratada como objeto proibido genérico")
 
 for function_name in (
     "validate_release_disposable",

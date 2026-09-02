@@ -406,7 +406,17 @@ verify_edge_baseline() {
     '[.items[].metadata.name] | sort | join(",")')" == \
     'allow-cloudflare-edge,allow-cluster-dns,allow-dre-api-origin,default-deny' ]] \
     || fail 'NetworkPolicies do edge divergem'
-  [[ "$(admin_kube -n "$EDGE_NAMESPACE" get statefulset,daemonset,job,cronjob,service,pvc,configmap \
+  admin_kube -n "$EDGE_NAMESPACE" get configmap -o json | jq -e '
+    (.items | length) <= 1 and
+    all(.items[];
+      .metadata.name == "kube-root-ca.crt" and
+      ((.data // {}) | keys) == ["ca.crt"] and
+      ((.data["ca.crt"] // "") | startswith("-----BEGIN CERTIFICATE-----")) and
+      ((.binaryData // {}) | length) == 0 and
+      (.immutable // false) == false
+    )' >/dev/null \
+    || fail 'edge contém ConfigMap diferente da CA sistêmica do Kubernetes'
+  [[ "$(admin_kube -n "$EDGE_NAMESPACE" get statefulset,daemonset,job,cronjob,service,pvc \
     -o json | jq '[.items[]] | length')" == 0 ]] \
     || fail 'edge contém objeto proibido'
 }

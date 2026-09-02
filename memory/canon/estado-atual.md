@@ -4,16 +4,17 @@ metadata:
   canon_id: canon-estado-atual
   source_path: memory/canon/estado-atual.md
   generated_from: auditoria SSH, runtime K3s, Prometheus e repositórios locais
-  updated_at: 2026-09-01
+  updated_at: 2026-09-02
   status: canonical
 
 ## Escopo e data da evidência
 
 Este canon reúne o estado atual do host: versões, portas, capacidade, backups,
 workloads e serviços. A última auditoria de capacidade ocorreu em 2026-08-26 e
-a última operação DRE foi concluída em 2026-09-01. O Blindou permanece ativo;
-o slot APIWPP/SaferWPP está sem ocupante na geração 2. O DRE possui fundação,
-Secrets e release validada no cache, mas produção continua sem runtime.
+a última operação DRE foi observada em 2026-09-02. O Blindou permanece ativo;
+o slot APIWPP/SaferWPP está sem ocupante na geração 2. O DRE possui fundação e
+Secrets, mas a nova release ainda não foi importada e produção continua sem
+runtime.
 
 ## Controlador do slot secundário verificado em 2026-08-31
 
@@ -70,15 +71,16 @@ Secrets e release validada no cache, mas produção continua sem runtime.
   `ee4a335236b0e99e5fac4ee3e30a986f0ddc8bb2`, 12 migrations, slot `none` na
   geração 2 e zero unit systemd falha.
 - O rollout persistente, migrations, backup/restore, rota HTTPS, contas e chave
-  Android estão autorizados e em andamento. A candidata agora está ligada ao
-  commit DRE `69716bb0a23e02cc839f1adac0a41fbc521f7f04`; o archive-fonte
-  determinístico tem SHA-256
-  `17ab942c6527f086e4c36298488840c05a981c8db9f2c60ec8305db787635640`.
-  A candidata anterior foi substituída depois que uma execução limpa revelou
-  uma corrida não determinística entre KSP2 e lint Android; a execução entre
-  projetos Gradle foi serializada e o gate integral foi reiniciado. Build,
-  publicação e validação descartável ainda não ocorreram para a candidata
-  atual. FCM, dispositivo autorizado, saldo inicial e dados financeiros reais
+  Android estão autorizados e em andamento. A candidata está ligada ao commit
+  DRE `69716bb0a23e02cc839f1adac0a41fbc521f7f04`; os gates integrais passaram,
+  as três imagens por digest foram publicadas e o pacote assinado
+  `dre-20260902T061906Z-69716bb0a23e` foi reproduzido.
+- A primeira importação foi recusada antes de copiar a release para o cache. O
+  controlador classificou o `ConfigMap` sistêmico `kube-root-ca.crt`, criado
+  automaticamente em `dre-edge`, como objeto proibido. Produção permaneceu em
+  `release=none`, gate `secrets-only`, sem PVC, migration ou workload. A
+  correção fail-closed aceita somente essa CA sistêmica e está em validação.
+  FCM, dispositivo autorizado, saldo inicial e dados financeiros reais
   continuam ausentes.
 
 ## PostgreSQL dedicado Blindou I1 autorizado em 2026-08-29

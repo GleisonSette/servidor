@@ -422,16 +422,14 @@ Aceite manual:
 ## Fase 3B - DRE familiar independente
 
 Status: rollout persistente autorizado e em andamento. Fundação vazia, Secrets
-pré-deploy, validação descartável schema 2, executor rootless e gates integrais
-da release `dre-20260831T202100Z-f6b06765ff61` foram concluídos. Em 2026-09-01,
-o controlador ganhou leitura de capacidade corrigida e provisionamento atômico
-das contas por `stdin`; o bundle
-`56612eebcbd60726751dea0b30c04eebaad99f1ee2d5b151b615f652943603b7`
-foi instalado e `plan` retornou `status=passed`. Produção continua com release
-`none`, gate `secrets-only`, PVC ausente e Ready `0/0/0`. A nova candidata do
-commit DRE `69716bb0a23e02cc839f1adac0a41fbc521f7f04` está com o gate integral
-em execução e precisa concluir build, publicação e `dre-validation` antes de
-migration/deploy persistentes.
+pré-deploy e executor rootless estão prontos. A candidata do commit DRE
+`69716bb0a23e02cc839f1adac0a41fbc521f7f04` passou nos gates integrais, teve as
+três imagens publicadas por digest e foi empacotada como
+`dre-20260902T061906Z-69716bb0a23e`. A importação falhou antes de copiar a
+release porque o controlador anterior tratou `kube-root-ca.crt`, criado
+automaticamente pelo Kubernetes em `dre-edge`, como objeto proibido. A
+correção restrita está em validação. Produção continua com release `none`, gate
+`secrets-only`, PVC ausente e Ready `0/0/0`.
 
 Ordem obrigatória:
 
@@ -455,9 +453,10 @@ Ordem obrigatória:
 9. concluído em 2026-08-31: executor rootless sem daemon e sem acesso ao K3s
    instalado; `make release-check` e `make e2e` aprovados em ambiente sintético
    descartável, com limpeza comprovada dos recursos da execução;
-10. em andamento sob autorização explícita de 2026-09-01: concluir os gates,
-   construir e validar a release `69716bb`, aplicar migrations/deploy
-   persistentes, criar contas atomicamente e comprovar backup/restore;
+10. em andamento sob autorização explícita de 2026-09-01: instalar a correção
+   fail-closed da CA sistêmica, importar e validar a release `69716bb`, aplicar
+   migrations/deploy persistentes, criar contas atomicamente e comprovar
+   backup/restore;
 11. em andamento sob a mesma autorização: criar rota HTTPS, configurar
    `DRE_API_ORIGIN` e chave Android definitiva. FCM, saldo inicial e dados
    financeiros reais permanecem fora desta operação.
