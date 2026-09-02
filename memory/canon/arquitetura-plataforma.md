@@ -124,6 +124,10 @@ fingerprints. Antes de invocar os controladores independentes no gate final,
 liberam explicitamente esses locks em ordem inversa. Assim, a verificação
 externa não herda nem disputa uma trava mantida pelo próprio `dre-deployctl`;
 validação, limpeza e deploy compartilham a mesma invariante testada offline.
+Como coletores periódicos também usam as travas dos projetos protegidos, o gate
+externo repete por no máximo 60 segundos somente as mensagens fechadas de
+operação ocupada. Qualquer código ou saída diferente continua falhando
+imediatamente; o retry não mascara divergência de integridade.
 
 O namespace de restauração usa PVC e StorageClass descartáveis e nunca aponta
 para o volume de produção. A prova desliga arquivamento de WAL no banco

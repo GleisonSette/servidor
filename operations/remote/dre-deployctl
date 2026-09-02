@@ -318,6 +318,31 @@ current_release_id() {
   fi
 }
 
+run_protected_command_with_retry() {
+  local busy_message="$1"
+  shift
+  local output attempt code
+  for ((attempt = 1; attempt <= 12; attempt++)); do
+    set +e
+    output="$("$@" 2>&1)"
+    code="$?"
+    set -e
+    if [[ "$code" -eq 0 ]]; then
+      printf '%s\n' "$output"
+      return 0
+    fi
+    if [[ "$code" -ne 2 || "$output" != "$busy_message" ]]; then
+      printf '%s\n' "$output" >&2
+      return "$code"
+    fi
+    if [[ "$attempt" -lt 12 ]]; then
+      sleep 5
+    fi
+  done
+  printf '%s\n' "$output" >&2
+  return "$code"
+}
+
 verify_protected_projects() {
   local controller slot_output occupant apiwpp_workloads saferwpp_workloads
   for controller in \
@@ -327,9 +352,13 @@ verify_protected_projects() {
     [[ -x "$controller" && ! -L "$controller" ]] \
       || fail "controlador de proteção ausente: ${controller}"
   done
-  /usr/local/sbin/blindou-deployctl status >/dev/null \
+  run_protected_command_with_retry \
+    '[blindou-deployctl] ERRO: outra operação Blindou está em andamento' \
+    /usr/local/sbin/blindou-deployctl status >/dev/null \
     || fail 'Blindou não está íntegro'
-  slot_output="$(/usr/local/sbin/secondary-slotctl verify)" \
+  slot_output="$(run_protected_command_with_retry \
+    '[secondary-slotctl] ERRO: outra operação do slot está em andamento' \
+    /usr/local/sbin/secondary-slotctl verify)" \
     || fail 'slot APIWPP/SaferWPP não está íntegro'
   if [[ "$slot_output" =~ ^secondary_slot_verify=passed[[:space:]]occupant=(none|apiwpp|saferwpp)[[:space:]]generation=([0-9]+)[[:space:]]apiwpp_workloads=([0-9]+)[[:space:]]saferwpp_workloads=([0-9]+)$ ]]; then
     occupant="${BASH_REMATCH[1]}"
@@ -346,7 +375,9 @@ verify_protected_projects() {
     apiwpp)
       [[ "$saferwpp_workloads" == 0 ]] || fail 'slot APIWPP possui workload SaferWPP'
       if [[ "$apiwpp_workloads" != 0 ]]; then
-        /usr/local/sbin/apiwpp-deployctl verify >/dev/null \
+        run_protected_command_with_retry \
+          'another apiwpp deployment is already running' \
+          /usr/local/sbin/apiwpp-deployctl verify >/dev/null \
           || fail 'APIWPP ocupante não está íntegro'
       fi
       ;;

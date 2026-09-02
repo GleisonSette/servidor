@@ -8,9 +8,9 @@ Import-Module (Join-Path $PSScriptRoot 'Dre.SudoBootstrap.psm1') -Force
 
 $server = 'apiadmin@192.168.100.59'
 $remoteRoot =
-    '/home/apiadmin/dre-controller-bootstrap-4902604dad96-20260902T155244Z'
+    '/home/apiadmin/dre-controller-bootstrap-4902604dad96-20260902T160958Z'
 $archiveSha256 =
-    '73d6802a39e6d3019e21f35df2e182c3bf5ff534ac8c76e8dbab9f28f6af8577'
+    'f42dd441a062c5a78dd9757208da56abd2b56ad5abe25fb677a041fab92142ca'
 $publicKeySha256 =
     '4902604dad96d9b07f4010308d30e3815cb4e76446855d925079be0e3b922ce9'
 $sshDirectory = Join-Path $env:LOCALAPPDATA 'apiwpp\ssh'
