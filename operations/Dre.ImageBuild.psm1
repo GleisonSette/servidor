@@ -187,22 +187,31 @@ function Invoke-DreImageBuild {
         [Text.Encoding]::UTF8.GetBytes($rootScript)
     )
     $remoteCommand =
-        "sudo -S -p '' -- /bin/bash -c `"printf '%s' '$encodedScript' | " +
-        "base64 --decode | /bin/bash`""
+        "sudo -S -p DRE_SUDO_PROMPT -- /bin/bash -c 'printf %s " +
+        "$encodedScript | base64 --decode | /bin/bash'"
+    $expectedMarker =
+        "dre_image_build=passed source_revision=$SourceRevision " +
+        "output=$RemoteRoot/output"
 
     $envFile = 'C:\github\servidor\.env'
     $password = Read-DreImageBuildSudoPassword -EnvFile $envFile
     try {
-        $password | & ssh.exe @SshArguments $Server $remoteCommand
+        $output = @($password | & ssh.exe @SshArguments $Server $remoteCommand)
         if ($LASTEXITCODE -ne 0) {
             throw 'Build remoto autenticado das imagens DRE falhou.'
         }
+        if ($output -notcontains $expectedMarker) {
+            throw 'Build remoto não retornou o atestado final esperado.'
+        }
+        $output | Write-Output
     }
     finally {
         $password = $null
         $rootScript = $null
         $encodedScript = $null
         $remoteCommand = $null
+        $expectedMarker = $null
+        $output = $null
     }
 }
 

@@ -429,8 +429,10 @@ três imagens publicadas por digest e foi empacotada como
 instaladas; a validação descartável passou. O primeiro deploy persistente
 falhou no `pgBackRest check` com código 82, antes das migrations, e o rollback
 passou. Produção está com release `none`, gate `secrets-only`, PVC `Bound`,
-PostgreSQL Ready e API/worker ausentes. D038 prepara o diagnóstico fechado sem
-alterar esse runtime.
+PostgreSQL Ready e API/worker ausentes. O diagnóstico D038 confirmou que o
+BusyBox recusava opções GNU de `realpath` no `archive-push` e que o rótulo de
+projeto do namespace foi retirado. O commit DRE `8c52807` corrige ambos e passa
+agora pela cadeia integral antes da nova tentativa.
 
 Ordem obrigatória:
 
@@ -456,7 +458,8 @@ Ordem obrigatória:
    descartável, com limpeza comprovada dos recursos da execução;
 10. em andamento sob autorização explícita de 2026-09-01: a segunda correção
    fail-closed e a validação `69716bb` passaram; diagnosticar o código 82 do
-   pgBackRest sob D038, corrigir a causa, aplicar migrations/deploy persistentes,
+   pgBackRest sob D038; causa corrigida em `8c52807`, renovar gates, imagens e
+   release, aplicar migrations/deploy persistentes,
    criar contas atomicamente e comprovar backup/restore;
 11. em andamento sob a mesma autorização: criar rota HTTPS, configurar
    `DRE_API_ORIGIN` e chave Android definitiva. FCM, saldo inicial e dados

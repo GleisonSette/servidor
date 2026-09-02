@@ -90,9 +90,15 @@ API e worker continuam ausentes.
   está `release=none`, gate `secrets-only`, PVC `Bound`, PostgreSQL Ready e
   API/worker em zero; `_sqlx_migrations` permanece ausente.
 - D038 autoriza somente o diagnóstico fechado desse estado para corrigir a
-  causa e retomar o deploy. Backup/restore, HTTPS, contas e chave Android ainda
-  não foram concluídos. FCM, dispositivo autorizado, saldo inicial e dados
-  financeiros reais continuam ausentes.
+  causa e retomar o deploy. O bundle de diagnóstico
+  `af943097715fb73f32d1aecba8aa6bc28f2b19bf414841357f0a6369c1f30c47`
+  foi instalado com backup `20260902T080118Z`. A coleta confirmou R2/stanza
+  acessíveis e isolou o código 82: o BusyBox recusava as opções GNU `-e --` de
+  `realpath`; confirmou também que o rótulo canônico do namespace ficou vazio.
+  O commit DRE `8c5280709b2f648268eb38aae5972f1449facc98` corrige ambos e aguarda
+  gates/imagens/release renovados. Backup/restore, HTTPS, contas e chave Android
+  ainda não foram concluídos. FCM, dispositivo autorizado, saldo inicial e
+  dados financeiros reais continuam ausentes.
 
 ## PostgreSQL dedicado Blindou I1 autorizado em 2026-08-29
 

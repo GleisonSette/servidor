@@ -1934,3 +1934,25 @@ banco/PVC para diagnóstico.
   recomprovar por leitura administrativa o recibo, os objetos exatos, a imagem
   assinada e a ausência de migrations, e passou a registrar o rótulo como
   evidência em vez de presumir que metadado ausente não integra a própria causa.
+- O mesmo padrão de aspas ambíguas existia no helper root do build de imagens.
+  Antes de renovar a candidata ele foi corrigido para o transporte já provado
+  pelo bootstrap e passou a exigir o atestado final com revisão e diretório de
+  saída exatos; código zero sem execução real também é recusado nesse fluxo.
+- O bundle de diagnóstico
+  `af943097715fb73f32d1aecba8aa6bc28f2b19bf414841357f0a6369c1f30c47`
+  foi instalado com backup transacional `20260902T080118Z`. A coleta fechada
+  provou o recibo/rollback, inventário exato, PostgreSQL Ready, PVC `Bound` e
+  ausência de `_sqlx_migrations`.
+- `pgBackRest info` confirmou stanza e repositório cifrado acessíveis, ainda sem
+  backup. O log do PostgreSQL mostrou `realpath: -e` e `realpath: --` como
+  caminhos inexistentes: a implementação usava opções GNU que o BusyBox da
+  imagem Alpine não oferece. O rótulo `platform.servidor.local/project` também
+  estava vazio após o apply da release.
+- O commit DRE `8c5280709b2f648268eb38aae5972f1449facc98` substituiu a resolução
+  por allowlist de `pg_wal`, arquivo regular não simbólico e `readlink -f`,
+  acrescentou testes positivos/negativos no container e preservou o rótulo
+  `project: dre` no manifesto. Nova release exige gates e imagens renovados.
+- O archive Git dessa revisão possui 6.748.160 bytes e SHA-256
+  `a88efcd650345cb6db8bf9c1162ef8608b251d672763e4f81748fb3c461a36a9`;
+  o staging fechado do novo build é
+  `/home/apiadmin/dre-image-build-8c5280709b2f-20260902T081043Z`.

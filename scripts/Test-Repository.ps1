@@ -113,6 +113,8 @@ $dreImagePublish = Get-Content -Raw -LiteralPath (
     Join-Path $root 'operations/Invoke-DreImagePublish.ps1'
 )
 foreach ($invariant in @(
+    '8c5280709b2f648268eb38aae5972f1449facc98',
+    'dre-image-build-8c5280709b2f-20260902T081043Z',
     'eb56421e194ddad8d8239907064aabd8b3132230bfb372ff92ee10e983908c63',
     'c93aa7638749f5aaac1a8e01787321889c78f0101809bb2880343478d0ba0467',
     '5a8b71e94f4607973145f02e27e01d50b9f7c7bc41e38d40b39606ad138b43b5',
@@ -151,9 +153,9 @@ $dreImageBuild = Get-Content -Raw -LiteralPath (
     Join-Path $root 'operations/Invoke-DreImageBuild.ps1'
 )
 foreach ($invariant in @(
-    '69716bb0a23e02cc839f1adac0a41fbc521f7f04',
-    'dre-image-build-69716bb0a23e-20260902T050116Z',
-    '17ab942c6527f086e4c36298488840c05a981c8db9f2c60ec8305db787635640',
+    '8c5280709b2f648268eb38aae5972f1449facc98',
+    'dre-image-build-8c5280709b2f-20260902T081043Z',
+    'a88efcd650345cb6db8bf9c1162ef8608b251d672763e4f81748fb3c461a36a9',
     '2975d0f651ad96ba8b80b9992ae1f9a964f4408569af5b6dc36544165c3926af',
     'ecf9961e3ec3a06b9b4521c234d8c838e02d9c1c8e41177a604fb1904656a30f',
     'StrictHostKeyChecking=yes'
@@ -167,7 +169,8 @@ $dreImageBuildModule = Get-Content -Raw -LiteralPath (
 )
 foreach ($invariant in @(
     'KEY_SERVIDOR=',
-    'sudo -S -p',
+    "sudo -S -p DRE_SUDO_PROMPT -- /bin/bash -c 'printf %s ",
+    'Build remoto não retornou o atestado final esperado.',
     'Read-DreImageBuildSudoPassword',
     'New-DreImageBuildRootWrapper'
 )) {
