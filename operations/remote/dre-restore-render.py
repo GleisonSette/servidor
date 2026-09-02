@@ -308,6 +308,7 @@ def main() -> None:
                                     {"name": "POSTGRES_USER", "value": "dre_postgres_admin"},
                                     {"name": "POSTGRES_DB", "value": "dre"},
                                     {"name": "PGDATA", "value": "/var/lib/postgresql/data/pgdata"},
+                                    {"name": "PGBACKREST_ARCHIVE_ASYNC", "value": "n"},
                                     *repository_environment,
                                     {
                                         "name": "PGBACKREST_REPO1_S3_KEY",

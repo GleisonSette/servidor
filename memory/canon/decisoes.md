@@ -1057,3 +1057,18 @@ O manifesto contém apenas nomes e chaves, nunca valores. O ambiente existe
 somente no Pod descartável, usa o mesmo Secret já copiado em memória e é removido
 com o workload. O teste do renderer valida as referências fechadas, preservando
 os mounts antissymlink e a remoção integral após o drill.
+
+## Resolvida D049 - Archive-get síncrono no restore descartável
+
+Com D048, o PostgreSQL restaurou todos os WAL disponíveis, alcançou estado
+consistente e aceitou conexões somente leitura. Mesmo assim, permaneceu sem
+ficar Ready porque `archive-async=y`, apropriado ao banco permanente, fez o
+`archive-get` aguardar até 900 segundos por um segmento posterior inexistente.
+O timeout global do drill venceu enquanto o processo continuava saudável.
+
+A decisão é definir `PGBACKREST_ARCHIVE_ASYNC=n` somente no container
+PostgreSQL descartável. O pgBackRest continua consultando o mesmo repositório e
+aplicando todo WAL existente, mas retorna imediatamente quando o próximo não
+existe, permitindo ao PostgreSQL concluir e promover a recuperação. O banco
+permanente, a configuração assinada e a política de arquivamento de produção
+não são alterados; o teste do renderer fixa explicitamente esse override local.

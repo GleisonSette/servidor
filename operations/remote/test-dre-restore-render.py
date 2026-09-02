@@ -106,6 +106,10 @@ class RestoreRenderTests(unittest.TestCase):
                 item["name"]: item for item in pod["containers"][0]["env"]
             }
             self.assertEqual(
+                postgres_environment["PGBACKREST_ARCHIVE_ASYNC"],
+                {"name": "PGBACKREST_ARCHIVE_ASYNC", "value": "n"},
+            )
+            self.assertEqual(
                 postgres_environment["PGBACKREST_REPO1_S3_ENDPOINT"]["valueFrom"][
                     "configMapKeyRef"
                 ],

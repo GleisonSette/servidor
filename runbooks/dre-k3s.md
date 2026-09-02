@@ -433,7 +433,9 @@ antissymlink usada no PostgreSQL permanente. O segundo acesso é necessário par
 buscar WAL durante a recuperação antes da abertura do banco. O container recebe
 somente referências ao Secret e ao ConfigMap efêmeros para que o `restore_command`
 do pgBackRest resolva credenciais e repositório sem materializar valores no
-manifesto.
+manifesto. `archive-async` fica desativado somente nesse container para que a
+ausência do próximo WAL encerre a recuperação em vez de aguardar o timeout de
+arquivamento usado pela produção.
 
 Se o Pod não puder ser agendado, o init container falhar ou a imagem não puder
 iniciar, a operação encerra sem aguardar todo o timeout. O recibo `failed` e a

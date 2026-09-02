@@ -728,6 +728,7 @@ for invariant in (
     '"subPath": "s3-key"',
     '"volumeMounts": volume_mounts',
     '"name": "PGBACKREST_REPO1_CIPHER_PASS"',
+    '"name": "PGBACKREST_ARCHIVE_ASYNC", "value": "n"',
     '"secretKeyRef"',
     '"name": "dre-restore-runtime-config"',
 ):
