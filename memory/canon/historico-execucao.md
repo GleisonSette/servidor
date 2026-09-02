@@ -2059,3 +2059,26 @@ alterou a produção e a nova revisão ainda não foi instalada neste registro.
 - O edge ativo é aceito somente como `connector-only`, com um conector e o único
   Secret do Tunnel; o modo bloqueado continua exigindo runtime vazio. Nenhum
   token é lido, transportado ou persistido pelo upgrade.
+
+## 2026-09-02 - Backup completo aprovado e falha isolada no restore DRE
+
+Resultado: a release com a correção RLS está ativa e o backup externo passou;
+o restore descartável revelou uma divergência de UID no controlador e preservou
+somente o PVC de teste para reconciliação.
+
+- A release `dre-20260902T173345Z-a191f86039c1` foi importada e aprovada na
+  validação descartável `20260902T173502Z-80d935c4a176`.
+- O plano `748016e8e38ccba604f7f4dbb0bf3e1ee98be117730c934662d130de767983ab`
+  foi vinculado ao backup diferencial `20260902T174018Z-e599157458e6`; o
+  upgrade `20260902T174019Z-bd9424694ca0` alterou somente o digest PostgreSQL
+  e aprovou a verificação final de API, worker e banco.
+- O backup completo `20260902T174349Z-64e638e42c47` concluiu pgBackRest e dump
+  lógico cifrado no R2. Antes do rollout, a mesma imagem confirmou em ambiente
+  sintético que `dre_backup_runtime` permanece `NOBYPASSRLS` e que o catálogo
+  restaurável contém dados protegidos por política explícita de backup.
+- O restore `20260902T174350Z-7c6c6e7e37a2` atingiu o timeout de 1.200 segundos
+  no rollout. O handler removeu StatefulSet, Service, ConfigMaps e Secrets e
+  manteve o PVC descartável, sem tocar produção.
+- O renderer fixava UID/GID/fsGroup `999`, enquanto a imagem Alpine e o runtime
+  permanente usam o usuário `postgres` `70`. D043 corrige os três campos e fixa
+  sua regressão no teste do manifesto antes de nova instalação e reconciliação.

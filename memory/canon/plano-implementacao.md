@@ -421,18 +421,14 @@ Aceite manual:
 
 ## Fase 3B - DRE familiar independente
 
-Status: rollout persistente autorizado e em andamento. Fundação, Secrets
-pré-deploy e executor rootless estão prontos. A candidata do commit DRE
-`69716bb0a23e02cc839f1adac0a41fbc521f7f04` passou nos gates integrais, teve as
-três imagens publicadas por digest e foi empacotada como
-`dre-20260902T061906Z-69716bb0a23e`. As duas correções de inventário edge foram
-instaladas; a validação descartável passou. O primeiro deploy persistente
-falhou no `pgBackRest check` com código 82, antes das migrations, e o rollback
-passou. Produção está com release `none`, gate `secrets-only`, PVC `Bound`,
-PostgreSQL Ready e API/worker ausentes. O diagnóstico D038 confirmou que o
-BusyBox recusava opções GNU de `realpath` no `archive-push` e que o rótulo de
-projeto do namespace foi retirado. O commit DRE `8c52807` corrige ambos e passa
-agora pela cadeia integral antes da nova tentativa.
+Status: rollout persistente e backup completo concluídos. A release
+`dre-20260902T173345Z-a191f86039c1` está ativa com nove migrations, API,
+worker, PostgreSQL e PVC dedicados saudáveis. O restore descartável falhou no
+timeout porque o renderer usava UID/GID `999` para uma imagem cujo usuário
+`postgres` é `70`; D043 está em implementação para corrigir, reinstalar o
+controlador, reconciliar o PVC de teste e repetir o restore. HTTPS, contas e APK
+permanecem na sequência autorizada; FCM, saldo inicial e dados financeiros reais
+continuam fora do escopo.
 
 Ordem obrigatória:
 
@@ -466,8 +462,9 @@ Ordem obrigatória:
    persistente passaram com nove migrations. O primeiro bootstrap D040 foi
    recusado sem efeito porque o instalador ainda exigia `release=none`; D041 está
    preparada para atualizar o controlador preservando uma release ativa por
-   verificação dupla e fingerprints. Instalar D041/D040, criar as contas
-   atomicamente e comprovar backup/restore;
+   verificação dupla e fingerprints. D041/D040 foram instaladas; a release
+   `a191f86` foi validada, o upgrade PostgreSQL e o backup completo passaram.
+   Corrigir D043, reconciliar o PVC de restore preservado e repetir o restore;
 11. em andamento sob a mesma autorização: criar rota HTTPS, configurar
    `DRE_API_ORIGIN` e chave Android definitiva. FCM, saldo inicial e dados
    financeiros reais permanecem fora desta operação.

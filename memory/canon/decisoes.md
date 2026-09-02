@@ -953,3 +953,27 @@ segredos. Qualquer falha primeiro restaura esse campo para o digest anterior,
 reaplica a release anterior, restaura alertas e exige que o runtime antigo volte
 a passar na verificação; falha nessa compensação fecha o gate como
 `rollback-failed`.
+
+## Resolvida D043 - UID canônico no restore PostgreSQL DRE
+
+Em 2026-09-02, o primeiro restore drill da release ativa chegou ao rollout, mas
+o StatefulSet não ficou Ready no timeout de 1.200 segundos. O renderer fixava
+`runAsUser`, `runAsGroup` e `fsGroup` em `999`; a imagem PostgreSQL Alpine
+distribuída e o StatefulSet permanente usam o usuário `postgres` de UID/GID
+`70`. Executar a imagem como identidade inexistente impede que pgBackRest e
+PostgreSQL resolvam corretamente o usuário e a propriedade dos arquivos.
+
+A decisão é usar `70` nos três campos do Pod descartável, mantendo
+`runAsNonRoot`, seccomp, capabilities removidas, filesystem raiz somente leitura
+e PVC separado. O teste do renderer passa a afirmar explicitamente a identidade
+para impedir regressão. A instalação continua no modo `active-release`, com
+verificação antes/depois e fingerprints imutáveis; ela não executa restore nem
+altera workloads por efeito colateral. O bootstrap aceita o PVC preservado
+somente quando recibo, operação, labels, StorageClass, claim e PV recompõem o
+estado falho exato e exige fingerprint idêntico antes/depois.
+
+A ação `cleanup-restore RELEASE_ID OPERATION_ID` remove apenas o PVC fixo do
+restore cujo recibo está `failed`, depois de confirmar ausência de workload,
+vínculo do PV e release corrente. Ela aguarda o PV `Delete` desaparecer,
+reverifica produção e projetos protegidos e grava recibo próprio; nome de
+recurso, caminho ou alvo livre continuam inexistentes na interface.

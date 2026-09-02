@@ -254,9 +254,9 @@ def main() -> None:
                         "terminationGracePeriodSeconds": 60,
                         "securityContext": {
                             "runAsNonRoot": True,
-                            "runAsUser": 999,
-                            "runAsGroup": 999,
-                            "fsGroup": 999,
+                            "runAsUser": 70,
+                            "runAsGroup": 70,
+                            "fsGroup": 70,
                             "fsGroupChangePolicy": "OnRootMismatch",
                             "seccompProfile": {"type": "RuntimeDefault"},
                         },

@@ -13,8 +13,37 @@ Este canon reúne o estado atual do host: versões, portas, capacidade, backups,
 workloads e serviços. A última auditoria de capacidade ocorreu em 2026-08-26 e
 a última operação DRE foi observada em 2026-09-02. O Blindou permanece ativo;
 o slot APIWPP/SaferWPP está sem ocupante na geração 2. O DRE possui fundação,
-Secrets, release no cache e PostgreSQL/PVC dedicados preservados pelo rollback;
-API e worker continuam ausentes.
+Secrets, PostgreSQL/PVC dedicados e a release
+`dre-20260902T173345Z-a191f86039c1` ativa, com API, worker e PostgreSQL Ready.
+O backup completo externo passou. O primeiro restore drill dessa release
+atingiu o timeout de rollout porque o manifesto executava a imagem Alpine como
+UID/GID `999`, inexistente nela, em vez do usuário `postgres` `70`; o PVC
+descartável foi preservado e a correção D043 está pronta para instalação.
+Borda HTTPS e contas privadas ainda não foram concluídas.
+
+## DRE ativo e backup completo observado em 2026-09-02
+
+- A release `dre-20260902T173345Z-a191f86039c1`, archive SHA-256
+  `642d8ab12a04ea55a9edfb9b50d65b857a98e2c6ef656061b7950cfa11a85972`,
+  passou na validação descartável `20260902T173502Z-80d935c4a176`; namespace,
+  PVC e PV de validação foram removidos.
+- O backup diferencial `20260902T174018Z-e599157458e6` autorizou o upgrade
+  PostgreSQL `20260902T174019Z-bd9424694ca0`. A release foi ativada somente
+  depois de readiness, pgBackRest e verificação dos três componentes.
+- O PostgreSQL corrente usa
+  `dre-postgres@sha256:63607d2b14a35a52496dfb2da21a1d6fcf661d43d301e9d7644fff5d9a6268bd`.
+  O dump lógico executa `--enable-row-security`; o login de backup permanece
+  `NOBYPASSRLS`, e uma prova sintética confirmou tabela protegida no catálogo
+  cifrado.
+- O backup completo `20260902T174349Z-64e638e42c47` foi conferido pelo
+  pgBackRest e incluiu a exportação lógica cifrada no R2.
+- O restore drill `20260902T174350Z-7c6c6e7e37a2` renderizou e aplicou o
+  ambiente isolado, mas o StatefulSet não ficou Ready em 1.200 segundos. A
+  compensação removeu workload, Service, ConfigMaps e Secrets e preservou
+  somente o PVC descartável, conforme o contrato de diagnóstico.
+- A divergência determinística está no renderer: produção e a imagem
+  PostgreSQL usam UID/GID `70`, enquanto o restore fixava `999`. D043 alinha
+  `runAsUser`, `runAsGroup` e `fsGroup` a `70` e adiciona regressão contratual.
 
 ## Controlador do slot secundário verificado em 2026-08-31
 

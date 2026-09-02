@@ -70,6 +70,75 @@ require_empty_namespace() {
   done
 }
 
+restore_configuration_fingerprint() {
+  if ! "$K3S" kubectl --namespace dre-restore-drill get pvc dre-restore-data \
+      >/dev/null 2>&1; then
+    printf absent
+    return
+  fi
+  local pv_name
+  pv_name="$("$K3S" kubectl --namespace dre-restore-drill get pvc dre-restore-data \
+    -o jsonpath='{.spec.volumeName}')"
+  {
+    "$K3S" kubectl --namespace dre-restore-drill get pvc dre-restore-data -o json \
+      | jq -cS '{apiVersion,kind,metadata:{name:.metadata.name,namespace:.metadata.namespace,uid:.metadata.uid,labels:.metadata.labels,annotations:.metadata.annotations,finalizers:.metadata.finalizers},spec,status:{phase:.status.phase}}'
+    "$K3S" kubectl get pv "$pv_name" -o json \
+      | jq -cS '{apiVersion,kind,metadata:{name:.metadata.name,uid:.metadata.uid,labels:.metadata.labels,annotations:.metadata.annotations,finalizers:.metadata.finalizers},spec,status:{phase:.status.phase}}'
+  } | sha256sum | cut -d' ' -f1
+}
+
+require_restore_bootstrap_state() {
+  if ! "$K3S" kubectl --namespace dre-restore-drill get pvc dre-restore-data \
+      >/dev/null 2>&1; then
+    require_empty_namespace dre-restore-drill
+    return
+  fi
+  local pvc_json operation_id receipt release_id pvc_uid pv_name
+  for resource in deployments.apps statefulsets.apps daemonsets.apps replicasets.apps \
+      replicationcontrollers jobs.batch cronjobs.batch pods services secrets; do
+    require_exact_names dre-restore-drill "$resource" ''
+  done
+  require_exact_names dre-restore-drill persistentvolumeclaims \
+    'persistentvolumeclaim/dre-restore-data'
+  pvc_json="$("$K3S" kubectl --namespace dre-restore-drill \
+    get pvc dre-restore-data -o json)"
+  jq -e '
+    .metadata.labels["app.kubernetes.io/name"] == "dre-restore-postgres" and
+    .metadata.labels["app.kubernetes.io/component"] == "restore-drill" and
+    .metadata.labels["app.kubernetes.io/part-of"] == "dre-familiar" and
+    .metadata.labels["app.kubernetes.io/managed-by"] == "dre-deployctl" and
+    (.metadata.labels["dre.familiar/operation-id"] | test("^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$")) and
+    .spec.storageClassName == "dre-local-delete-drill" and
+    .spec.accessModes == ["ReadWriteOnce"] and
+    .spec.resources.requests.storage == "20Gi" and
+    .status.phase == "Bound" and
+    (.spec.volumeName | test("^pvc-[0-9a-f-]{36}$"))
+  ' <<<"$pvc_json" >/dev/null \
+    || fail 'PVC de restore preservado diverge do contrato fechado'
+  operation_id="$(jq -r '.metadata.labels["dre.familiar/operation-id"]' <<<"$pvc_json")"
+  receipt="${STATE_ROOT}/receipts/restore-${operation_id}.json"
+  [[ -f "$receipt" && ! -L "$receipt" \
+      && "$(stat -c '%U:%G:%a:%h' "$receipt")" == 'root:root:600:1' ]] \
+    || fail 'recibo do restore falho está ausente ou inseguro'
+  [[ -f "${STATE_ROOT}/current-release" && ! -L "${STATE_ROOT}/current-release" ]] \
+    || fail 'restore preservado exige release corrente'
+  release_id="$(<"${STATE_ROOT}/current-release")"
+  jq -e --arg release_id "$release_id" --arg operation_id "$operation_id" '
+    .schema == 1 and .status == "failed" and .release_id == $release_id and
+    .operation_id == $operation_id
+  ' "$receipt" >/dev/null || fail 'recibo não comprova restore falho preservado'
+  pvc_uid="$(jq -r '.metadata.uid' <<<"$pvc_json")"
+  pv_name="$(jq -r '.spec.volumeName' <<<"$pvc_json")"
+  "$K3S" kubectl get pv "$pv_name" -o json \
+    | jq -e --arg pvc_uid "$pvc_uid" '
+      .spec.storageClassName == "dre-local-delete-drill" and
+      .spec.persistentVolumeReclaimPolicy == "Delete" and
+      .spec.claimRef.namespace == "dre-restore-drill" and
+      .spec.claimRef.name == "dre-restore-data" and
+      .spec.claimRef.uid == $pvc_uid
+    ' >/dev/null || fail 'PV de restore preservado diverge do PVC fechado'
+}
+
 require_production_predeploy_state() {
   local -a resources=(
     deployments.apps statefulsets.apps daemonsets.apps replicasets.apps
@@ -475,6 +544,7 @@ production_bootstrap_mode=predeploy
 production_fingerprint_before=absent
 edge_fingerprint_before=absent
 validation_fingerprint_before=absent
+restore_fingerprint_before=absent
 declare -a targets=(
   /usr/local/sbin/dre-deployctl
   /usr/local/sbin/dre-kube-identityctl
@@ -565,7 +635,8 @@ if "$K3S" kubectl get validatingadmissionpolicy dre-controller-only >/dev/null 2
     require_production_predeploy_state
   fi
   require_edge_bootstrap_state "$production_bootstrap_mode"
-  require_empty_namespace dre-restore-drill
+  require_restore_bootstrap_state
+  restore_fingerprint_before="$(restore_configuration_fingerprint)"
   require_validation_bootstrap_state
   validation_fingerprint_before="$(validation_configuration_fingerprint)"
   if [[ "$production_bootstrap_mode" == predeploy ]]; then
@@ -597,7 +668,9 @@ case "$production_bootstrap_mode" in
   *) fail 'modo interno de bootstrap DRE inválido' ;;
 esac
 require_edge_bootstrap_state "$production_bootstrap_mode"
-require_empty_namespace dre-restore-drill
+require_restore_bootstrap_state
+[[ "$(restore_configuration_fingerprint)" == "$restore_fingerprint_before" ]] \
+  || fail 'PVC do restore falho mudou antes da atualização do controlador'
 require_validation_bootstrap_state
 
 install -d -m 0700 -o root -g root "$CONFIG_ROOT" "$LIB_ROOT" "$STATE_ROOT" \
@@ -723,7 +796,9 @@ case "$production_bootstrap_mode" in
   predeploy) require_production_predeploy_state ;;
   *) fail 'modo interno de bootstrap DRE inválido' ;;
 esac
-require_empty_namespace dre-restore-drill
+require_restore_bootstrap_state
+[[ "$(restore_configuration_fingerprint)" == "$restore_fingerprint_before" ]] \
+  || fail 'PVC do restore falho mudou durante a atualização do controlador'
 require_validation_bootstrap_state
 [[ "$(validation_configuration_fingerprint)" == "$validation_fingerprint_before" ]] \
   || fail 'configuração da validação bloqueada mudou durante o bootstrap'

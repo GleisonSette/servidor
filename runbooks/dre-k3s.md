@@ -3,15 +3,13 @@
 ## Estado e limite
 
 O controlador schema 2 e a fundação Kubernetes do DRE estão instalados no
-servidor. A release schema 2 `dre-20260902T061906Z-69716bb0a23e` passou na
-operação descartável `20260902T064929Z-97891da83f92`; nove migrations,
-acessos, E2E e reinícios dos três componentes foram comprovados, e
-`dre-validation`/PVC/PV foram removidos. Ela ainda não é a release corrente.
-O primeiro deploy persistente falhou no `pgBackRest check`, antes das
-migrations, e o rollback foi aprovado: os cinco Secrets sem FCM, o PostgreSQL
-dedicado e o PVC `Retain` permanecem, API/worker estão ausentes e o gate voltou
-a `secrets-only`. O diagnóstico dessa falha usa somente a operação fechada
-descrita abaixo.
+servidor. A release `dre-20260902T173345Z-a191f86039c1` está corrente, com nove
+migrations, API, worker e PostgreSQL Ready e PVC `Retain` dedicado. O backup
+completo `20260902T174349Z-64e638e42c47` passou no R2. O restore seguinte
+preservou o PVC descartável após timeout causado pelo UID `999` divergente da
+imagem Alpine, cujo usuário `postgres` é `70`; D043 corrige o renderer e exige
+reconciliação fechada desse PVC antes de repetir o ensaio. HTTPS e contas ainda
+não foram concluídos.
 
 O DRE é um projeto sempre ativo e independente. Ele não integra nem altera o
 slot APIWPP/SaferWPP e não compartilha namespace, ServiceAccount, Secret, PVC,
@@ -427,6 +425,19 @@ nove no schema 2 e sete em rollback legado — e zero índice inválido. Ao pass
 remove StatefulSet, Service, ConfigMaps, Secrets e PVC e
 aguarda o PV ser apagado. Falha preserva o PVC para diagnóstico e exige
 reconciliação explícita; nunca apaga ou restaura sobre `dre-postgres-data`.
+
+Depois de identificar a causa, a única reconciliação autorizada do volume
+descartável preservado usa a mesma release e o mesmo ID da operação falha:
+
+```text
+sudo -n /usr/local/sbin/dre-deployctl cleanup-restore RELEASE_ID OPERATION_ID
+```
+
+A ação exige recibo `failed`, ausência dos workloads temporários, labels e
+UIDs correspondentes, PVC de 20 GiB na StorageClass `Delete` e PV vinculado com
+reclaim policy `Delete`. Ela não aceita nome ou caminho fornecido pelo operador,
+remove somente `dre-restore-data`, aguarda o PV desaparecer e reverifica a
+produção e os projetos protegidos.
 
 PITR aceita somente timestamp UTC `YYYY-MM-DDTHH:MM:SSZ`. O recibo do restore
 fica em `/var/lib/dre-deployctl/receipts`.

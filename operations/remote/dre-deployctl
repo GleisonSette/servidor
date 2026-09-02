@@ -2260,6 +2260,123 @@ restore_drill() {
   pass 'restore descartável validou migrations e índices e removeu o PV temporário'
 }
 
+cleanup_restore() {
+  [[ "$#" -eq 2 ]] || fail 'uso: cleanup-restore RELEASE_ID OPERATION_ID'
+  local release_id="$1" operation_id="$2" source_receipt cleanup_receipt
+  local pvc_json pvc_uid pv_name protected_before deadline phase=preflight
+  require_cached_release "$release_id"
+  require_schema_two_release "$release_id"
+  require_operation_id "$operation_id"
+  require_new_receipt restore-cleanup "$operation_id"
+  [[ "$(current_release_id)" == "$release_id" ]] \
+    || fail 'cleanup do restore exige a release corrente'
+  source_receipt="${RECEIPT_ROOT}/restore-${operation_id}.json"
+  require_root_file "$source_receipt" '^600$'
+  jq -e --arg release_id "$release_id" --arg operation_id "$operation_id" '
+    .schema == 1 and
+    .status == "failed" and
+    .release_id == $release_id and
+    .operation_id == $operation_id and
+    (.target == "latest" or (.target | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")))
+  ' "$source_receipt" >/dev/null \
+    || fail 'recibo não comprova restore descartável falho'
+  verify_foundation
+  verify_runtime_core "$release_id"
+  verify_protected_projects
+  acquire_controller_lock
+  acquire_shared_maintenance_locks
+  protected_before="$(protected_fingerprint)"
+  for resource in deployments.apps statefulsets.apps daemonsets.apps replicasets.apps \
+      replicationcontrollers jobs.batch cronjobs.batch pods services secrets; do
+    [[ -z "$(admin_kube -n "$RESTORE_NAMESPACE" get "$resource" \
+      --ignore-not-found -o name)" ]] \
+      || fail "restore preservado contém recurso inesperado: ${resource}"
+  done
+  pvc_json="$(admin_kube -n "$RESTORE_NAMESPACE" get pvc dre-restore-data -o json)"
+  jq -e --arg operation_id "$operation_id" '
+    .metadata.name == "dre-restore-data" and
+    .metadata.namespace == "dre-restore-drill" and
+    .metadata.labels["app.kubernetes.io/name"] == "dre-restore-postgres" and
+    .metadata.labels["app.kubernetes.io/component"] == "restore-drill" and
+    .metadata.labels["app.kubernetes.io/part-of"] == "dre-familiar" and
+    .metadata.labels["app.kubernetes.io/managed-by"] == "dre-deployctl" and
+    .metadata.labels["dre.familiar/operation-id"] == $operation_id and
+    .spec.storageClassName == "dre-local-delete-drill" and
+    .spec.accessModes == ["ReadWriteOnce"] and
+    .spec.resources.requests.storage == "20Gi" and
+    .status.phase == "Bound" and
+    (.spec.volumeName | test("^pvc-[0-9a-f-]{36}$"))
+  ' <<<"$pvc_json" >/dev/null \
+    || fail 'PVC preservado não corresponde ao restore falho'
+  pvc_uid="$(jq -r '.metadata.uid' <<<"$pvc_json")"
+  pv_name="$(jq -r '.spec.volumeName' <<<"$pvc_json")"
+  admin_kube get pv "$pv_name" -o json \
+    | jq -e --arg namespace "$RESTORE_NAMESPACE" --arg pvc_uid "$pvc_uid" '
+      .spec.storageClassName == "dre-local-delete-drill" and
+      .spec.persistentVolumeReclaimPolicy == "Delete" and
+      .spec.claimRef.namespace == $namespace and
+      .spec.claimRef.name == "dre-restore-data" and
+      .spec.claimRef.uid == $pvc_uid
+    ' >/dev/null || fail 'PV preservado não corresponde ao PVC descartável'
+  cleanup_receipt="${RECEIPT_ROOT}/restore-cleanup-${operation_id}.json"
+  jq -cn \
+    --arg release_id "$release_id" \
+    --arg operation_id "$operation_id" \
+    --arg source_receipt_sha256 "$(sha256sum "$source_receipt" | cut -d' ' -f1)" \
+    --arg pvc_uid "$pvc_uid" \
+    --arg pv_name "$pv_name" \
+    --arg started_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{schema:1,status:"started",release_id:$release_id,operation_id:$operation_id,source_receipt_sha256:$source_receipt_sha256,pvc_uid:$pvc_uid,pv_name:$pv_name,started_at_utc:$started_at_utc}' \
+    | atomic_write "$cleanup_receipt" 0600
+  restore_cleanup_failed() {
+    local code="$1" release_id="$2" operation_id="$3" receipt="$4" phase="$5"
+    set +e
+    jq -cn \
+      --arg release_id "$release_id" \
+      --arg operation_id "$operation_id" \
+      --arg phase "$phase" \
+      --arg failed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{schema:1,status:"failed",release_id:$release_id,operation_id:$operation_id,phase:$phase,failed_at_utc:$failed_at_utc}' \
+      | atomic_write "$receipt" 0600 || true
+    audit_event cleanup-restore failed "$release_id" "$operation_id"
+    exit "$code"
+  }
+  register_exit_trap restore_cleanup_failed \
+    "$release_id" "$operation_id" "$cleanup_receipt" "$phase"
+  phase=delete-pvc
+  register_exit_trap restore_cleanup_failed \
+    "$release_id" "$operation_id" "$cleanup_receipt" "$phase"
+  kube -n "$RESTORE_NAMESPACE" delete pvc dre-restore-data \
+    --wait=true --timeout=120s >/dev/null
+  deadline=$((SECONDS + 180))
+  while admin_kube get pv "$pv_name" >/dev/null 2>&1; do
+    ((SECONDS < deadline)) \
+      || fail 'PV descartável preservado não foi removido pela StorageClass Delete'
+    sleep 2
+  done
+  [[ -z "$(admin_kube -n "$RESTORE_NAMESPACE" get pvc --ignore-not-found -o name)" ]] \
+    || fail 'PVC permaneceu após a limpeza do restore'
+  phase=protected-projects
+  register_exit_trap restore_cleanup_failed \
+    "$release_id" "$operation_id" "$cleanup_receipt" "$phase"
+  [[ "$(protected_fingerprint)" == "$protected_before" ]] \
+    || fail 'recurso protegido mudou durante a limpeza do restore DRE'
+  release_shared_maintenance_locks
+  verify_protected_projects
+  verify_runtime_core "$release_id"
+  jq -cn \
+    --arg release_id "$release_id" \
+    --arg operation_id "$operation_id" \
+    --arg pvc_uid "$pvc_uid" \
+    --arg pv_name "$pv_name" \
+    --arg completed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{schema:1,status:"passed",release_id:$release_id,operation_id:$operation_id,pvc_uid:$pvc_uid,pv_name:$pv_name,cleaned:true,completed_at_utc:$completed_at_utc}' \
+    | atomic_write "$cleanup_receipt" 0600
+  trap - EXIT
+  audit_event cleanup-restore passed "$release_id" "$operation_id"
+  pass 'PVC/PV preservados pelo restore falho foram removidos'
+}
+
 write_metrics() {
   [[ "$#" -eq 0 ]] || fail 'uso: metrics'
   local temporary ready=0 release_expected=0 release_ready=0 edge_expected=0 edge_ready=0
@@ -2634,7 +2751,7 @@ status() {
 
 contract() {
   [[ "$#" -eq 0 ]] || fail 'uso: contract'
-  jq -cn '{schema:2,controller:"dre-deployctl",namespace:"dre-production",edge_namespace:"dre-edge",validation_namespace:"dre-validation",restore_namespace:"dre-restore-drill",lifecycle:"always-active",secondary_slot_member:false,permanent_containers:["api","worker","postgres"],edge_connector:"cloudflared-isolated",images:"digest-only",release_signature:"ed25519",release_schemas:{import:[1,2],deploy:[2],rollback:[1,2]},migration_count:9,validation:{required_before_plan:true,disposable:true,preserve_on_failure:true,cleanup_on_success:true,restarts:["api","worker","postgres"]},postgres_upgrade:{requires_current_backup_after_plan:true,only_postgres_digest_change:true,rollback:true},first_deploy_recovery:{requires_failed_receipt:true,requires_validation:true,preserves_pvc:true,applies_migrations:false},secret_input_schema:1,bridge_token_source:"orchestrator-stdin",edge_token_source:"orchestrator-stdin",read_only:["contract","status","diagnose-validation","diagnose-production"],mutations:["import-release","initialize-secrets","validate-release","cleanup-validation","recover-first-deploy","plan","deploy","upgrade-postgres","configure-edge","provision-accounts","backup","restore-drill"],generic_shell:false,generic_kubectl:false}'
+  jq -cn '{schema:2,controller:"dre-deployctl",namespace:"dre-production",edge_namespace:"dre-edge",validation_namespace:"dre-validation",restore_namespace:"dre-restore-drill",lifecycle:"always-active",secondary_slot_member:false,permanent_containers:["api","worker","postgres"],edge_connector:"cloudflared-isolated",images:"digest-only",release_signature:"ed25519",release_schemas:{import:[1,2],deploy:[2],rollback:[1,2]},migration_count:9,validation:{required_before_plan:true,disposable:true,preserve_on_failure:true,cleanup_on_success:true,restarts:["api","worker","postgres"]},postgres_upgrade:{requires_current_backup_after_plan:true,only_postgres_digest_change:true,rollback:true},first_deploy_recovery:{requires_failed_receipt:true,requires_validation:true,preserves_pvc:true,applies_migrations:false},secret_input_schema:1,bridge_token_source:"orchestrator-stdin",edge_token_source:"orchestrator-stdin",read_only:["contract","status","diagnose-validation","diagnose-production"],mutations:["import-release","initialize-secrets","validate-release","cleanup-validation","recover-first-deploy","plan","deploy","upgrade-postgres","configure-edge","provision-accounts","backup","restore-drill","cleanup-restore"],generic_shell:false,generic_kubectl:false}'
 }
 
 main() {
@@ -2663,6 +2780,7 @@ main() {
     provision-accounts) provision_accounts "$@" ;;
     backup) backup_database "$@" ;;
     restore-drill) restore_drill "$@" ;;
+    cleanup-restore) cleanup_restore "$@" ;;
     metrics) write_metrics "$@" ;;
     status) status "$@" ;;
     *) fail 'ação não permitida' ;;

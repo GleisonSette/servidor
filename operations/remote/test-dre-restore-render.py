@@ -67,6 +67,9 @@ class RestoreRenderTests(unittest.TestCase):
             self.assertEqual(pvc["spec"]["storageClassName"], "dre-local-delete-drill")
             statefulset = next(doc for doc in documents if doc.get("kind") == "StatefulSet")
             pod = statefulset["spec"]["template"]["spec"]
+            self.assertEqual(pod["securityContext"]["runAsUser"], 70)
+            self.assertEqual(pod["securityContext"]["runAsGroup"], 70)
+            self.assertEqual(pod["securityContext"]["fsGroup"], 70)
             self.assertEqual(pod["imagePullSecrets"], [{"name": "dre-registry-pull"}])
             self.assertEqual(pod["initContainers"][0]["command"], ["/usr/local/bin/dre-pgbackrest-restore"])
             self.assertIn("archive_mode=off", pod["containers"][0]["args"])

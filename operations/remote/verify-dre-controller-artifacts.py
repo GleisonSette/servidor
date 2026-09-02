@@ -364,6 +364,12 @@ for invariant in (
     "generic_kubectl:false",
     'dre-pgbackrest "$action"',
     "restore-drill",
+    "cleanup-restore",
+    "restore-cleanup",
+    'metadata.labels["dre.familiar/operation-id"] == $operation_id',
+    '.spec.persistentVolumeReclaimPolicy == "Delete"',
+    "recibo não comprova restore descartável falho",
+    "PVC/PV preservados pelo restore falho foram removidos",
     "validate-release",
     "cleanup-validation",
     "recover-first-deploy",
@@ -407,6 +413,7 @@ for invariant in (
     "register_exit_trap deploy_failed",
     "register_exit_trap backup_failed",
     "register_exit_trap restore_failed",
+    "register_exit_trap restore_cleanup_failed",
     "require_schema_two_release",
     "require_validation_receipt",
     "validation_cleanup_internal",
@@ -465,6 +472,7 @@ for function_name in (
     "upgrade_postgres",
     "configure_edge",
     "provision_accounts",
+    "cleanup_restore",
 ):
     function_match = re.search(
         rf"(?ms)^{function_name}\(\) \{{.*?(?=^[a-z_][a-z0-9_]*\(\) \{{)",
@@ -513,6 +521,7 @@ allowed_actions = {
     "provision-accounts *",
     "backup *",
     "restore-drill *",
+    "cleanup-restore *",
 }
 actual_actions = {
     line.split("/usr/local/sbin/dre-deployctl ", 1)[1] for line in lines
@@ -530,6 +539,7 @@ for unsafe_trap in (
     "trap postgres_upgrade_failed EXIT",
     "trap backup_failed EXIT",
     "trap restore_failed EXIT",
+    "trap restore_cleanup_failed EXIT",
 ):
     if unsafe_trap in controller:
         fail(f"trap EXIT sem contexto preservado: {unsafe_trap}")
@@ -574,7 +584,11 @@ for invariant in (
     '.edge.gate == "connector-only" and .edge.ready == 1',
     'dre-deployctl verify "$release_id"',
     "Pod administrativo efêmero existe durante a atualização do controlador",
-    "require_empty_namespace dre-restore-drill",
+    "require_restore_bootstrap_state",
+    "restore_configuration_fingerprint",
+    "PVC do restore falho mudou durante a atualização do controlador",
+    "recibo não comprova restore falho preservado",
+    '.spec.persistentVolumeReclaimPolicy == "Delete"',
     "require_validation_namespace_absent",
     "require_validation_bootstrap_state",
     "validation_configuration_fingerprint",
