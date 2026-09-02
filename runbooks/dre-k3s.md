@@ -322,6 +322,8 @@ libera explicitamente os locks de PostgreSQL Blindou, slot e Blindou antes de
 chamar os verificadores independentes. O gate offline exige essa ordem em
 `validate-release`, `cleanup-validation` e `deploy`, evitando auto-contenção do
 próprio controlador.
+Contenção transitória ao adquirir cada lock compartilhado aguarda no máximo 60
+segundos; esgotar esse prazo continua recusando a operação sem mutação.
 
 Falha restaura a plataforma e o runtime anteriores; na primeira release remove
 somente os dois Deployments, Services e PDBs de aplicação. PVC, PostgreSQL,

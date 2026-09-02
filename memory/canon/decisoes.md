@@ -1027,3 +1027,17 @@ copiado em memória. Isso permite completar a recuperação sem copiar valor par
 ConfigMap, argumento, manifesto ou recibo. O teste do renderer exige que init e
 PostgreSQL recebam exatamente o mesmo conjunto fechado de mounts; o Secret e os
 workloads continuam removidos no sucesso e o PVC continua preservado na falha.
+
+## Resolvida D047 - Espera limitada pelos locks compartilhados
+
+Depois do restore D046, `cleanup-restore` confirmou o Blindou saudável, mas
+falhou imediatamente ao adquirir o lock compartilhado. A consulta fechada de
+estado pode deixar por poucos segundos um processo auxiliar com o descritor de
+lock herdado; tratar essa janela transitória como manutenção concorrente torna
+a operação impossível mesmo sem mudança real no projeto protegido.
+
+A decisão é aguardar até 60 segundos ao adquirir os locks do Blindou, Blindou
+Data e slot secundário. O controlador DRE permanece adquirido durante a espera,
+portanto duas operações DRE não avançam juntas. Se o prazo expirar, a ação
+continua falhando antes da mutação; não há remoção forçada de lock, encerramento
+de processo externo nem alteração nos controladores dos outros projetos.

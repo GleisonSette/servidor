@@ -162,16 +162,16 @@ acquire_controller_lock() {
 
 acquire_shared_maintenance_locks() {
   exec 8>"$BLINDOU_LOCK"
-  flock --nonblock 8 || fail 'operação Blindou em andamento'
+  flock --wait 60 8 || fail 'operação Blindou em andamento'
   [[ -f "$SECONDARY_SLOT_LOCK" && ! -L "$SECONDARY_SLOT_LOCK" ]] \
     || fail 'lock do slot secundário ausente ou inseguro'
   exec 9<>"$SECONDARY_SLOT_LOCK"
-  flock --nonblock 9 || fail 'transição APIWPP/SaferWPP em andamento'
+  flock --wait 60 9 || fail 'transição APIWPP/SaferWPP em andamento'
   if admin_kube get namespace blindou-data >/dev/null 2>&1; then
     [[ -f "$BLINDOU_DATA_LOCK" && ! -L "$BLINDOU_DATA_LOCK" ]] \
       || fail 'lock do PostgreSQL Blindou ausente ou inseguro'
     exec 10<>"$BLINDOU_DATA_LOCK"
-    flock --nonblock 10 || fail 'operação PostgreSQL Blindou em andamento'
+    flock --wait 60 10 || fail 'operação PostgreSQL Blindou em andamento'
   fi
 }
 
