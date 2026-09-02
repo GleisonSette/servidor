@@ -425,10 +425,11 @@ Status: rollout persistente autorizado e em andamento. Fundação vazia, Secrets
 pré-deploy e executor rootless estão prontos. A candidata do commit DRE
 `69716bb0a23e02cc839f1adac0a41fbc521f7f04` passou nos gates integrais, teve as
 três imagens publicadas por digest e foi empacotada como
-`dre-20260902T061906Z-69716bb0a23e`. A importação falhou antes de copiar a
-release porque o controlador anterior tratou `kube-root-ca.crt`, criado
-automaticamente pelo Kubernetes em `dre-edge`, como objeto proibido. A
-correção restrita está em validação. Produção continua com release `none`, gate
+`dre-20260902T061906Z-69716bb0a23e`. A primeira correção passou a aceitar
+somente `kube-root-ca.crt` e permitiu importar a release. Durante essa operação,
+a prova de zero Deployment/Secret revelou uma leitura com RBAC insuficiente que
+retornava `Forbidden`; a segunda correção fail-closed está em validação antes
+de `validate-release`. Produção continua com release `none`, gate
 `secrets-only`, PVC ausente e Ready `0/0/0`.
 
 Ordem obrigatória:
@@ -453,8 +454,8 @@ Ordem obrigatória:
 9. concluído em 2026-08-31: executor rootless sem daemon e sem acesso ao K3s
    instalado; `make release-check` e `make e2e` aprovados em ambiente sintético
    descartável, com limpeza comprovada dos recursos da execução;
-10. em andamento sob autorização explícita de 2026-09-01: instalar a correção
-   fail-closed da CA sistêmica, importar e validar a release `69716bb`, aplicar
+10. em andamento sob autorização explícita de 2026-09-01: instalar a segunda
+   correção fail-closed do inventário edge, validar a release `69716bb`, aplicar
    migrations/deploy persistentes, criar contas atomicamente e comprovar
    backup/restore;
 11. em andamento sob a mesma autorização: criar rota HTTPS, configurar

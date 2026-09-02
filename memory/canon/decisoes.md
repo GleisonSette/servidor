@@ -808,6 +808,11 @@ em TCP/8080. A ação exige release corrente saudável, locks dos projetos
 protegidos e rollback automático que remove Deployment/Secret e restaura o
 gate `blocked` em caso de falha.
 
+O inventário vazio do edge é observado pela interface administrativa somente
+leitura do controlador. A identidade mutável DRE conserva RBAC sem `list`
+amplo; uma recusa `Forbidden` nessa identidade não pode ser interpretada como
+lista vazia ou prova de ausência.
+
 O hostname aprovado é `dre-api.fitdock.com.br`; ele encaminha somente para o
 Service ClusterIP do DRE. `/metrics` deve ser negado na borda e
 `DRE_API_ORIGIN` no Pages só é definido depois que a rota HTTPS passar nos

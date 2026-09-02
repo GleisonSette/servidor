@@ -318,6 +318,7 @@ for invariant in (
     "configure_edge",
     "rollback_edge_connector_internal",
     "verify_edge_connector_runtime",
+    'admin_kube -n "$EDGE_NAMESPACE" get deployment,secret -o json',
     '(.items | length) <= 1',
     '.metadata.name == "kube-root-ca.crt"',
     '((.data // {}) | keys) == ["ca.crt"]',
@@ -391,6 +392,10 @@ if "/usr/local/sbin/blindou-deployctl verify " in controller:
     fail("controlador DRE chama ação Blindou inexistente")
 if "get statefulset,daemonset,job,cronjob,service,pvc,configmap" in controller:
     fail("CA sistêmica do namespace voltou a ser tratada como objeto proibido genérico")
+if 'kube -n "$EDGE_NAMESPACE" get deployment,secret -o json' in controller.replace(
+    'admin_kube -n "$EDGE_NAMESPACE" get deployment,secret -o json', ""
+):
+    fail("inventário vazio do edge usa identidade sem permissão de listagem")
 
 for function_name in (
     "validate_release_disposable",

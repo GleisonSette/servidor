@@ -377,7 +377,8 @@ verify_foundation() {
   verify_edge_baseline
   case "$(kube get namespace "$EDGE_NAMESPACE" -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}')" in
     blocked)
-      [[ "$(kube -n "$EDGE_NAMESPACE" get deployment,secret -o json | jq '[.items[]] | length')" == 0 ]] \
+      [[ "$(admin_kube -n "$EDGE_NAMESPACE" get deployment,secret -o json \
+        | jq '[.items[]] | length')" == 0 ]] \
         || fail 'edge bloqueada contém Deployment ou Secret'
       ;;
     connector-only)

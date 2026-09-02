@@ -1871,3 +1871,26 @@ importação falhou fechada antes de alterar o runtime persistente.
 - O estado permaneceu `release=none`, gate `secrets-only`, PVC ausente e Ready
   `0/0/0`. Nenhuma migration persistente, workload, conta, backup, rota ou dado
   financeiro foi criado pela tentativa recusada.
+
+## 2026-09-02 - Importação DRE aprovada e prova de edge endurecida
+
+Resultado: a release oficial entrou no cache, mas o avanço para validação foi
+interrompido para corrigir uma prova de ausência com RBAC insuficiente.
+
+- Os commits de plataforma `8900fee` e `861b827` publicaram e fixaram o bundle
+  SHA-256
+  `5b0b568d1597f6791f6e423224a6b6dc6a89312f76aee537decc553ade2d89f3`.
+  O helper D030 o instalou com backup transacional em
+  `/var/backups/servidor-local/dre-controller-bootstrap/20260902T064113Z`.
+- Hash vivo, contrato schema 2 e estado vazio coincidiram. A importação da
+  release `dre-20260902T061906Z-69716bb0a23e` então passou e armazenou a
+  candidata no cache fechado.
+- A saída também registrou `Forbidden` ao listar Deployment e Secret do edge.
+  O inventário usava a identidade mutável DRE, cujo RBAC deliberadamente não
+  concede `list` amplo; a combinação com a consulta agregada podia produzir
+  lista vazia mesmo sem prova de acesso.
+- O fluxo foi interrompido antes de `validate-release`. A correção usa a
+  interface administrativa somente leitura já adotada no restante do baseline
+  e adiciona gate que proíbe regressão para a identidade insuficiente.
+- Produção continuou `release=none`, gate `secrets-only`, sem PVC, migration,
+  workload, conta, backup, rota ou dado financeiro.

@@ -154,6 +154,11 @@ conector for configurado, uma nova versão do controlador exige procedimento de
 upgrade específico que preserve o Secret do túnel; o bootstrap inicial falha
 fechado e não tenta ler, copiar ou substituir o token.
 
+As provas de inventário vazio usam a interface administrativa somente leitura
+do controlador. A identidade mutável DRE não possui `list` amplo no edge e não
+pode ser usada como substituta: resposta `Forbidden` nunca equivale a conjunto
+vazio.
+
 O backup transacional da instalação fica em
 `/var/backups/servidor-local/dre-controller-bootstrap/<timestamp>`. Rollback
 humano restaura somente os alvos registrados em `targets.txt`, repete

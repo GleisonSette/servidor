@@ -12,9 +12,8 @@ metadata:
 Este canon reúne o estado atual do host: versões, portas, capacidade, backups,
 workloads e serviços. A última auditoria de capacidade ocorreu em 2026-08-26 e
 a última operação DRE foi observada em 2026-09-02. O Blindou permanece ativo;
-o slot APIWPP/SaferWPP está sem ocupante na geração 2. O DRE possui fundação e
-Secrets, mas a nova release ainda não foi importada e produção continua sem
-runtime.
+o slot APIWPP/SaferWPP está sem ocupante na geração 2. O DRE possui fundação,
+Secrets e a nova release no cache, mas produção continua sem runtime.
 
 ## Controlador do slot secundário verificado em 2026-08-31
 
@@ -75,13 +74,17 @@ runtime.
   DRE `69716bb0a23e02cc839f1adac0a41fbc521f7f04`; os gates integrais passaram,
   as três imagens por digest foram publicadas e o pacote assinado
   `dre-20260902T061906Z-69716bb0a23e` foi reproduzido.
-- A primeira importação foi recusada antes de copiar a release para o cache. O
-  controlador classificou o `ConfigMap` sistêmico `kube-root-ca.crt`, criado
-  automaticamente em `dre-edge`, como objeto proibido. Produção permaneceu em
-  `release=none`, gate `secrets-only`, sem PVC, migration ou workload. A
-  correção fail-closed aceita somente essa CA sistêmica e está em validação.
-  FCM, dispositivo autorizado, saldo inicial e dados financeiros reais
-  continuam ausentes.
+- A primeira importação foi recusada antes do cache porque o controlador tratou
+  o `ConfigMap` sistêmico `kube-root-ca.crt` como objeto proibido. O bundle
+  corrigido `5b0b568d1597f6791f6e423224a6b6dc6a89312f76aee537decc553ade2d89f3`
+  foi instalado e permitiu importar a release assinada.
+- A repetição revelou que a prova de zero Deployment/Secret usava a identidade
+  mutável, sem permissão de `list`; o Kubernetes retornou `Forbidden`, embora o
+  comando composto tenha continuado. Uma segunda correção troca somente essa
+  observação pela interface administrativa de leitura. Produção permanece em
+  `release=none`, gate `secrets-only`, sem PVC, migration ou workload. FCM,
+  dispositivo autorizado, saldo inicial e dados financeiros reais continuam
+  ausentes.
 
 ## PostgreSQL dedicado Blindou I1 autorizado em 2026-08-29
 
