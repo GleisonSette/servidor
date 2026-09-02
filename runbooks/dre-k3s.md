@@ -85,7 +85,10 @@ ferramentas e os dois scripts são fixados por SHA-256. O token do `gh` chega
 por `stdin`, é usado em HOME temporário `0700` e não entra em argumento,
 ambiente persistente, log ou recibo. O recibo final contém somente referências
 por digest e hashes das evidências. Falha parcial de registry é repetida com a
-mesma tag `git-<12 SHA>`; nunca trocar o conteúdo por baixo da tag.
+mesma tag `git-<12 SHA>`; nunca trocar o conteúdo por baixo da tag. O transporte
+local é compatível com Windows PowerShell 5.1: a linha de comando do `ssh.exe`
+é escapada pelas regras nativas do Windows e o token continua separado,
+exclusivamente no `stdin` redirecionado.
 
 ## Contrato da release schema 2
 

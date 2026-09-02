@@ -457,9 +457,10 @@ Ordem obrigatória:
    instalado; `make release-check` e `make e2e` aprovados em ambiente sintético
    descartável, com limpeza comprovada dos recursos da execução;
 10. em andamento sob autorização explícita de 2026-09-01: a segunda correção
-   fail-closed e a validação `69716bb` passaram; diagnosticar o código 82 do
-   pgBackRest sob D038; causa corrigida em `8c52807`, renovar gates, imagens e
-   release, aplicar migrations/deploy persistentes,
+   fail-closed e a validação `69716bb` passaram; o código 82 do pgBackRest foi
+   diagnosticado sob D038; a causa foi corrigida em `8c52807`, cujos gates e
+   três imagens renovadas já passaram; empacotar/validar a release e aplicar
+   migrations/deploy persistentes,
    criar contas atomicamente e comprovar backup/restore;
 11. em andamento sob a mesma autorização: criar rota HTTPS, configurar
    `DRE_API_ORIGIN` e chave Android definitiva. FCM, saldo inicial e dados

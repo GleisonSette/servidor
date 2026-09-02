@@ -20,6 +20,53 @@ $sshDirectory = Join-Path $env:LOCALAPPDATA 'apiwpp\ssh'
 $identityFile = Join-Path $sshDirectory 'apiwpp_admin_ed25519'
 $knownHostsFile = Join-Path $sshDirectory 'known_hosts'
 
+function ConvertTo-WindowsProcessArgument {
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$Value
+    )
+
+    if ($Value.Length -eq 0) {
+        return '""'
+    }
+    if ($Value -notmatch '[\s"]') {
+        return $Value
+    }
+
+    # ProcessStartInfo.Arguments follows the Windows command-line escaping
+    # rules. Backslashes immediately before a quote (including the closing
+    # quote) must be doubled so ssh.exe receives each value as one argument.
+    $quoted = [Text.StringBuilder]::new()
+    [void]$quoted.Append('"')
+    $backslashes = 0
+    foreach ($character in $Value.ToCharArray()) {
+        if ($character -eq '\') {
+            $backslashes++
+            continue
+        }
+        if ($character -eq '"') {
+            if ($backslashes -gt 0) {
+                [void]$quoted.Append(('\' * ($backslashes * 2)))
+                $backslashes = 0
+            }
+            [void]$quoted.Append('\')
+            [void]$quoted.Append('"')
+            continue
+        }
+        if ($backslashes -gt 0) {
+            [void]$quoted.Append(('\' * $backslashes))
+            $backslashes = 0
+        }
+        [void]$quoted.Append($character)
+    }
+    if ($backslashes -gt 0) {
+        [void]$quoted.Append(('\' * ($backslashes * 2)))
+    }
+    [void]$quoted.Append('"')
+    return $quoted.ToString()
+}
+
 foreach ($requiredFile in @($identityFile, $knownHostsFile)) {
     $item = Get-Item -LiteralPath $requiredFile -Force -ErrorAction Stop
     if ($item.PSIsContainer -or
@@ -79,9 +126,8 @@ try {
     $startInfo.FileName = $ssh.Source
     $startInfo.UseShellExecute = $false
     $startInfo.RedirectStandardInput = $true
-    foreach ($argument in @($sshArguments) + @($server, $remoteCommand)) {
-        $startInfo.ArgumentList.Add($argument)
-    }
+    $startInfo.Arguments = (@($sshArguments) + @($server, $remoteCommand) |
+        ForEach-Object { ConvertTo-WindowsProcessArgument -Value $_ }) -join ' '
     $sshProcess = [Diagnostics.Process]::new()
     $sshProcess.StartInfo = $startInfo
     if (-not $sshProcess.Start()) {

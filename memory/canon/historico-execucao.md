@@ -1956,3 +1956,31 @@ banco/PVC para diagnóstico.
   `a88efcd650345cb6db8bf9c1162ef8608b251d672763e4f81748fb3c461a36a9`;
   o staging fechado do novo build é
   `/home/apiadmin/dre-image-build-8c5280709b2f-20260902T081043Z`.
+
+## 2026-09-02 - Gates e imagens renovadas após a correção do pgBackRest
+
+Resultado: revisão corrigida aprovada em duas pilhas sintéticas e três imagens
+imutáveis publicadas; produção permaneceu no estado seguro do rollback.
+
+- O commit DRE `8c5280709b2f648268eb38aae5972f1449facc98` passou no
+  `make release-check` literal e em um segundo `make e2e` sobre stack limpa no
+  executor rootless do servidor. Os logs possuem SHA-256
+  `9ca57375175a00cef21fc985d7de7f9c163d33bafeee9a545ecc81c2eedd9cf3` e
+  `69c4f3a04081cf161d82afc0edf019b5e102e6bdc142b8f18193e05891f0091f`.
+- O build fechado produziu as três imagens `linux/amd64` a partir do archive
+  Git SHA-256 `a88efcd650345cb6db8bf9c1162ef8608b251d672763e4f81748fb3c461a36a9`.
+- A primeira chamada da publicação foi recusada localmente antes do SSH porque
+  Windows PowerShell 5.1 não fornece `ProcessStartInfo.ArgumentList`. O
+  orquestrador passou a montar `ProcessStartInfo.Arguments` com escape nativo
+  explícito, mantendo a credencial GitHub somente em `stdin`; a suíte integral
+  do repositório aprovou a correção.
+- Syft 1.51.0 gerou os SBOMs e Trivy 0.72.0 registrou zero vulnerabilidade alta
+  ou crítica. Foram publicados os digests
+  `dre-app@sha256:9d2e0af0e3857ecd634f185d1c46e8dda99051b2b4b19d0b976d194e48fdd88e`,
+  `dre-postgres@sha256:30ef6d4e0e695878f684e6fc50c97c84b903f79e582b9cfc5ad6155d02561cd5`
+  e `dre-validation-runner@sha256:1e7ece3835bb075d8a70f023931dccbc74c543496c7ea82d51ee1f91f002ac5b`.
+  O recibo técnico possui SHA-256
+  `a0370a222abf005cd83e0641a26c622cdc1f5c40c51f6a968a6829919200ce1e`.
+- Nenhuma release renovada, migration, conta, backup, rota ou dado financeiro
+  foi criada neste passo. O próximo gate é empacotar e validar a release
+  assinada antes da recuperação controlada do primeiro deploy.

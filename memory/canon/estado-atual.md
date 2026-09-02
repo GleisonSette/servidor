@@ -95,10 +95,15 @@ API e worker continuam ausentes.
   foi instalado com backup `20260902T080118Z`. A coleta confirmou R2/stanza
   acessíveis e isolou o código 82: o BusyBox recusava as opções GNU `-e --` de
   `realpath`; confirmou também que o rótulo canônico do namespace ficou vazio.
-  O commit DRE `8c5280709b2f648268eb38aae5972f1449facc98` corrige ambos e aguarda
-  gates/imagens/release renovados. Backup/restore, HTTPS, contas e chave Android
-  ainda não foram concluídos. FCM, dispositivo autorizado, saldo inicial e
-  dados financeiros reais continuam ausentes.
+  O commit DRE `8c5280709b2f648268eb38aae5972f1449facc98` corrige ambos. Os gates
+  integrais e uma segunda pilha E2E limpa passaram; as imagens renovadas foram
+  publicadas como `dre-app@sha256:9d2e0af0e3857ecd634f185d1c46e8dda99051b2b4b19d0b976d194e48fdd88e`,
+  `dre-postgres@sha256:30ef6d4e0e695878f684e6fc50c97c84b903f79e582b9cfc5ad6155d02561cd5`
+  e `dre-validation-runner@sha256:1e7ece3835bb075d8a70f023931dccbc74c543496c7ea82d51ee1f91f002ac5b`.
+  A release renovada ainda precisa ser empacotada, assinada, importada e
+  validada antes da recuperação do deploy. Backup/restore, HTTPS, contas e
+  chave Android ainda não foram concluídos. FCM, dispositivo autorizado, saldo
+  inicial e dados financeiros reais continuam ausentes.
 
 ## PostgreSQL dedicado Blindou I1 autorizado em 2026-08-29
 

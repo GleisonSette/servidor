@@ -121,6 +121,8 @@ foreach ($invariant in @(
     '0e69edd134a3c338baa1a6806920773615d682b18cbc6a0cba2a3b658ef9b63e',
     '$gh.Source auth token',
     'RedirectStandardInput = $true',
+    'ConvertTo-WindowsProcessArgument',
+    '$startInfo.Arguments =',
     '$sshProcess.StandardInput.NewLine = "`n"',
     'StrictHostKeyChecking=yes'
 )) {
