@@ -319,6 +319,11 @@ def main() -> None:
                                     "archive_mode=off",
                                     "-c",
                                     "archive_command=/bin/false",
+                                    "-c",
+                                    (
+                                        "restore_command=pgbackrest --stanza=dre "
+                                        "--no-archive-async archive-get %f \"%p\""
+                                    ),
                                 ],
                                 "env": [
                                     {"name": "POSTGRES_USER", "value": "dre_postgres_admin"},

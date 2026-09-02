@@ -1099,3 +1099,20 @@ O bootstrap usa o mesmo contrato para permitir atualizar o controlador sem
 mutação indireta, inclui o PVC Pending no fingerprint antes/depois e mantém o
 caminho Bound anterior inalterado. Qualquer outro estado, fase, nome, label,
 volume ou recibo continua falhando fechado.
+
+## Resolvida D052 - Override explícito do archive-get no restore
+
+A repetição posterior a D049/D050 permaneceu em recuperação até o timeout e o
+recibo falho exigiu a limpeza controlada
+`20260902T210953Z-367f1e0d3738`. Isso demonstrou que definir somente
+`PGBACKREST_ARCHIVE_ASYNC=n` no ambiente do PostgreSQL não bastava para
+neutralizar de forma determinística a configuração `archive-async=y` herdada
+da release permanente pelo comando de recuperação gravado pelo pgBackRest.
+
+A decisão é sobrescrever, somente por argumento do PostgreSQL descartável, o
+`restore_command` com a mesma stanza e o mesmo `archive-get`, acrescentando a
+opção de linha de comando `--no-archive-async`. A linha de comando tem a
+precedência explícita necessária e não muda o repositório, as credenciais, o
+alvo PITR nem o PostgreSQL permanente. O override de ambiente permanece como
+defesa complementar e o teste exige os dois mecanismos; sucesso ainda depende
+de migrations, índices e consultas financeiras no banco restaurado.

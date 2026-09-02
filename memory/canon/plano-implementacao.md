@@ -464,7 +464,10 @@ Ordem obrigatória:
    preparada para atualizar o controlador preservando uma release ativa por
    verificação dupla e fingerprints. D041/D040 foram instaladas; a release
    `a191f86` foi validada, o upgrade PostgreSQL e o backup completo passaram.
-   Corrigir D043, reconciliar o PVC de restore preservado e repetir o restore;
+   As correções D043-D051 levaram o drill até a recuperação de WAL e
+   reconciliaram com segurança cada PVC preservado. D052 está validada offline
+   e precisa ser instalada para repetir o restore com `--no-archive-async` no
+   comando efetivo;
 11. em andamento sob a mesma autorização: criar rota HTTPS, configurar
    `DRE_API_ORIGIN` e chave Android definitiva. FCM, saldo inicial e dados
    financeiros reais permanecem fora desta operação.

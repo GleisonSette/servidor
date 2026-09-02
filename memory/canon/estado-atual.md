@@ -150,10 +150,16 @@ Borda HTTPS e contas privadas ainda não foram concluídas.
   `release=none`; produção permaneceu saudável com o controlador anterior. D041
   está preparada para aceitar somente uma release ativa integralmente
   verificada, sem reaplicar fundação e com fingerprints imutáveis de produção e
-  edge. Backup/restore, HTTPS e contas ainda não foram concluídos. A chave
-  Android definitiva já existe protegida fora do Git, mas o APK definitivo ainda
-  não foi gerado. FCM, dispositivo autorizado, saldo inicial e dados financeiros
-  reais continuam ausentes.
+  edge. D041/D040 foram instaladas; a release corrigida
+  `dre-20260902T173345Z-a191f86039c1` está saudável com nove migrations. O
+  backup completo `20260902T174349Z-64e638e42c47` passou e o restore chegou à
+  recuperação de WAL, mas a tentativa `20260902T204720Z-30b422d374e8` voltou a
+  atingir o timeout; seu PVC descartável foi removido de forma autenticada por
+  `20260902T210953Z-367f1e0d3738`. D052 está preparada para aplicar
+  `--no-archive-async` no próprio `restore_command`. HTTPS e contas ainda não
+  foram concluídos. A chave Android definitiva já existe protegida fora do Git,
+  mas o APK definitivo ainda não foi gerado. FCM, dispositivo autorizado, saldo
+  inicial e dados financeiros reais continuam ausentes.
 
 ## PostgreSQL dedicado Blindou I1 autorizado em 2026-08-29
 

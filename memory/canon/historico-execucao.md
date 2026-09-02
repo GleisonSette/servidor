@@ -2082,3 +2082,23 @@ somente o PVC de teste para reconciliação.
 - O renderer fixava UID/GID/fsGroup `999`, enquanto a imagem Alpine e o runtime
   permanente usam o usuário `postgres` `70`. D043 corrige os três campos e fixa
   sua regressão no teste do manifesto antes de nova instalação e reconciliação.
+
+## 2026-09-02 - Restore levado até o fim do WAL e override definitivo preparado
+
+Resultado: produção permaneceu saudável e o ambiente descartável foi
+reconciliado; a última espera assíncrona foi isolada no comando efetivo de
+recuperação e D052 foi preparada.
+
+- D043-D051 corrigiram sucessivamente a identidade do usuário PostgreSQL, a
+  evidência sanitizada de falha, os mounts `subPath`, o ambiente de acesso ao
+  R2, a espera de locks, a string YAML e a limpeza do PVC ainda `Pending`.
+- A tentativa `20260902T204720Z-30b422d374e8` voltou a atingir o timeout mesmo
+  com `PGBACKREST_ARCHIVE_ASYNC=n`, sem afetar API, worker, PostgreSQL de
+  produção ou o backup externo.
+- A limpeza autenticada `20260902T210953Z-367f1e0d3738` aceitou somente o recibo
+  falho correspondente e removeu PVC/PV do drill. O status posterior continuou
+  com release `dre-20260902T173345Z-a191f86039c1`, gate `passed`, PVC de
+  produção `Bound` e os três workloads Ready.
+- D052 sobrescreve somente o `restore_command` do PostgreSQL descartável com
+  `--no-archive-async`, mantendo o override de ambiente como defesa adicional.
+  O teste do renderer fixa ambos antes de nova instalação.

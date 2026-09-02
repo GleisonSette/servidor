@@ -137,6 +137,13 @@ class RestoreRenderTests(unittest.TestCase):
             )
             self.assertIn("archive_mode=off", pod["containers"][0]["args"])
             self.assertIn("archive_command=/bin/false", pod["containers"][0]["args"])
+            self.assertIn(
+                (
+                    'restore_command=pgbackrest --stanza=dre '
+                    '--no-archive-async archive-get %f "%p"'
+                ),
+                pod["containers"][0]["args"],
+            )
 
     def test_rejects_invalid_pitr_target(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
