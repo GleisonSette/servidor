@@ -102,6 +102,33 @@ class RestoreRenderTests(unittest.TestCase):
                 if mount["name"] == "backup-runtime"
             ]
             self.assertEqual(postgres_backup_mounts, backup_mounts)
+            postgres_environment = {
+                item["name"]: item for item in pod["containers"][0]["env"]
+            }
+            self.assertEqual(
+                postgres_environment["PGBACKREST_REPO1_S3_ENDPOINT"]["valueFrom"][
+                    "configMapKeyRef"
+                ],
+                {"name": "dre-restore-runtime-config", "key": "backup-s3-endpoint"},
+            )
+            self.assertEqual(
+                postgres_environment["PGBACKREST_REPO1_S3_KEY"]["valueFrom"][
+                    "secretKeyRef"
+                ],
+                {"name": "dre-backup-runtime", "key": "s3-key"},
+            )
+            self.assertEqual(
+                postgres_environment["PGBACKREST_REPO1_S3_KEY_SECRET"]["valueFrom"][
+                    "secretKeyRef"
+                ],
+                {"name": "dre-backup-runtime", "key": "s3-key-secret"},
+            )
+            self.assertEqual(
+                postgres_environment["PGBACKREST_REPO1_CIPHER_PASS"]["valueFrom"][
+                    "secretKeyRef"
+                ],
+                {"name": "dre-backup-runtime", "key": "cipher-pass"},
+            )
             self.assertIn("archive_mode=off", pod["containers"][0]["args"])
             self.assertIn("archive_command=/bin/false", pod["containers"][0]["args"])
 

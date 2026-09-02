@@ -430,7 +430,10 @@ reconciliação explícita; nunca apaga ou restaura sobre `dre-postgres-data`.
 As três credenciais de backup são montadas no init container e no PostgreSQL
 restaurado como arquivos `subPath` individuais, com a mesma validação
 antissymlink usada no PostgreSQL permanente. O segundo acesso é necessário para
-buscar WAL durante a recuperação antes da abertura do banco.
+buscar WAL durante a recuperação antes da abertura do banco. O container recebe
+somente referências ao Secret e ao ConfigMap efêmeros para que o `restore_command`
+do pgBackRest resolva credenciais e repositório sem materializar valores no
+manifesto.
 
 Se o Pod não puder ser agendado, o init container falhar ou a imagem não puder
 iniciar, a operação encerra sem aguardar todo o timeout. O recibo `failed` e a

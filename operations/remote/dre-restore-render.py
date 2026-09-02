@@ -118,8 +118,7 @@ def main() -> None:
     if set(runtime_config) != required_runtime_keys:
         fail("configuração runtime da release diverge")
 
-    init_environment: list[dict[str, Any]] = [
-        {"name": "DRE_RESTORE_CONFIRM", "value": "DISPOSABLE_RESTORE"},
+    repository_environment: list[dict[str, Any]] = [
         {
             "name": "PGBACKREST_REPO1_S3_ENDPOINT",
             "valueFrom": {
@@ -156,6 +155,10 @@ def main() -> None:
                 }
             },
         },
+    ]
+    init_environment: list[dict[str, Any]] = [
+        {"name": "DRE_RESTORE_CONFIRM", "value": "DISPOSABLE_RESTORE"},
+        *repository_environment,
     ]
     if target != "latest":
         init_environment.append({"name": "DRE_RESTORE_TARGET_TIME", "value": target})
@@ -305,6 +308,34 @@ def main() -> None:
                                     {"name": "POSTGRES_USER", "value": "dre_postgres_admin"},
                                     {"name": "POSTGRES_DB", "value": "dre"},
                                     {"name": "PGDATA", "value": "/var/lib/postgresql/data/pgdata"},
+                                    *repository_environment,
+                                    {
+                                        "name": "PGBACKREST_REPO1_S3_KEY",
+                                        "valueFrom": {
+                                            "secretKeyRef": {
+                                                "name": "dre-backup-runtime",
+                                                "key": "s3-key",
+                                            }
+                                        },
+                                    },
+                                    {
+                                        "name": "PGBACKREST_REPO1_S3_KEY_SECRET",
+                                        "valueFrom": {
+                                            "secretKeyRef": {
+                                                "name": "dre-backup-runtime",
+                                                "key": "s3-key-secret",
+                                            }
+                                        },
+                                    },
+                                    {
+                                        "name": "PGBACKREST_REPO1_CIPHER_PASS",
+                                        "valueFrom": {
+                                            "secretKeyRef": {
+                                                "name": "dre-backup-runtime",
+                                                "key": "cipher-pass",
+                                            }
+                                        },
+                                    },
                                 ],
                                 "ports": [
                                     {

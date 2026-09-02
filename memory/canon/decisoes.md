@@ -1041,3 +1041,19 @@ Data e slot secundário. O controlador DRE permanece adquirido durante a espera,
 portanto duas operações DRE não avançam juntas. Se o prazo expirar, a ação
 continua falhando antes da mutação; não há remoção forçada de lock, encerramento
 de processo externo nem alteração nos controladores dos outros projetos.
+
+## Resolvida D048 - Ambiente do pgBackRest na abertura do banco restaurado
+
+Com D046, os arquivos protegidos estavam presentes no PostgreSQL descartável,
+mas o processo encerrou na recuperação porque o `restore_command` escrito pelo
+pgBackRest chama o binário diretamente. Diferente de `dre-pgbackrest`, essa
+chamada não carrega os arquivos pelo helper e reportou ausência de
+`repo1-cipher-pass`; endpoint, bucket, região, caminho e chaves também precisam
+estar no ambiente durante a recuperação.
+
+A decisão é fornecer ao container PostgreSQL referências `secretKeyRef` para
+as três credenciais e `configMapKeyRef` para os quatro parâmetros do repositório.
+O manifesto contém apenas nomes e chaves, nunca valores. O ambiente existe
+somente no Pod descartável, usa o mesmo Secret já copiado em memória e é removido
+com o workload. O teste do renderer valida as referências fechadas, preservando
+os mounts antissymlink e a remoção integral após o drill.

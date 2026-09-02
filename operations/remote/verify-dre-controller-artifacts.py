@@ -727,6 +727,9 @@ for invariant in (
     "/var/run/secrets/dre/backup/cipher-pass",
     '"subPath": "s3-key"',
     '"volumeMounts": volume_mounts',
+    '"name": "PGBACKREST_REPO1_CIPHER_PASS"',
+    '"secretKeyRef"',
+    '"name": "dre-restore-runtime-config"',
 ):
     if invariant not in restore_renderer:
         fail(f"proteção de restore ausente: {invariant}")
