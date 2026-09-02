@@ -429,7 +429,7 @@ das contas por `stdin`; o bundle
 `56612eebcbd60726751dea0b30c04eebaad99f1ee2d5b151b615f652943603b7`
 foi instalado e `plan` retornou `status=passed`. Produção continua com release
 `none`, gate `secrets-only`, PVC ausente e Ready `0/0/0`. A nova candidata do
-commit DRE `601e4224d59fb40f4418f6e9de153bbf6047fa2c` está com o gate integral
+commit DRE `69716bb0a23e02cc839f1adac0a41fbc521f7f04` está com o gate integral
 em execução e precisa concluir build, publicação e `dre-validation` antes de
 migration/deploy persistentes.
 
@@ -456,7 +456,7 @@ Ordem obrigatória:
    instalado; `make release-check` e `make e2e` aprovados em ambiente sintético
    descartável, com limpeza comprovada dos recursos da execução;
 10. em andamento sob autorização explícita de 2026-09-01: concluir os gates,
-   construir e validar a release `601e422`, aplicar migrations/deploy
+   construir e validar a release `69716bb`, aplicar migrations/deploy
    persistentes, criar contas atomicamente e comprovar backup/restore;
 11. em andamento sob a mesma autorização: criar rota HTTPS, configurar
    `DRE_API_ORIGIN` e chave Android definitiva. FCM, saldo inicial e dados

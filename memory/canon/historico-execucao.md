@@ -1826,3 +1826,23 @@ integral continua em execução e produção permanece intacta.
   por essa correção.
 - Nenhuma imagem, release, migration, PVC, workload, conta, rota ou dado real
   foi criado por esta preparação.
+
+## 2026-09-02 - Gate Android estabilizado e candidata DRE renovada
+
+Resultado: a concorrência instável do gate foi removida da configuração padrão;
+a candidata persistente passou a ser `69716bb` e produção permaneceu intacta.
+
+- Uma execução limpa do `lintDebug` falhou no KSP2 com
+  `NoClassDefFoundError` enquanto tarefas de compilador e lint de outros módulos
+  estavam concorrentes. A repetição isolada, também em cache limpo, passou, o
+  que caracterizou instabilidade do gate em vez de defeito das entidades Room.
+- O commit DRE `69716bb0a23e02cc839f1adac0a41fbc521f7f04` serializou a execução
+  entre projetos Gradle. `spotlessCheck` e `lintDebug` passaram nativamente no
+  Windows, sem WSL ou Docker local, usando JDK 17 explícito.
+- O novo `source.tar` possui 6.748.160 bytes e SHA-256
+  `17ab942c6527f086e4c36298488840c05a981c8db9f2c60ec8305db787635640`.
+  Build e publicação foram fixados no staging
+  `/home/apiadmin/dre-image-build-69716bb0a23e-20260902T050116Z`.
+- O gate integral contínuo foi reiniciado para a nova candidata. Nenhuma
+  imagem oficial, release, migration, PVC, workload, conta, rota ou dado real
+  foi criado por esta renovação.

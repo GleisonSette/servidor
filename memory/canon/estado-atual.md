@@ -71,12 +71,15 @@ Secrets e release validada no cache, mas produção continua sem runtime.
   geração 2 e zero unit systemd falha.
 - O rollout persistente, migrations, backup/restore, rota HTTPS, contas e chave
   Android estão autorizados e em andamento. A candidata agora está ligada ao
-  commit DRE `601e4224d59fb40f4418f6e9de153bbf6047fa2c`; o archive-fonte
+  commit DRE `69716bb0a23e02cc839f1adac0a41fbc521f7f04`; o archive-fonte
   determinístico tem SHA-256
-  `d164da586cb6d8aac59c22cdf0ab785a5e6a2c9761e213a90749997fbd049f9f`.
-  Os gates integrais estão em execução e build/publicação/validação descartável
-  ainda não ocorreram para essa candidata. FCM, dispositivo autorizado, saldo
-  inicial e dados financeiros reais continuam ausentes.
+  `17ab942c6527f086e4c36298488840c05a981c8db9f2c60ec8305db787635640`.
+  A candidata anterior foi substituída depois que uma execução limpa revelou
+  uma corrida não determinística entre KSP2 e lint Android; a execução entre
+  projetos Gradle foi serializada e o gate integral foi reiniciado. Build,
+  publicação e validação descartável ainda não ocorreram para a candidata
+  atual. FCM, dispositivo autorizado, saldo inicial e dados financeiros reais
+  continuam ausentes.
 
 ## PostgreSQL dedicado Blindou I1 autorizado em 2026-08-29
 

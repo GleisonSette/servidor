@@ -151,9 +151,9 @@ $dreImageBuild = Get-Content -Raw -LiteralPath (
     Join-Path $root 'operations/Invoke-DreImageBuild.ps1'
 )
 foreach ($invariant in @(
-    '601e4224d59fb40f4418f6e9de153bbf6047fa2c',
-    'dre-image-build-601e4224d59f-20260902T043140Z',
-    'd164da586cb6d8aac59c22cdf0ab785a5e6a2c9761e213a90749997fbd049f9f',
+    '69716bb0a23e02cc839f1adac0a41fbc521f7f04',
+    'dre-image-build-69716bb0a23e-20260902T050116Z',
+    '17ab942c6527f086e4c36298488840c05a981c8db9f2c60ec8305db787635640',
     '2975d0f651ad96ba8b80b9992ae1f9a964f4408569af5b6dc36544165c3926af',
     'ecf9961e3ec3a06b9b4521c234d8c838e02d9c1c8e41177a604fb1904656a30f',
     'StrictHostKeyChecking=yes'
