@@ -103,11 +103,16 @@ API e worker continuam ausentes.
   A release renovada `dre-20260902T094748Z-8c5280709b2f` foi empacotada duas
   vezes com archive SHA-256
   `07980835cfc28c19b8ae2312c68cf08878aaa7f73bc877f0346160cf9161663e`
-  e assinatura Ed25519 aprovada. A importação foi recusada pelo rótulo ausente,
-  sem copiar a candidata ao cache; D039 está preparada no repositório, mas o
-  controlador novo ainda não foi instalado. Backup/restore, HTTPS, contas e
-  chave Android ainda não foram concluídos. FCM, dispositivo autorizado, saldo
-  inicial e dados financeiros reais continuam ausentes.
+  e assinatura Ed25519 aprovada. O controlador D039 foi instalado, a candidata
+  entrou no cache e a validação descartável passou. A primeira recuperação
+  limitada chegou ao `pgBackRest`, recebeu código 50 e compensou corretamente:
+  imagem/rótulo anteriores restaurados, gate `secrets-only`, PVC `Bound`, banco
+  Ready e migrations ausentes. A saída técnica estava suprimida; o controlador
+  está sendo renovado para devolvê-la sanitizada e limitada na próxima tentativa.
+  Backup/restore, HTTPS e contas ainda não foram concluídos. A chave Android
+  definitiva já existe protegida fora do Git, mas o APK definitivo ainda não foi
+  gerado. FCM, dispositivo autorizado, saldo inicial e dados financeiros reais
+  continuam ausentes.
 
 ## PostgreSQL dedicado Blindou I1 autorizado em 2026-08-29
 

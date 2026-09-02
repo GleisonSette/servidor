@@ -359,6 +359,11 @@ precisa permanecer idêntico. Falha volta a imagem anterior, remove o rótulo e
 reprova fechado se essa compensação não convergir. Sucesso não aplica migration,
 não cria release corrente e apenas libera o fluxo normal `plan`/`deploy`.
 
+Se `stanza-create` ou `check` falhar, o controlador limita a saída a 16 KiB,
+redige padrões de credencial e a devolve ao operador antes da compensação. O
+recibo continua sem payload técnico ou segredo; a imagem e o rótulo anteriores
+são restaurados antes de uma nova tentativa.
+
 ## Provisionamento privado das contas iniciais
 
 Depois que a release corrente estiver saudável, o único caminho autorizado para

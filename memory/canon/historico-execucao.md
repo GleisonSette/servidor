@@ -2006,3 +2006,21 @@ permaneceu no estado do rollback.
 - Nenhuma mutação adicional foi executada no cluster por este registro. O
   próximo passo é publicar/instalar o controlador e repetir importação,
   validação e recuperação sob os gates D038/D039.
+
+## 2026-09-02 - Release renovada validada e recuperação compensada
+
+Resultado: a candidata renovada passou no ambiente descartável; a primeira
+recuperação D039 falhou no `pgBackRest` e restaurou integralmente o pré-estado.
+
+- O controlador D039 foi instalado pelo bundle autenticado
+  `c544f8c5eb73ceaed284fe2d7b0dc9944ba9ffc5b81d5f80084eb6fe81d04b90`.
+- A release `dre-20260902T094748Z-8c5280709b2f` foi importada e a operação
+  descartável `20260902T101302Z-2367f5a8676e` aprovou os estágios e removeu o
+  namespace, PVC e PV de validação.
+- A recuperação `20260902T101742Z-638ffcf33c96` recebeu código 50 no
+  `pgBackRest`. A compensação restaurou a imagem anterior, removeu o rótulo
+  temporário, manteve o gate `secrets-only`, o PVC `Bound`, PostgreSQL Ready e
+  `_sqlx_migrations` ausente.
+- Como a saída do comando havia sido suprimida, o controlador passou a devolver
+  somente o erro sanitizado e limitado de `stanza-create`/`check`, sem
+  persistir payload técnico no recibo nem ampliar a interface administrativa.

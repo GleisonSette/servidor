@@ -1207,6 +1207,27 @@ cleanup_validation() {
   pass 'namespace/PVC/PV da validação bloqueada foram removidos'
 }
 
+run_recovery_pgbackrest_action() {
+  [[ "$#" -eq 1 ]] || fail 'ação pgBackRest de recuperação ausente'
+  local action="$1" raw_output sanitized_output result
+  case "$action" in
+    stanza-create|check) ;;
+    *) fail 'ação pgBackRest fora da recuperação fechada' ;;
+  esac
+  set +e
+  raw_output="$(kube -n "$NAMESPACE" exec dre-postgres-0 -- \
+    dre-pgbackrest "$action" 2>&1)"
+  result=$?
+  set -e
+  if [[ "$result" -ne 0 ]]; then
+    sanitized_output="$(printf '%s' "$raw_output" \
+      | sanitize_diagnostic_output | tail -c 16384)"
+    printf '[dre-deployctl] pgBackRest %s falhou (código %s):\n%s\n' \
+      "$action" "$result" "${sanitized_output:-sem saída técnica}" >&2
+    return "$result"
+  fi
+}
+
 recover_first_deploy() {
   [[ "$#" -eq 2 ]] || fail 'uso: recover-first-deploy RELEASE_ID OPERATION_ID'
   local release_id="$1" operation_id="$2" failed_release old_image new_image
@@ -1298,8 +1319,8 @@ recover_first_deploy() {
     || fail 'PostgreSQL não convergiu para a imagem corrigida'
   production_migrations_absent \
     || fail 'recuperação alterou o estado anterior às migrations'
-  kube -n "$NAMESPACE" exec dre-postgres-0 -- dre-pgbackrest stanza-create >/dev/null
-  kube -n "$NAMESPACE" exec dre-postgres-0 -- dre-pgbackrest check >/dev/null
+  run_recovery_pgbackrest_action stanza-create
+  run_recovery_pgbackrest_action check
   [[ "$(production_recovery_immutable_fingerprint)" == "$immutable_before" ]] \
     || fail 'recurso persistente fora do rótulo/imagem mudou durante a recuperação'
   [[ "$(secret_inventory_fingerprint)" == "$secrets_before" ]] \

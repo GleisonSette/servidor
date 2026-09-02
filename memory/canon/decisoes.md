@@ -866,3 +866,9 @@ incompleta fecha o gate como `rollback-failed`. Sucesso não cria release
 corrente nem aplica migration: ele apenas devolve o ambiente ao pré-estado em
 que o fluxo autenticado `plan`/`deploy` pode continuar. A interface continua sem
 `kubectl`, shell, caminho ou imagem fornecida livremente pelo operador.
+
+Como a primeira execução da recuperação devolveu apenas o código interno do
+`pgBackRest`, a ação passa a capturar exclusivamente a saída de
+`stanza-create`/`check`, redigir padrões de credencial e limitar o diagnóstico a
+16 KiB antes do rollback. A mensagem não é persistida no recibo e não amplia os
+comandos aceitos pelo controlador.
