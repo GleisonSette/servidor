@@ -1744,7 +1744,91 @@ write_metrics() {
 sanitize_diagnostic_output() {
   sed -E \
     -e 's#(postgres(ql)?://)[^/@[:space:]]+:[^/@[:space:]]+@#\1[redacted]:[redacted]@#gI' \
-    -e 's#((password|token|secret|api[_-]?key)[=:])[[:graph:]]+#\1[redacted]#gI'
+    -e 's#((password|token|secret|api[_-]?key|access[_-]?key|aws_access_key_id|aws_secret_access_key|repo[0-9]+-s3-key(-secret)?)[=:])[[:graph:]]+#\1[redacted]#gI'
+}
+
+diagnose_production() {
+  [[ "$#" -eq 0 ]] || fail 'uso: diagnose-production'
+  local gate current pvc receipt receipt_state workloads events postgres_pod
+  local postgres_log raw_output pgbackrest_info pgbackrest_info_code
+  local check_log check_log_code archive_log archive_log_code
+  verify_foundation
+  current="$(current_release_id)"
+  gate="$(kube get namespace "$NAMESPACE" \
+    -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}')"
+  pvc="$(kube -n "$NAMESPACE" get pvc dre-postgres-data \
+    -o jsonpath='{.status.phase}' 2>/dev/null || printf absent)"
+  [[ "$current" == none && "$gate" == secrets-only && "$pvc" == Bound ]] \
+    || fail 'diagnóstico de produção exige primeiro deploy revertido com PVC preservado'
+  receipt="$(find "$RECEIPT_ROOT" -maxdepth 1 -type f -name 'deploy-*.json' \
+    -printf '%T@ %p\n' | sort -nr | head -n 1 | cut -d' ' -f2-)"
+  [[ -n "$receipt" ]] || fail 'recibo de deploy ausente'
+  require_root_file "$receipt" '^600$'
+  receipt_state="$(jq -c \
+    '{status:(.status // "unknown"),release_id:(.release_id // "unknown"),operation_id:(.operation_id // "unknown"),previous_release:(.previous_release // "unknown"),rollback:(.rollback // "unknown")}' \
+    "$receipt")"
+  workloads="$(admin_kube -n "$NAMESPACE" \
+    get deployments.apps,statefulsets.apps,jobs.batch,persistentvolumeclaims -o json \
+    | jq -c '[.items[] | {
+        kind:.kind,
+        name:.metadata.name,
+        desired:(.spec.replicas // .spec.completions // 1),
+        ready:(.status.readyReplicas // .status.succeeded // 0),
+        failed:(.status.failed // 0),
+        phase:(.status.phase // null),
+        conditions:[.status.conditions[]? | select(.status == "False" or .type == "Failed") |
+          {type:.type,reason:(.reason // "Unknown")}]
+      }]')"
+  events="$(admin_kube -n "$NAMESPACE" get events -o json | jq -c '
+    [.items | sort_by(.metadata.creationTimestamp) | .[-25:][]? | {
+      type:(.type // "Unknown"),
+      reason:(.reason // "Unknown"),
+      object:{kind:(.involvedObject.kind // "Unknown"),name:(.involvedObject.name // "unknown")},
+      message:((.message // "") | tostring | .[0:512]),
+      count:(.count // 1),
+      last_seen:(.eventTime // .lastTimestamp // .metadata.creationTimestamp)
+    }]')"
+  postgres_pod="$(admin_kube -n "$NAMESPACE" get pods \
+    -l app.kubernetes.io/name=dre-postgres,app.kubernetes.io/component=database \
+    -o json | jq -er 'if (.items | length) == 1 then .items[0].metadata.name else error("pod count") end')" \
+    || fail 'diagnóstico exige exatamente um Pod PostgreSQL'
+  raw_output="$(admin_kube -n "$NAMESPACE" logs "$postgres_pod" \
+    --container postgres --tail=120 --limit-bytes=32768 2>&1 || true)"
+  postgres_log="$(printf '%s' "$raw_output" | sanitize_diagnostic_output)"
+  set +e
+  raw_output="$(kube -n "$NAMESPACE" exec "$postgres_pod" --container postgres -- \
+    dre-pgbackrest info 2>&1)"
+  pgbackrest_info_code=$?
+  set -e
+  pgbackrest_info="$(printf '%s' "$raw_output" | sanitize_diagnostic_output)"
+  set +e
+  raw_output="$(admin_kube -n "$NAMESPACE" exec "$postgres_pod" --container postgres -- \
+    tail -n 120 -- /tmp/pgbackrest/log/dre-check.log 2>&1)"
+  check_log_code=$?
+  set -e
+  check_log="$(printf '%s' "$raw_output" | sanitize_diagnostic_output)"
+  set +e
+  raw_output="$(admin_kube -n "$NAMESPACE" exec "$postgres_pod" --container postgres -- \
+    tail -n 120 -- /tmp/pgbackrest/log/dre-archive-push-async.log 2>&1)"
+  archive_log_code=$?
+  set -e
+  archive_log="$(printf '%s' "$raw_output" | sanitize_diagnostic_output)"
+  jq -cn \
+    --arg gate "$gate" \
+    --arg current_release "$current" \
+    --arg pvc "$pvc" \
+    --arg pod "$postgres_pod" \
+    --arg postgres_log "$postgres_log" \
+    --arg pgbackrest_info "$pgbackrest_info" \
+    --argjson pgbackrest_info_code "$pgbackrest_info_code" \
+    --arg check_log "$check_log" \
+    --argjson check_log_code "$check_log_code" \
+    --arg archive_log "$archive_log" \
+    --argjson archive_log_code "$archive_log_code" \
+    --argjson receipt "$receipt_state" \
+    --argjson workloads "$workloads" \
+    --argjson events "$events" \
+    '{schema:1,namespace:"dre-production",gate:$gate,current_release:$current_release,pvc_phase:$pvc,deploy_receipt:$receipt,workloads:$workloads,events:$events,postgres:{pod:$pod,log:$postgres_log,pgbackrest_info:{exit_code:$pgbackrest_info_code,output:$pgbackrest_info},check_log:{exit_code:$check_log_code,output:$check_log},archive_log:{exit_code:$archive_log_code,output:$archive_log}}}'
 }
 
 diagnose_validation() {
@@ -1907,7 +1991,7 @@ status() {
 
 contract() {
   [[ "$#" -eq 0 ]] || fail 'uso: contract'
-  jq -cn '{schema:2,controller:"dre-deployctl",namespace:"dre-production",edge_namespace:"dre-edge",validation_namespace:"dre-validation",restore_namespace:"dre-restore-drill",lifecycle:"always-active",secondary_slot_member:false,permanent_containers:["api","worker","postgres"],edge_connector:"cloudflared-isolated",images:"digest-only",release_signature:"ed25519",release_schemas:{import:[1,2],deploy:[2],rollback:[1,2]},migration_count:9,validation:{required_before_plan:true,disposable:true,preserve_on_failure:true,cleanup_on_success:true,restarts:["api","worker","postgres"]},secret_input_schema:1,bridge_token_source:"orchestrator-stdin",edge_token_source:"orchestrator-stdin",read_only:["contract","status","diagnose-validation"],mutations:["import-release","initialize-secrets","validate-release","cleanup-validation","plan","deploy","configure-edge","provision-accounts","backup","restore-drill"],generic_shell:false,generic_kubectl:false}'
+  jq -cn '{schema:2,controller:"dre-deployctl",namespace:"dre-production",edge_namespace:"dre-edge",validation_namespace:"dre-validation",restore_namespace:"dre-restore-drill",lifecycle:"always-active",secondary_slot_member:false,permanent_containers:["api","worker","postgres"],edge_connector:"cloudflared-isolated",images:"digest-only",release_signature:"ed25519",release_schemas:{import:[1,2],deploy:[2],rollback:[1,2]},migration_count:9,validation:{required_before_plan:true,disposable:true,preserve_on_failure:true,cleanup_on_success:true,restarts:["api","worker","postgres"]},secret_input_schema:1,bridge_token_source:"orchestrator-stdin",edge_token_source:"orchestrator-stdin",read_only:["contract","status","diagnose-validation","diagnose-production"],mutations:["import-release","initialize-secrets","validate-release","cleanup-validation","plan","deploy","configure-edge","provision-accounts","backup","restore-drill"],generic_shell:false,generic_kubectl:false}'
 }
 
 main() {
@@ -1921,6 +2005,7 @@ main() {
   prune_expired_plans
   case "$action" in
     contract) contract "$@" ;;
+    diagnose-production) diagnose_production "$@" ;;
     diagnose-validation) diagnose_validation "$@" ;;
     import-release) import_release "$@" ;;
     initialize-secrets) initialize_secrets "$@" ;;

@@ -819,3 +819,27 @@ Service ClusterIP do DRE. `/metrics` deve ser negado na borda e
 smokes. Rotação ou retirada do token exige nova operação fechada; editar Secret
 ou workload manualmente não é procedimento operacional. Esta decisão não
 autoriza FCM, saldo inicial ou dados financeiros reais.
+
+## Resolvida D038 - Diagnóstico fechado após rollback do primeiro deploy DRE
+
+Em 2026-09-02, o primeiro deploy persistente do DRE criou somente a plataforma
+e o PostgreSQL dedicado, mas o `pgBackRest check` terminou com código 82 antes
+das migrations. A compensação passou, removeu API/worker e preservou
+PostgreSQL, PVC `Retain` e Secrets conforme o contrato. Não havia release
+corrente nem tabela `_sqlx_migrations`.
+
+O bootstrap normal recusa produção com PVC/workload e o controlador anterior
+não expunha diagnóstico desse estado. A decisão é admitir uma exceção única e
+fail-closed para instalar somente uma operação de leitura. Ela exige recibo do
+primeiro deploy com `failed`, `previous_release=none` e `rollback=passed`,
+inventário exato contendo apenas o PostgreSQL esperado, imagem presa ao bundle,
+PVC `dre-local-retain` de 20 GiB e ausência comprovada de migrations. A fundação
+não é reaplicada e um fingerprint do runtime, inclusive configurações, Secrets
+e PVC, precisa permanecer idêntico antes e depois.
+
+`diagnose-production` não aceita argumentos, não repete `pgBackRest check`, não
+grava no R2 e não oferece shell ou `kubectl`. A saída redigida limita-se ao
+recibo resumido, inventário, eventos, log técnico do PostgreSQL, `pgBackRest
+info` e arquivos fixos de log. A operação é recusada assim que o estado deixar
+de corresponder ao rollback anterior às migrations. Corrigir a causa e repetir
+o deploy continuam sujeitos ao plano autenticado e às verificações vigentes.

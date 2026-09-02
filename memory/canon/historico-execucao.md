@@ -1894,3 +1894,29 @@ interrompido para corrigir uma prova de ausência com RBAC insuficiente.
   e adiciona gate que proíbe regressão para a identidade insuficiente.
 - Produção continuou `release=none`, gate `secrets-only`, sem PVC, migration,
   workload, conta, backup, rota ou dado financeiro.
+
+## 2026-09-02 - Validação aprovada e primeiro deploy DRE revertido antes das migrations
+
+Resultado: a candidata oficial passou integralmente no ambiente descartável; o
+primeiro deploy persistente falhou seguro no pgBackRest e preservou apenas o
+banco/PVC para diagnóstico.
+
+- O bundle de controlador
+  `f4b0255daa03b989af83e23c28d40fb624307e3bdd8f7fa8f90b44a6d4e1a056`
+  foi instalado com backup em
+  `/var/backups/servidor-local/dre-controller-bootstrap/20260902T064811Z`.
+  Hash fonte/vivo, contrato e reimportação idempotente passaram sem `Forbidden`.
+- A operação descartável `20260902T064929Z-97891da83f92` aprovou nove
+  migrations, acessos, E2E e reinícios de API, worker e PostgreSQL; removeu
+  namespace, PVC e PV ao concluir.
+- O plano autenticado retornou SHA-256
+  `7136dd2106778f011b7b85b5195e24c229377edf4f940d9d8bc53cea38bad1e6`.
+  O deploy `20260902T065643Z-f6defcfcb55d` aplicou a plataforma e iniciou o
+  PostgreSQL, mas terminou com código 82 no `pgBackRest check`, antes das
+  migrations.
+- A compensação passou. O status final foi `release=none`, gate
+  `secrets-only`, PVC `Bound`, Ready `api=0`, `worker=0`, `postgres=1`, edge
+  bloqueado e validação ausente. A tabela `_sqlx_migrations` não existe.
+- D038 limita a recuperação a um bootstrap que prova esse inventário, não
+  reaplica a fundação, preserva fingerprint do runtime e instala somente
+  `diagnose-production`, sem argumentos, escrita no R2, shell ou `kubectl`.

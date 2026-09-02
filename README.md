@@ -8,9 +8,10 @@ cinco projetos controlados pelo mesmo administrador:
 3. SaferWPP;
 4. Blindou, bloqueado para publicação até a instalação e validação da borda
    externa de contenção;
-5. DRE familiar, com fundação vazia e controlador instalados como projeto
-   sempre ativo e independente; uma release assinada está importada no cache,
-   ainda sem Secret, PVC ou workload.
+5. DRE familiar, com controlador, Secrets e PostgreSQL/PVC dedicados como
+   projeto sempre ativo e independente; a release assinada está no cache e o
+   primeiro deploy permanece revertido antes das migrations para diagnóstico
+   fechado do pgBackRest.
 
 O repositório não contém segredos nem código das aplicações. O ponto de entrada
 para continuidade entre sessões é `memory/canon/index.md`.

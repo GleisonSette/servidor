@@ -13,7 +13,8 @@ Este canon reúne o estado atual do host: versões, portas, capacidade, backups,
 workloads e serviços. A última auditoria de capacidade ocorreu em 2026-08-26 e
 a última operação DRE foi observada em 2026-09-02. O Blindou permanece ativo;
 o slot APIWPP/SaferWPP está sem ocupante na geração 2. O DRE possui fundação,
-Secrets e a nova release no cache, mas produção continua sem runtime.
+Secrets, release no cache e PostgreSQL/PVC dedicados preservados pelo rollback;
+API e worker continuam ausentes.
 
 ## Controlador do slot secundário verificado em 2026-08-31
 
@@ -25,7 +26,7 @@ Secrets e a nova release no cache, mas produção continua sem runtime.
   `secondary_slot_verify=passed`; o DRE continua fora desse slot.
 - Fundação PostgreSQL, controladores e workloads SaferWPP continuam ausentes.
 
-## DRE schema 2 e controlador de produção validados em 2026-09-01
+## DRE schema 2 e primeiro deploy persistente observado em 2026-09-02
 
 - D029 mantém o DRE independente do slot APIWPP/SaferWPP. D030 permite que
   somente `Dre.SudoBootstrap.psm1` entregue `KEY_SERVIDOR` por `stdin` ao
@@ -62,10 +63,10 @@ Secrets e a nova release no cache, mas produção continua sem runtime.
   stack sintética nova. Containers, redes, volumes, imagens, processos e raízes
   temporárias da execução foram removidos; somente as ferramentas de sistema
   sem daemon previstas por D036 permanecem instaladas.
-- O estado final de produção continua `release=none`, `gate=secrets-only`, PVC
-  ausente e Ready `api=0`, `worker=0`, `postgres=0`. Nenhuma migration
-  persistente, banco, workload, backup/restore de dados ou rota HTTPS foi
-  aplicada.
+- A validação descartável oficial `20260902T064929Z-97891da83f92` aprovou a
+  release `dre-20260902T061906Z-69716bb0a23e`, inclusive nove migrations,
+  acessos, E2E e reinícios de API, worker e PostgreSQL; namespace, PVC e PV
+  temporários foram removidos no sucesso.
 - A verificação posterior confirmou Blindou íntegro na release
   `ee4a335236b0e99e5fac4ee3e30a986f0ddc8bb2`, 12 migrations, slot `none` na
   geração 2 e zero unit systemd falha.
@@ -78,13 +79,20 @@ Secrets e a nova release no cache, mas produção continua sem runtime.
   o `ConfigMap` sistêmico `kube-root-ca.crt` como objeto proibido. O bundle
   corrigido `5b0b568d1597f6791f6e423224a6b6dc6a89312f76aee537decc553ade2d89f3`
   foi instalado e permitiu importar a release assinada.
-- A repetição revelou que a prova de zero Deployment/Secret usava a identidade
-  mutável, sem permissão de `list`; o Kubernetes retornou `Forbidden`, embora o
-  comando composto tenha continuado. Uma segunda correção troca somente essa
-  observação pela interface administrativa de leitura. Produção permanece em
-  `release=none`, gate `secrets-only`, sem PVC, migration ou workload. FCM,
-  dispositivo autorizado, saldo inicial e dados financeiros reais continuam
-  ausentes.
+- A segunda correção do inventário edge foi instalada pelo bundle
+  `f4b0255daa03b989af83e23c28d40fb624307e3bdd8f7fa8f90b44a6d4e1a056`,
+  com backup transacional `20260902T064811Z`; a repetição idempotente da
+  importação não exibiu `Forbidden`.
+- O plano aprovado SHA-256
+  `7136dd2106778f011b7b85b5195e24c229377edf4f940d9d8bc53cea38bad1e6`
+  iniciou o deploy `20260902T065643Z-f6defcfcb55d`. O `pgBackRest check`
+  terminou com código 82 antes das migrations. O rollback passou: produção
+  está `release=none`, gate `secrets-only`, PVC `Bound`, PostgreSQL Ready e
+  API/worker em zero; `_sqlx_migrations` permanece ausente.
+- D038 autoriza somente o diagnóstico fechado desse estado para corrigir a
+  causa e retomar o deploy. Backup/restore, HTTPS, contas e chave Android ainda
+  não foram concluídos. FCM, dispositivo autorizado, saldo inicial e dados
+  financeiros reais continuam ausentes.
 
 ## PostgreSQL dedicado Blindou I1 autorizado em 2026-08-29
 

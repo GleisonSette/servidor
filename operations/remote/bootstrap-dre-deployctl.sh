@@ -95,6 +95,89 @@ require_production_predeploy_state() {
     || fail 'gate de produção já avançou além do estado autorizado para o bootstrap'
 }
 
+require_exact_names() {
+  local namespace="$1"
+  local resource="$2"
+  local expected="$3"
+  local actual
+  actual="$("$K3S" kubectl --namespace "$namespace" get "$resource" \
+    --ignore-not-found -o name | sort)"
+  [[ "$actual" == "$expected" ]] \
+    || fail "inventário ${resource} de ${namespace} diverge da recuperação fechada"
+}
+
+latest_failed_deploy_receipt() {
+  local receipt
+  receipt="$(find "${STATE_ROOT}/receipts" -maxdepth 1 -type f \
+    -name 'deploy-*.json' -printf '%T@ %p\n' | sort -nr | head -n 1 | cut -d' ' -f2-)"
+  [[ -n "$receipt" && -f "$receipt" && ! -L "$receipt" \
+      && "$(stat -c '%U:%G:%a:%h' "$receipt")" == 'root:root:600:1' ]] \
+    || fail 'recibo do deploy falho está ausente ou inseguro'
+  jq -e \
+    '.schema == 1 and .status == "failed" and .previous_release == "none" and .rollback == "passed" and (.release_id | test("^dre-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$"))' \
+    "$receipt" >/dev/null || fail 'recibo não comprova rollback do primeiro deploy'
+  printf '%s' "$receipt"
+}
+
+require_production_failed_first_deploy_state() {
+  local receipt release_id postgres_image status relation_absent
+  [[ ! -e "${STATE_ROOT}/current-release" && ! -L "${STATE_ROOT}/current-release" ]] \
+    || fail 'recuperação do primeiro deploy exige ausência de release corrente'
+  receipt="$(latest_failed_deploy_receipt)"
+  release_id="$(jq -r '.release_id' "$receipt")"
+  [[ -f "${STATE_ROOT}/releases/${release_id}/extracted/release.json" \
+      && ! -L "${STATE_ROOT}/releases/${release_id}/extracted/release.json" ]] \
+    || fail 'release do deploy falho não está no cache fechado'
+  postgres_image="$(jq -r '.postgres_image' \
+    "${STATE_ROOT}/releases/${release_id}/extracted/release.json")"
+  [[ "$postgres_image" =~ ^[a-z0-9][a-z0-9._:/-]*@sha256:[0-9a-f]{64}$ ]] \
+    || fail 'imagem PostgreSQL do deploy falho é inválida'
+  status="$(sudo -u apiadmin sudo -n /usr/local/sbin/dre-deployctl status)"
+  jq -e \
+    '.schema == 2 and .release == "none" and .gate == "secrets-only" and .pvc_phase == "Bound" and .ready == {api:0,worker:0,postgres:1} and .edge.gate == "blocked" and .edge.ready == 0 and .validation.gate == "absent"' \
+    <<<"$status" >/dev/null || fail 'status não corresponde ao primeiro deploy revertido'
+  require_exact_names dre-production deployments.apps ''
+  require_exact_names dre-production statefulsets.apps 'statefulset.apps/dre-postgres'
+  require_exact_names dre-production daemonsets.apps ''
+  require_exact_names dre-production replicasets.apps ''
+  require_exact_names dre-production replicationcontrollers ''
+  require_exact_names dre-production jobs.batch ''
+  require_exact_names dre-production cronjobs.batch ''
+  require_exact_names dre-production pods 'pod/dre-postgres-0'
+  require_exact_names dre-production services 'service/dre-postgres'
+  require_exact_names dre-production persistentvolumeclaims \
+    'persistentvolumeclaim/dre-postgres-data'
+  [[ "$("$K3S" kubectl --namespace dre-production get statefulset dre-postgres \
+      -o jsonpath='{.spec.replicas}:{.status.readyReplicas}:{.spec.template.spec.containers[0].image}')" \
+      == "1:1:${postgres_image}" ]] \
+    || fail 'StatefulSet preservado não corresponde ao PostgreSQL da release falha'
+  [[ "$("$K3S" kubectl --namespace dre-production get pvc dre-postgres-data \
+      -o jsonpath='{.status.phase}:{.spec.storageClassName}:{.spec.resources.requests.storage}')" \
+      == 'Bound:dre-local-retain:20Gi' ]] \
+    || fail 'PVC preservado diverge do volume retido aprovado'
+  relation_absent="$("$K3S" kubectl --namespace dre-production exec dre-postgres-0 \
+    --container postgres -- psql --no-psqlrc --tuples-only --no-align \
+    -h /var/run/postgresql -U dre_postgres_admin -d dre \
+    --command="SELECT to_regclass('public._sqlx_migrations') IS NULL")"
+  [[ "${relation_absent//[[:space:]]/}" == t ]] \
+    || fail 'recuperação fechada exige falha anterior às migrations'
+}
+
+production_recovery_fingerprint() {
+  {
+    "$K3S" kubectl get namespace dre-production -o json \
+      | jq -cS '{kind,metadata:{name:.metadata.name,uid:.metadata.uid,labels:.metadata.labels,annotations:.metadata.annotations}}'
+    "$K3S" kubectl --namespace dre-production \
+      get deployments.apps,statefulsets.apps,daemonsets.apps,replicasets.apps,replicationcontrollers,jobs.batch,cronjobs.batch,pods,services,persistentvolumeclaims,configmaps,secrets,serviceaccounts,limitranges,resourcequotas,networkpolicies.networking.k8s.io,poddisruptionbudgets.policy \
+      -o json \
+      | jq -cS '[.items[] | {
+          apiVersion,kind,
+          metadata:{name:.metadata.name,uid:.metadata.uid,labels:.metadata.labels,annotations:.metadata.annotations,ownerReferences:.metadata.ownerReferences},
+          spec,data,stringData,type,immutable
+        }] | sort_by(.kind,.metadata.name)'
+  } | sha256sum | cut -d' ' -f1
+}
+
 require_edge_bootstrap_state() {
   if ! "$K3S" kubectl get namespace dre-edge >/dev/null 2>&1; then
     return
@@ -256,7 +339,7 @@ readonly PUBLIC_KEY_SHA256="$2"
 [[ "$PUBLIC_KEY_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail 'SHA-256 da chave pública inválido'
 
 for command in python3 openssl sudo visudo promtool logrotate systemd-analyze install cp mv rm mkdir base64 \
-  chmod chown stat sha256sum systemctl jq grep flock hostname date find wc mktemp sleep "$K3S"; do
+  chmod chown stat sha256sum systemctl jq grep flock hostname date find wc mktemp sleep sort head cut "$K3S"; do
   command -v "$command" >/dev/null || fail "dependência ausente: ${command}"
 done
 for source in "$FOUNDATION_SOURCE" "$EDGE_RUNTIME_SOURCE" "$CONTROLLER_ALERTS_SOURCE" "$VERIFIER_SOURCE" \
@@ -304,6 +387,8 @@ rollback_needed=true
 foundation_created=false
 production_gate_before='blocked'
 production_secret_count=0
+production_bootstrap_mode=predeploy
+production_fingerprint_before=absent
 validation_fingerprint_before=absent
 declare -a targets=(
   /usr/local/sbin/dre-deployctl
@@ -379,32 +464,45 @@ trap rollback EXIT
 reset_dre_unit_failures
 
 if "$K3S" kubectl get validatingadmissionpolicy dre-controller-only >/dev/null 2>&1; then
-  require_production_predeploy_state
+  if "$K3S" kubectl --namespace dre-production get statefulset dre-postgres \
+      >/dev/null 2>&1; then
+    production_bootstrap_mode=failed-first-deploy
+    require_production_failed_first_deploy_state
+    production_fingerprint_before="$(production_recovery_fingerprint)"
+  else
+    require_production_predeploy_state
+  fi
   require_edge_bootstrap_state
   require_empty_namespace dre-restore-drill
   require_validation_bootstrap_state
   validation_fingerprint_before="$(validation_configuration_fingerprint)"
-  production_gate_before="$(
-    "$K3S" kubectl get namespace dre-production \
-      -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}'
-  )"
-  production_secret_count="$(
-    "$K3S" kubectl --namespace dre-production get secrets -o json \
-      | jq '.items | length'
-  )"
-  "$K3S" kubectl apply -f "$FOUNDATION_SOURCE" >/dev/null
-  if [[ "$production_gate_before" == secrets-only \
-      || "$production_secret_count" -ge 5 ]]; then
-    "$K3S" kubectl label namespace dre-production \
-      platform.servidor.local/deployment-gate=secrets-only \
-      --overwrite >/dev/null
+  if [[ "$production_bootstrap_mode" == predeploy ]]; then
+    production_gate_before="$(
+      "$K3S" kubectl get namespace dre-production \
+        -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}'
+    )"
+    production_secret_count="$(
+      "$K3S" kubectl --namespace dre-production get secrets -o json \
+        | jq '.items | length'
+    )"
+    "$K3S" kubectl apply -f "$FOUNDATION_SOURCE" >/dev/null
+    if [[ "$production_gate_before" == secrets-only \
+        || "$production_secret_count" -ge 5 ]]; then
+      "$K3S" kubectl label namespace dre-production \
+        platform.servidor.local/deployment-gate=secrets-only \
+        --overwrite >/dev/null
+    fi
   fi
 else
   require_validation_namespace_absent
   foundation_created=true
   "$K3S" kubectl apply -f "$FOUNDATION_SOURCE" >/dev/null
 fi
-require_production_predeploy_state
+if [[ "$production_bootstrap_mode" == failed-first-deploy ]]; then
+  require_production_failed_first_deploy_state
+else
+  require_production_predeploy_state
+fi
 require_edge_bootstrap_state
 require_empty_namespace dre-restore-drill
 require_validation_bootstrap_state
@@ -464,7 +562,7 @@ promtool check config "$PROMETHEUS_CONFIG" >/dev/null
 /usr/local/sbin/dre-kube-identityctl reconcile >/dev/null
 /usr/local/sbin/dre-kube-identityctl verify >/dev/null
 sudo -u apiadmin sudo -n /usr/local/sbin/dre-deployctl contract \
-  | jq -e '.schema == 2 and .controller == "dre-deployctl" and .edge_namespace == "dre-edge" and .validation_namespace == "dre-validation" and .validation.required_before_plan == true and (.mutations | index("configure-edge")) != null and (.mutations | index("provision-accounts")) != null and .generic_shell == false and .secondary_slot_member == false and .bridge_token_source == "orchestrator-stdin" and .edge_token_source == "orchestrator-stdin"' \
+  | jq -e '.schema == 2 and .controller == "dre-deployctl" and .edge_namespace == "dre-edge" and .validation_namespace == "dre-validation" and .validation.required_before_plan == true and (.read_only | index("diagnose-production")) != null and (.mutations | index("configure-edge")) != null and (.mutations | index("provision-accounts")) != null and .generic_shell == false and .secondary_slot_member == false and .bridge_token_source == "orchestrator-stdin" and .edge_token_source == "orchestrator-stdin"' \
   >/dev/null
 
 negative_manifest="$(mktemp)"
@@ -516,7 +614,13 @@ run_protected_gate Blindou 'outra operação Blindou está em andamento' \
   sudo -u apiadmin sudo -n /usr/local/sbin/blindou-deployctl status
 wait_for_protected_locks_release
 run_secondary_slot_gate
-require_production_predeploy_state
+if [[ "$production_bootstrap_mode" == failed-first-deploy ]]; then
+  require_production_failed_first_deploy_state
+  [[ "$(production_recovery_fingerprint)" == "$production_fingerprint_before" ]] \
+    || fail 'runtime preservado mudou durante o bootstrap de diagnóstico'
+else
+  require_production_predeploy_state
+fi
 require_empty_namespace dre-restore-drill
 require_validation_bootstrap_state
 [[ "$(validation_configuration_fingerprint)" == "$validation_fingerprint_before" ]] \

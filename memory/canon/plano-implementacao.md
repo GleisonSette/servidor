@@ -421,16 +421,16 @@ Aceite manual:
 
 ## Fase 3B - DRE familiar independente
 
-Status: rollout persistente autorizado e em andamento. Fundação vazia, Secrets
+Status: rollout persistente autorizado e em andamento. Fundação, Secrets
 pré-deploy e executor rootless estão prontos. A candidata do commit DRE
 `69716bb0a23e02cc839f1adac0a41fbc521f7f04` passou nos gates integrais, teve as
 três imagens publicadas por digest e foi empacotada como
-`dre-20260902T061906Z-69716bb0a23e`. A primeira correção passou a aceitar
-somente `kube-root-ca.crt` e permitiu importar a release. Durante essa operação,
-a prova de zero Deployment/Secret revelou uma leitura com RBAC insuficiente que
-retornava `Forbidden`; a segunda correção fail-closed está em validação antes
-de `validate-release`. Produção continua com release `none`, gate
-`secrets-only`, PVC ausente e Ready `0/0/0`.
+`dre-20260902T061906Z-69716bb0a23e`. As duas correções de inventário edge foram
+instaladas; a validação descartável passou. O primeiro deploy persistente
+falhou no `pgBackRest check` com código 82, antes das migrations, e o rollback
+passou. Produção está com release `none`, gate `secrets-only`, PVC `Bound`,
+PostgreSQL Ready e API/worker ausentes. D038 prepara o diagnóstico fechado sem
+alterar esse runtime.
 
 Ordem obrigatória:
 
@@ -454,10 +454,10 @@ Ordem obrigatória:
 9. concluído em 2026-08-31: executor rootless sem daemon e sem acesso ao K3s
    instalado; `make release-check` e `make e2e` aprovados em ambiente sintético
    descartável, com limpeza comprovada dos recursos da execução;
-10. em andamento sob autorização explícita de 2026-09-01: instalar a segunda
-   correção fail-closed do inventário edge, validar a release `69716bb`, aplicar
-   migrations/deploy persistentes, criar contas atomicamente e comprovar
-   backup/restore;
+10. em andamento sob autorização explícita de 2026-09-01: a segunda correção
+   fail-closed e a validação `69716bb` passaram; diagnosticar o código 82 do
+   pgBackRest sob D038, corrigir a causa, aplicar migrations/deploy persistentes,
+   criar contas atomicamente e comprovar backup/restore;
 11. em andamento sob a mesma autorização: criar rota HTTPS, configurar
    `DRE_API_ORIGIN` e chave Android definitiva. FCM, saldo inicial e dados
    financeiros reais permanecem fora desta operação.

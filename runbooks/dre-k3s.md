@@ -3,14 +3,15 @@
 ## Estado e limite
 
 O controlador schema 2 e a fundação Kubernetes do DRE estão instalados no
-servidor. A release schema 2 `dre-20260831T202100Z-f6b06765ff61` passou na
-operação descartável `20260831T202626Z-f6b06765ff61`; nove migrations,
-bootstrap, E2E e reinícios dos três componentes foram comprovados, e
-`dre-validation`/PVC/PV foram removidos. Ela não é a release corrente. Os cinco
-Secrets permanentes sem FCM existem, o gate pré-deploy é `secrets-only` e PVC,
-banco e workloads de produção permanecem ausentes. Migration persistente,
-backup/restore de dados e deploy exigem janelas e autorizações operacionais
-próprias.
+servidor. A release schema 2 `dre-20260902T061906Z-69716bb0a23e` passou na
+operação descartável `20260902T064929Z-97891da83f92`; nove migrations,
+acessos, E2E e reinícios dos três componentes foram comprovados, e
+`dre-validation`/PVC/PV foram removidos. Ela ainda não é a release corrente.
+O primeiro deploy persistente falhou no `pgBackRest check`, antes das
+migrations, e o rollback foi aprovado: os cinco Secrets sem FCM, o PostgreSQL
+dedicado e o PVC `Retain` permanecem, API/worker estão ausentes e o gate voltou
+a `secrets-only`. O diagnóstico dessa falha usa somente a operação fechada
+descrita abaixo.
 
 O DRE é um projeto sempre ativo e independente. Ele não integra nem altera o
 slot APIWPP/SaferWPP e não compartilha namespace, ServiceAccount, Secret, PVC,
@@ -137,8 +138,16 @@ Um dry-run com identidade não
 autorizada precisa ser recusado. Falha restaura arquivos e Prometheus; se a
 fundação era nova e ainda vazia, ela também é removida.
 
-Uma atualização do controlador é aceita somente enquanto produção não possui
-PVC/workload. `dre-validation` deve estar ausente ou ser uma validação
+Uma atualização normal do controlador é aceita somente enquanto produção não
+possui PVC/workload. Existe uma única exceção de recuperação: o primeiro deploy
+precisa ter recibo `failed`, release anterior `none`, rollback `passed`, somente
+o StatefulSet/Pod/Service/PVC exatos do PostgreSQL preservados e ausência
+comprovada da tabela `_sqlx_migrations`. Nesse estado o bootstrap pode instalar
+apenas a correção de diagnóstico, não reaplica a fundação e compara antes e
+depois um fingerprint de namespace, workloads, configurações, Secrets e PVC.
+Qualquer divergência falha fechado.
+
+`dre-validation` deve estar ausente ou ser uma validação
 descartável autêntica com gate `blocked`, release e operação válidas. O segundo
 caso existe para instalar uma correção de diagnóstico sem apagar a evidência da
 falha; o bootstrap compara um fingerprint das configurações, workloads, PVCs e
@@ -303,6 +312,19 @@ compensação fecha o gate como `rollback-failed`. Cada `operation_id` é de uso
 único e possui recibo root-only `started`, `passed` ou `failed`, evitando repetir
 silenciosamente uma operação interrompida. Migration destrutiva não pertence ao
 contrato.
+
+Quando a primeira tentativa falhar antes das migrations e o rollback preservar
+somente o PostgreSQL/PVC esperado, a coleta autorizada é:
+
+```text
+sudo -n /usr/local/sbin/dre-deployctl diagnose-production
+```
+
+Ela não recebe argumentos e retorna JSON com recibo resumido, workloads,
+eventos, log técnico redigido do PostgreSQL, `pgBackRest info` e os logs fixos
+de `check`/`archive-push`. Não repete o `check`, não grava no R2, não expõe
+Secrets e não oferece shell ou `kubectl`. Fora do estado fechado de recuperação
+a operação é recusada.
 
 ## Provisionamento privado das contas iniciais
 
