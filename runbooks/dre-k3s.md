@@ -427,13 +427,15 @@ aguarda o PV ser apagado. Falha preserva o PVC para diagnóstico e exige
 reconciliação explícita; nunca apaga ou restaura sobre `dre-postgres-data`.
 
 Depois de identificar a causa, a única reconciliação autorizada do volume
-descartável preservado usa a mesma release e o mesmo ID da operação falha:
+descartável preservado informa a mesma release, o ID da operação falha e um ID
+novo para a própria limpeza:
 
 ```text
-sudo -n /usr/local/sbin/dre-deployctl cleanup-restore RELEASE_ID OPERATION_ID
+sudo -n /usr/local/sbin/dre-deployctl cleanup-restore RELEASE_ID FAILED_OPERATION_ID OPERATION_ID
 ```
 
-A ação exige recibo `failed`, ausência dos workloads temporários, labels e
+A ação exige um novo `OPERATION_ID`, distinto do `FAILED_OPERATION_ID` cujo
+recibo está `failed`, ausência dos workloads temporários, labels e
 UIDs correspondentes, PVC de 20 GiB na StorageClass `Delete` e PV vinculado com
 reclaim policy `Delete`. Ela não aceita nome ou caminho fornecido pelo operador,
 remove somente `dre-restore-data`, aguarda o PV desaparecer e reverifica a

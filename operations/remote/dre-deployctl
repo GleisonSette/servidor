@@ -2261,22 +2261,27 @@ restore_drill() {
 }
 
 cleanup_restore() {
-  [[ "$#" -eq 2 ]] || fail 'uso: cleanup-restore RELEASE_ID OPERATION_ID'
-  local release_id="$1" operation_id="$2" source_receipt cleanup_receipt
+  [[ "$#" -eq 3 ]] \
+    || fail 'uso: cleanup-restore RELEASE_ID FAILED_OPERATION_ID OPERATION_ID'
+  local release_id="$1" source_operation_id="$2" operation_id="$3"
+  local source_receipt cleanup_receipt
   local pvc_json pvc_uid pv_name protected_before deadline phase=preflight
   require_cached_release "$release_id"
   require_schema_two_release "$release_id"
+  require_operation_id "$source_operation_id"
   require_operation_id "$operation_id"
+  [[ "$source_operation_id" != "$operation_id" ]] \
+    || fail 'cleanup e restore falho exigem IDs de operação distintos'
   require_new_receipt restore-cleanup "$operation_id"
   [[ "$(current_release_id)" == "$release_id" ]] \
     || fail 'cleanup do restore exige a release corrente'
-  source_receipt="${RECEIPT_ROOT}/restore-${operation_id}.json"
+  source_receipt="${RECEIPT_ROOT}/restore-${source_operation_id}.json"
   require_root_file "$source_receipt" '^600$'
-  jq -e --arg release_id "$release_id" --arg operation_id "$operation_id" '
+  jq -e --arg release_id "$release_id" --arg source_operation_id "$source_operation_id" '
     .schema == 1 and
     .status == "failed" and
     .release_id == $release_id and
-    .operation_id == $operation_id and
+    .operation_id == $source_operation_id and
     (.target == "latest" or (.target | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")))
   ' "$source_receipt" >/dev/null \
     || fail 'recibo não comprova restore descartável falho'
@@ -2293,14 +2298,14 @@ cleanup_restore() {
       || fail "restore preservado contém recurso inesperado: ${resource}"
   done
   pvc_json="$(admin_kube -n "$RESTORE_NAMESPACE" get pvc dre-restore-data -o json)"
-  jq -e --arg operation_id "$operation_id" '
+  jq -e --arg source_operation_id "$source_operation_id" '
     .metadata.name == "dre-restore-data" and
     .metadata.namespace == "dre-restore-drill" and
     .metadata.labels["app.kubernetes.io/name"] == "dre-restore-postgres" and
     .metadata.labels["app.kubernetes.io/component"] == "restore-drill" and
     .metadata.labels["app.kubernetes.io/part-of"] == "dre-familiar" and
     .metadata.labels["app.kubernetes.io/managed-by"] == "dre-deployctl" and
-    .metadata.labels["dre.familiar/operation-id"] == $operation_id and
+    .metadata.labels["dre.familiar/operation-id"] == $source_operation_id and
     .spec.storageClassName == "dre-local-delete-drill" and
     .spec.accessModes == ["ReadWriteOnce"] and
     .spec.resources.requests.storage == "20Gi" and
@@ -2321,31 +2326,34 @@ cleanup_restore() {
   cleanup_receipt="${RECEIPT_ROOT}/restore-cleanup-${operation_id}.json"
   jq -cn \
     --arg release_id "$release_id" \
+    --arg source_operation_id "$source_operation_id" \
     --arg operation_id "$operation_id" \
     --arg source_receipt_sha256 "$(sha256sum "$source_receipt" | cut -d' ' -f1)" \
     --arg pvc_uid "$pvc_uid" \
     --arg pv_name "$pv_name" \
     --arg started_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{schema:1,status:"started",release_id:$release_id,operation_id:$operation_id,source_receipt_sha256:$source_receipt_sha256,pvc_uid:$pvc_uid,pv_name:$pv_name,started_at_utc:$started_at_utc}' \
+    '{schema:1,status:"started",release_id:$release_id,source_operation_id:$source_operation_id,operation_id:$operation_id,source_receipt_sha256:$source_receipt_sha256,pvc_uid:$pvc_uid,pv_name:$pv_name,started_at_utc:$started_at_utc}' \
     | atomic_write "$cleanup_receipt" 0600
   restore_cleanup_failed() {
-    local code="$1" release_id="$2" operation_id="$3" receipt="$4" phase="$5"
+    local code="$1" release_id="$2" source_operation_id="$3"
+    local operation_id="$4" receipt="$5" phase="$6"
     set +e
     jq -cn \
       --arg release_id "$release_id" \
+      --arg source_operation_id "$source_operation_id" \
       --arg operation_id "$operation_id" \
       --arg phase "$phase" \
       --arg failed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      '{schema:1,status:"failed",release_id:$release_id,operation_id:$operation_id,phase:$phase,failed_at_utc:$failed_at_utc}' \
+      '{schema:1,status:"failed",release_id:$release_id,source_operation_id:$source_operation_id,operation_id:$operation_id,phase:$phase,failed_at_utc:$failed_at_utc}' \
       | atomic_write "$receipt" 0600 || true
     audit_event cleanup-restore failed "$release_id" "$operation_id"
     exit "$code"
   }
   register_exit_trap restore_cleanup_failed \
-    "$release_id" "$operation_id" "$cleanup_receipt" "$phase"
+    "$release_id" "$source_operation_id" "$operation_id" "$cleanup_receipt" "$phase"
   phase=delete-pvc
   register_exit_trap restore_cleanup_failed \
-    "$release_id" "$operation_id" "$cleanup_receipt" "$phase"
+    "$release_id" "$source_operation_id" "$operation_id" "$cleanup_receipt" "$phase"
   kube -n "$RESTORE_NAMESPACE" delete pvc dre-restore-data \
     --wait=true --timeout=120s >/dev/null
   deadline=$((SECONDS + 180))
@@ -2358,7 +2366,7 @@ cleanup_restore() {
     || fail 'PVC permaneceu após a limpeza do restore'
   phase=protected-projects
   register_exit_trap restore_cleanup_failed \
-    "$release_id" "$operation_id" "$cleanup_receipt" "$phase"
+    "$release_id" "$source_operation_id" "$operation_id" "$cleanup_receipt" "$phase"
   [[ "$(protected_fingerprint)" == "$protected_before" ]] \
     || fail 'recurso protegido mudou durante a limpeza do restore DRE'
   release_shared_maintenance_locks
@@ -2366,11 +2374,12 @@ cleanup_restore() {
   verify_runtime_core "$release_id"
   jq -cn \
     --arg release_id "$release_id" \
+    --arg source_operation_id "$source_operation_id" \
     --arg operation_id "$operation_id" \
     --arg pvc_uid "$pvc_uid" \
     --arg pv_name "$pv_name" \
     --arg completed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{schema:1,status:"passed",release_id:$release_id,operation_id:$operation_id,pvc_uid:$pvc_uid,pv_name:$pv_name,cleaned:true,completed_at_utc:$completed_at_utc}' \
+    '{schema:1,status:"passed",release_id:$release_id,source_operation_id:$source_operation_id,operation_id:$operation_id,pvc_uid:$pvc_uid,pv_name:$pv_name,cleaned:true,completed_at_utc:$completed_at_utc}' \
     | atomic_write "$cleanup_receipt" 0600
   trap - EXIT
   audit_event cleanup-restore passed "$release_id" "$operation_id"

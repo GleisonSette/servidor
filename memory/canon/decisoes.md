@@ -972,8 +972,9 @@ altera workloads por efeito colateral. O bootstrap aceita o PVC preservado
 somente quando recibo, operação, labels, StorageClass, claim e PV recompõem o
 estado falho exato e exige fingerprint idêntico antes/depois.
 
-A ação `cleanup-restore RELEASE_ID OPERATION_ID` remove apenas o PVC fixo do
-restore cujo recibo está `failed`, depois de confirmar ausência de workload,
+A ação `cleanup-restore RELEASE_ID FAILED_OPERATION_ID OPERATION_ID` exige um
+novo ID de operação e remove apenas o PVC fixo do restore cujo recibo está
+`failed`, depois de confirmar ausência de workload,
 vínculo do PV e release corrente. Ela aguarda o PV `Delete` desaparecer,
 reverifica produção e projetos protegidos e grava recibo próprio; nome de
 recurso, caminho ou alvo livre continuam inexistentes na interface.
