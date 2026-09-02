@@ -338,11 +338,7 @@ def main() -> None:
                                     "periodSeconds": 5,
                                     "timeoutSeconds": 3,
                                 },
-                                "volumeMounts": [
-                                    mount
-                                    for mount in volume_mounts
-                                    if mount["name"] != "backup-runtime"
-                                ],
+                                "volumeMounts": volume_mounts,
                             }
                         ],
                         "volumes": [

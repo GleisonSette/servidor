@@ -723,6 +723,7 @@ for invariant in (
     "/var/run/secrets/dre/backup/s3-key-secret",
     "/var/run/secrets/dre/backup/cipher-pass",
     '"subPath": "s3-key"',
+    '"volumeMounts": volume_mounts',
 ):
     if invariant not in restore_renderer:
         fail(f"proteção de restore ausente: {invariant}")

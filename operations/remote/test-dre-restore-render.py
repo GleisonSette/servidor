@@ -97,6 +97,11 @@ class RestoreRenderTests(unittest.TestCase):
                     {"key": "cipher-pass", "path": "cipher-pass"},
                 ],
             )
+            postgres_backup_mounts = [
+                mount for mount in pod["containers"][0]["volumeMounts"]
+                if mount["name"] == "backup-runtime"
+            ]
+            self.assertEqual(postgres_backup_mounts, backup_mounts)
             self.assertIn("archive_mode=off", pod["containers"][0]["args"])
             self.assertIn("archive_command=/bin/false", pod["containers"][0]["args"])
 

@@ -425,8 +425,10 @@ nove no schema 2 e sete em rollback legado — e zero índice inválido. Ao pass
 remove StatefulSet, Service, ConfigMaps, Secrets e PVC e
 aguarda o PV ser apagado. Falha preserva o PVC para diagnóstico e exige
 reconciliação explícita; nunca apaga ou restaura sobre `dre-postgres-data`.
-As três credenciais de backup são montadas como arquivos `subPath` individuais,
-com a mesma validação antissymlink usada no PostgreSQL permanente.
+As três credenciais de backup são montadas no init container e no PostgreSQL
+restaurado como arquivos `subPath` individuais, com a mesma validação
+antissymlink usada no PostgreSQL permanente. O segundo acesso é necessário para
+buscar WAL durante a recuperação antes da abertura do banco.
 
 Se o Pod não puder ser agendado, o init container falhar ou a imagem não puder
 iniciar, a operação encerra sem aguardar todo o timeout. O recibo `failed` e a

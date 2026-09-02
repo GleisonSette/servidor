@@ -1012,3 +1012,18 @@ volume e manter o Secret somente em memória no namespace descartável. O teste
 do renderer afirma os caminhos, os `subPath` e o inventário de itens. Não se
 relaxa a verificação antissymlink e nenhuma credencial é gravada em manifesto,
 recibo, log ou repositório.
+
+## Resolvida D046 - Credenciais efêmeras durante a recuperação de WAL
+
+Com D045, o pgBackRest restaurou 32,5 MiB e 1.457 arquivos com sucesso, mas o
+PostgreSQL recuperado encerrou com código 1 logo depois de iniciar. O restore
+grava `restore_command` em `postgresql.auto.conf`; ao abrir o cluster, o próprio
+PostgreSQL ainda precisa consultar o repositório para buscar WAL. Os três
+arquivos de credencial estavam montados apenas no init container.
+
+A decisão é montar os mesmos três arquivos `subPath` também no container
+PostgreSQL descartável, somente durante o drill e no mesmo Secret temporário já
+copiado em memória. Isso permite completar a recuperação sem copiar valor para
+ConfigMap, argumento, manifesto ou recibo. O teste do renderer exige que init e
+PostgreSQL recebam exatamente o mesmo conjunto fechado de mounts; o Secret e os
+workloads continuam removidos no sucesso e o PVC continua preservado na falha.
