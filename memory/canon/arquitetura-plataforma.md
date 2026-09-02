@@ -130,6 +130,13 @@ para o volume de produção. A prova desliga arquivamento de WAL no banco
 restaurado, verifica migrations e índices e remove o volume somente após
 sucesso. Falha preserva o PVC descartável para diagnóstico.
 
+A troca do digest PostgreSQL em produção não usa o deploy comum. A operação
+fechada `upgrade-postgres` aceita somente uma candidata previamente validada
+cuja única diferença operacional seja a imagem do banco, exige backup aprovado
+posterior ao plano, registra recibo vinculante e reaplica a release anterior se
+o rollout ou os gates pós-troca falharem. Mudança de migrations, imagem Rust,
+configuração ou versão estrutural do banco exige outra decisão e outro fluxo.
+
 Por D032, a credencial da ponte web atravessa duas fronteiras administrativas.
 Um orquestrador local gera o valor forte somente em memória, grava primeiro o
 Secret `DRE_BRIDGE_TOKEN` no Cloudflare Pages por entrada protegida e depois

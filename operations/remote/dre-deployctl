@@ -238,6 +238,58 @@ release_migration_count() {
     "$(release_file "$1" release.json)"
 }
 
+normalized_platform_sha() {
+  local release_id="$1" postgres_image="$2"
+  python3 - "$(release_file "$release_id" 00-platform.yaml)" "$postgres_image" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+manifest = pathlib.Path(sys.argv[1]).read_bytes()
+image = sys.argv[2].encode("ascii")
+if manifest.count(image) != 1:
+    raise SystemExit("manifesto de plataforma não contém exatamente uma imagem PostgreSQL")
+normalized = manifest.replace(image, b"DRE_POSTGRES_IMAGE_BY_DIGEST")
+print(hashlib.sha256(normalized).hexdigest())
+PY
+}
+
+require_postgres_upgrade_compatibility() {
+  local previous="$1" release_id="$2" old_image new_image stage
+  old_image="$(release_postgres_image "$previous")"
+  new_image="$(release_postgres_image "$release_id")"
+  [[ "$old_image" != "$new_image" ]] \
+    || fail 'upgrade PostgreSQL exige digest novo'
+  [[ "$(release_rust_image "$previous")" == "$(release_rust_image "$release_id")" ]] \
+    || fail 'upgrade PostgreSQL não pode alterar a imagem Rust'
+  [[ "$(release_migration_count "$previous")" == "$(release_migration_count "$release_id")" ]] \
+    || fail 'upgrade PostgreSQL não pode alterar o conjunto de migrations'
+  for stage in 10-migrations.yaml 20-database-access.yaml 30-runtime.yaml; do
+    [[ "$(sha256sum "$(release_file "$previous" "$stage")" | cut -d' ' -f1)" \
+      == "$(sha256sum "$(release_file "$release_id" "$stage")" | cut -d' ' -f1)" ]] \
+      || fail "upgrade PostgreSQL alterou estágio não permitido: ${stage}"
+  done
+  [[ "$(normalized_platform_sha "$previous" "$old_image")" \
+    == "$(normalized_platform_sha "$release_id" "$new_image")" ]] \
+    || fail 'upgrade PostgreSQL alterou a plataforma além do digest do banco'
+}
+
+require_postgres_upgrade_backup() {
+  local release_id="$1" backup_operation_id="$2" plan="$3" receipt completed generated now
+  require_operation_id "$backup_operation_id"
+  receipt="${RECEIPT_ROOT}/backup-${backup_operation_id}.json"
+  require_root_file "$receipt" '^600$'
+  jq -e --arg release_id "$release_id" \
+    '.schema == 1 and .status == "passed" and .release_id == $release_id and (.type == "full" or .type == "diff") and (.completed_at_epoch | type == "number")' \
+    "$receipt" >/dev/null || fail 'recibo de backup não autoriza o upgrade PostgreSQL'
+  completed="$(jq -r '.completed_at_epoch' "$receipt")"
+  generated="$(jq -r '.generated_at_epoch' <<<"$plan")"
+  now="$(date -u +%s)"
+  [[ "$completed" -ge "$generated" && "$completed" -le "$now" ]] \
+    || fail 'backup do upgrade PostgreSQL deve ser posterior ao plano vigente'
+  sha256sum "$receipt" | cut -d' ' -f1
+}
+
 require_schema_two_release() {
   local release_id="$1"
   [[ "$(release_schema "$release_id")" == 2 ]] \
@@ -1629,6 +1681,143 @@ deploy_release() {
   pass "release ${release_id} implantada; banco e projetos protegidos preservados"
 }
 
+upgrade_postgres() {
+  [[ "$#" -eq 4 ]] \
+    || fail 'uso: upgrade-postgres RELEASE_ID PLAN_SHA256 BACKUP_OPERATION_ID OPERATION_ID'
+  local release_id="$1" plan_sha="$2" backup_operation_id="$3" operation_id="$4"
+  local plan previous protected_before old_image new_image current_postgres
+  local backup_receipt_sha alert_backup work_started=false
+  require_cached_release "$release_id"
+  require_schema_two_release "$release_id"
+  require_operation_id "$operation_id"
+  require_new_receipt postgres-upgrade "$operation_id"
+  verify_cached_release_again "$release_id"
+  verify_foundation
+  verify_release_secret_inventory "$release_id"
+  verify_protected_projects
+  acquire_controller_lock
+  plan="$(load_and_verify_plan "$release_id" "$plan_sha")"
+  previous="$(jq -r '.current_release' <<<"$plan")"
+  [[ "$previous" != none && "$previous" == "$(current_release_id)" ]] \
+    || fail 'upgrade PostgreSQL exige uma release corrente igual à do plano'
+  require_cached_release "$previous"
+  require_postgres_upgrade_compatibility "$previous" "$release_id"
+  backup_receipt_sha="$(require_postgres_upgrade_backup \
+    "$previous" "$backup_operation_id" "$plan")"
+  protected_before="$(jq -r '.protected_fingerprint' <<<"$plan")"
+  acquire_shared_maintenance_locks
+  old_image="$(release_postgres_image "$previous")"
+  new_image="$(release_postgres_image "$release_id")"
+  current_postgres="$(kube -n "$NAMESPACE" get statefulset dre-postgres \
+    -o jsonpath='{.spec.template.spec.containers[0].image}')"
+  [[ "$current_postgres" == "$old_image" ]] \
+    || fail 'imagem PostgreSQL corrente diverge da release anterior'
+  alert_backup="$(mktemp)"
+  if [[ -f "$PROMETHEUS_RULES" && ! -L "$PROMETHEUS_RULES" ]]; then
+    cp -a -- "$PROMETHEUS_RULES" "$alert_backup"
+  else
+    : >"$alert_backup"
+  fi
+  jq -cn \
+    --arg release_id "$release_id" \
+    --arg operation_id "$operation_id" \
+    --arg previous_release "$previous" \
+    --arg backup_operation_id "$backup_operation_id" \
+    --arg backup_receipt_sha256 "$backup_receipt_sha" \
+    --arg old_postgres_image "$old_image" \
+    --arg new_postgres_image "$new_image" \
+    --arg started_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{schema:1,status:"started",release_id:$release_id,operation_id:$operation_id,previous_release:$previous_release,backup_operation_id:$backup_operation_id,backup_receipt_sha256:$backup_receipt_sha256,old_postgres_image:$old_postgres_image,new_postgres_image:$new_postgres_image,started_at_utc:$started_at_utc}' \
+    | atomic_write "${RECEIPT_ROOT}/postgres-upgrade-${operation_id}.json" 0600
+  postgres_upgrade_failed() {
+    local code="$1" release_id="$2" operation_id="$3" previous="$4"
+    local backup_operation_id="$5" backup_receipt_sha="$6" alert_backup="$7"
+    local work_started="$8" rollback_result=not-required
+    set +e
+    if [[ "$work_started" == true ]]; then
+      if rollback_runtime_internal "$previous" \
+          && verify_runtime_core "$previous" >/dev/null 2>&1; then
+        rollback_result=passed
+      else
+        rollback_result=failed
+        kube label namespace "$NAMESPACE" \
+          platform.servidor.local/deployment-gate=rollback-failed \
+          --overwrite >/dev/null 2>&1 || true
+      fi
+      if [[ -s "$alert_backup" ]]; then
+        install -m 0644 -o root -g root "$alert_backup" "$PROMETHEUS_RULES" \
+          || rollback_result=failed
+      else
+        rm -f -- "$PROMETHEUS_RULES" || rollback_result=failed
+      fi
+      promtool check config /etc/prometheus/prometheus.yml >/dev/null 2>&1 \
+        && systemctl reload prometheus.service >/dev/null 2>&1 \
+        || rollback_result=failed
+    fi
+    jq -cn \
+      --arg release_id "$release_id" \
+      --arg operation_id "$operation_id" \
+      --arg previous_release "$previous" \
+      --arg backup_operation_id "$backup_operation_id" \
+      --arg backup_receipt_sha256 "$backup_receipt_sha" \
+      --arg rollback "$rollback_result" \
+      --arg failed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{schema:1,status:"failed",release_id:$release_id,operation_id:$operation_id,previous_release:$previous_release,backup_operation_id:$backup_operation_id,backup_receipt_sha256:$backup_receipt_sha256,rollback:$rollback,failed_at_utc:$failed_at_utc}' \
+      | atomic_write "${RECEIPT_ROOT}/postgres-upgrade-${operation_id}.json" 0600 \
+      || true
+    rm -f -- "$alert_backup"
+    audit_event upgrade-postgres failed "$release_id" "$operation_id"
+    exit "$code"
+  }
+  register_exit_trap postgres_upgrade_failed \
+    "$release_id" "$operation_id" "$previous" "$backup_operation_id" \
+    "$backup_receipt_sha" "$alert_backup" false
+  work_started=true
+  register_exit_trap postgres_upgrade_failed \
+    "$release_id" "$operation_id" "$previous" "$backup_operation_id" \
+    "$backup_receipt_sha" "$alert_backup" "$work_started"
+  kube label namespace "$NAMESPACE" \
+    platform.servidor.local/deployment-gate=postgres-upgrade --overwrite >/dev/null
+  kube apply --server-side --field-manager=dre-deployctl \
+    -f "$(release_file "$release_id" 00-platform.yaml)" >/dev/null
+  kube -n "$NAMESPACE" rollout status statefulset/dre-postgres --timeout=360s >/dev/null
+  prepare_pgbackrest_runtime
+  run_pgbackrest_action_with_retry stanza-create
+  run_pgbackrest_action_with_retry check
+  kube apply --server-side --field-manager=dre-deployctl \
+    -f "$(release_file "$release_id" 30-runtime.yaml)" >/dev/null
+  kube -n "$NAMESPACE" rollout status deployment/dre-api --timeout=180s >/dev/null
+  kube -n "$NAMESPACE" rollout status deployment/dre-worker --timeout=180s >/dev/null
+  install -m 0644 -o root -g root \
+    "$(release_file "$release_id" monitoring/alerts-k3s.yml)" "$PROMETHEUS_RULES"
+  promtool check rules "$PROMETHEUS_RULES" >/dev/null
+  promtool check config /etc/prometheus/prometheus.yml >/dev/null
+  systemctl reload prometheus.service
+  kube label namespace "$NAMESPACE" \
+    platform.servidor.local/deployment-gate=passed --overwrite >/dev/null
+  verify_runtime_core "$release_id"
+  [[ "$(protected_fingerprint)" == "$protected_before" ]] \
+    || fail 'recurso protegido mudou durante o upgrade PostgreSQL DRE'
+  release_shared_maintenance_locks
+  verify_protected_projects
+  printf '%s\n' "$release_id" | atomic_write "$CURRENT_RELEASE" 0600
+  jq -cn \
+    --arg release_id "$release_id" \
+    --arg operation_id "$operation_id" \
+    --arg previous_release "$previous" \
+    --arg backup_operation_id "$backup_operation_id" \
+    --arg backup_receipt_sha256 "$backup_receipt_sha" \
+    --arg old_postgres_image "$old_image" \
+    --arg new_postgres_image "$new_image" \
+    --arg completed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{schema:1,status:"passed",release_id:$release_id,operation_id:$operation_id,previous_release:$previous_release,backup_operation_id:$backup_operation_id,backup_receipt_sha256:$backup_receipt_sha256,old_postgres_image:$old_postgres_image,new_postgres_image:$new_postgres_image,rollback:"not-required",completed_at_utc:$completed_at_utc}' \
+    | atomic_write "${RECEIPT_ROOT}/postgres-upgrade-${operation_id}.json" 0600
+  trap - EXIT
+  rm -f -- "$alert_backup"
+  audit_event upgrade-postgres passed "$release_id" "$operation_id"
+  pass "release ${release_id} ativada após upgrade PostgreSQL com backup vinculado"
+}
+
 verify_release() {
   [[ "$#" -eq 1 ]] || fail 'uso: verify RELEASE_ID'
   local release_id="$1"
@@ -2403,7 +2592,7 @@ status() {
 
 contract() {
   [[ "$#" -eq 0 ]] || fail 'uso: contract'
-  jq -cn '{schema:2,controller:"dre-deployctl",namespace:"dre-production",edge_namespace:"dre-edge",validation_namespace:"dre-validation",restore_namespace:"dre-restore-drill",lifecycle:"always-active",secondary_slot_member:false,permanent_containers:["api","worker","postgres"],edge_connector:"cloudflared-isolated",images:"digest-only",release_signature:"ed25519",release_schemas:{import:[1,2],deploy:[2],rollback:[1,2]},migration_count:9,validation:{required_before_plan:true,disposable:true,preserve_on_failure:true,cleanup_on_success:true,restarts:["api","worker","postgres"]},first_deploy_recovery:{requires_failed_receipt:true,requires_validation:true,preserves_pvc:true,applies_migrations:false},secret_input_schema:1,bridge_token_source:"orchestrator-stdin",edge_token_source:"orchestrator-stdin",read_only:["contract","status","diagnose-validation","diagnose-production"],mutations:["import-release","initialize-secrets","validate-release","cleanup-validation","recover-first-deploy","plan","deploy","configure-edge","provision-accounts","backup","restore-drill"],generic_shell:false,generic_kubectl:false}'
+  jq -cn '{schema:2,controller:"dre-deployctl",namespace:"dre-production",edge_namespace:"dre-edge",validation_namespace:"dre-validation",restore_namespace:"dre-restore-drill",lifecycle:"always-active",secondary_slot_member:false,permanent_containers:["api","worker","postgres"],edge_connector:"cloudflared-isolated",images:"digest-only",release_signature:"ed25519",release_schemas:{import:[1,2],deploy:[2],rollback:[1,2]},migration_count:9,validation:{required_before_plan:true,disposable:true,preserve_on_failure:true,cleanup_on_success:true,restarts:["api","worker","postgres"]},postgres_upgrade:{requires_current_backup_after_plan:true,only_postgres_digest_change:true,rollback:true},first_deploy_recovery:{requires_failed_receipt:true,requires_validation:true,preserves_pvc:true,applies_migrations:false},secret_input_schema:1,bridge_token_source:"orchestrator-stdin",edge_token_source:"orchestrator-stdin",read_only:["contract","status","diagnose-validation","diagnose-production"],mutations:["import-release","initialize-secrets","validate-release","cleanup-validation","recover-first-deploy","plan","deploy","upgrade-postgres","configure-edge","provision-accounts","backup","restore-drill"],generic_shell:false,generic_kubectl:false}'
 }
 
 main() {
@@ -2426,6 +2615,7 @@ main() {
     recover-first-deploy) recover_first_deploy "$@" ;;
     plan) create_plan "$@" ;;
     deploy) deploy_release "$@" ;;
+    upgrade-postgres) upgrade_postgres "$@" ;;
     verify) verify_release "$@" ;;
     configure-edge) configure_edge "$@" ;;
     provision-accounts) provision_accounts "$@" ;;

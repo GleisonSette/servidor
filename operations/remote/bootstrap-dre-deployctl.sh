@@ -655,7 +655,7 @@ promtool check config "$PROMETHEUS_CONFIG" >/dev/null
 /usr/local/sbin/dre-kube-identityctl reconcile >/dev/null
 /usr/local/sbin/dre-kube-identityctl verify >/dev/null
 sudo -u apiadmin sudo -n /usr/local/sbin/dre-deployctl contract \
-  | jq -e '.schema == 2 and .controller == "dre-deployctl" and .edge_namespace == "dre-edge" and .validation_namespace == "dre-validation" and .validation.required_before_plan == true and (.read_only | index("diagnose-production")) != null and (.mutations | index("configure-edge")) != null and (.mutations | index("provision-accounts")) != null and .generic_shell == false and .secondary_slot_member == false and .bridge_token_source == "orchestrator-stdin" and .edge_token_source == "orchestrator-stdin"' \
+  | jq -e '.schema == 2 and .controller == "dre-deployctl" and .edge_namespace == "dre-edge" and .validation_namespace == "dre-validation" and .validation.required_before_plan == true and .postgres_upgrade.requires_current_backup_after_plan == true and .postgres_upgrade.only_postgres_digest_change == true and .postgres_upgrade.rollback == true and (.read_only | index("diagnose-production")) != null and (.mutations | index("configure-edge")) != null and (.mutations | index("provision-accounts")) != null and (.mutations | index("upgrade-postgres")) != null and .generic_shell == false and .secondary_slot_member == false and .bridge_token_source == "orchestrator-stdin" and .edge_token_source == "orchestrator-stdin"' \
   >/dev/null
 
 negative_manifest="$(mktemp)"

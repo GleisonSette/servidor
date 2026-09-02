@@ -920,3 +920,30 @@ lido como valor. Qualquer mudança em workload, PVC, Secret, configuração,
 ownership ou inventário falha fechado e aciona o rollback transacional dos
 arquivos instalados. D041 não concede `kubectl`, shell, migration ou alteração
 de release e não transforma upgrade do controlador em deploy da aplicação.
+
+## Resolvida D042 - Upgrade fechado da imagem PostgreSQL do DRE
+
+Em 2026-09-02, a primeira exportação lógica real revelou que o diretório
+`emptyDir` já preparado pelo Kubernetes não pode receber `chmod` pelo usuário
+não root da imagem. A correção fica exclusivamente no helper da imagem
+PostgreSQL. O deploy normal recusa por projeto qualquer troca desse digest, e
+editar Pod, StatefulSet ou arquivo dentro do container contornaria assinatura,
+recibo e rollback.
+
+A decisão é acrescentar `upgrade-postgres` à interface fechada. A ação exige
+release schema 2 já importada e validada, plano ainda vigente e backup `full` ou
+`diff` aprovado da release corrente, concluído depois da geração desse plano. A
+candidata precisa manter exatamente a imagem Rust, a quantidade de migrations e
+os estágios de migration, acesso e runtime; o manifesto de plataforma, depois
+de normalizar o digest PostgreSQL, também precisa ser byte a byte equivalente.
+Assim, a operação não serve como caminho genérico para alterar schema,
+configuração ou versão principal do banco.
+
+Durante a troca, o namespace recebe gate `postgres-upgrade`, os locks DRE,
+Blindou e slot secundário permanecem ativos, o StatefulSet faz rollout pelo
+manifesto assinado e `stanza-create`, `check`, readiness, migrations existentes,
+API e worker são conferidos antes de avançar o ponteiro da release. O recibo
+vincula release anterior, digests antigo/novo e SHA-256 do recibo de backup, sem
+segredos. Qualquer falha reaplica a release anterior, restaura alertas e exige
+que o runtime antigo volte a passar na verificação; falha nessa compensação
+fecha o gate como `rollback-failed`.
