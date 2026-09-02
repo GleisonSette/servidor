@@ -1,24 +1,24 @@
 {
-    "manifest_version":  "0.1.0",
-    "generated_at":  "2026-09-02",
-    "project":  "servidor-local-compartilhado",
-    "memory_root":  "memory",
-    "source_scope":  "Host, K3s, APIWPP, Blindou, slot SaferWPP, operacao, seguranca e continuidade.",
-    "layers":  {
-                   "canon":  6,
-                   "index_chunks":  198
-               },
-    "topics":  [
-                   "indice-canonico",
-                   "estado-atual",
-                   "arquitetura-plataforma",
-                   "plano-implementacao",
-                   "historico-execucao",
-                   "decisoes"
-               ],
-    "codex_entrypoints":  [
-                              "AGENTS.md",
-                              "memory/canon/index.md",
-                              "memory/metadata/politica-composicao-contexto.md"
-                          ]
+  "manifest_version": "0.1.0",
+  "generated_at": "2026-09-02",
+  "project": "servidor-local-compartilhado",
+  "memory_root": "memory",
+  "source_scope": "Host, K3s, APIWPP, Blindou, slot SaferWPP, operacao, seguranca e continuidade.",
+  "layers": {
+    "canon": 6,
+    "index_chunks": 198
+  },
+  "topics": [
+    "indice-canonico",
+    "estado-atual",
+    "arquitetura-plataforma",
+    "plano-implementacao",
+    "historico-execucao",
+    "decisoes"
+  ],
+  "codex_entrypoints": [
+    "AGENTS.md",
+    "memory/canon/index.md",
+    "memory/metadata/politica-composicao-contexto.md"
+  ]
 }

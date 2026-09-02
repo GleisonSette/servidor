@@ -238,17 +238,19 @@ release_migration_count() {
     "$(release_file "$1" release.json)"
 }
 
-normalized_platform_sha() {
-  local release_id="$1" postgres_image="$2"
-  python3 - "$(release_file "$release_id" 00-platform.yaml)" "$postgres_image" <<'PY'
+normalized_postgres_stage_sha() {
+  local release_id="$1" stage="$2" postgres_image="$3" expected_count="$4"
+  python3 - "$(release_file "$release_id" "$stage")" \
+    "$postgres_image" "$expected_count" <<'PY'
 import hashlib
 import pathlib
 import sys
 
 manifest = pathlib.Path(sys.argv[1]).read_bytes()
 image = sys.argv[2].encode("ascii")
-if manifest.count(image) != 1:
-    raise SystemExit("manifesto de plataforma não contém exatamente uma imagem PostgreSQL")
+expected_count = int(sys.argv[3])
+if manifest.count(image) != expected_count:
+    raise SystemExit("manifesto não contém a quantidade esperada da imagem PostgreSQL")
 normalized = manifest.replace(image, b"DRE_POSTGRES_IMAGE_BY_DIGEST")
 print(hashlib.sha256(normalized).hexdigest())
 PY
@@ -264,13 +266,20 @@ require_postgres_upgrade_compatibility() {
     || fail 'upgrade PostgreSQL não pode alterar a imagem Rust'
   [[ "$(release_migration_count "$previous")" == "$(release_migration_count "$release_id")" ]] \
     || fail 'upgrade PostgreSQL não pode alterar o conjunto de migrations'
-  for stage in 10-migrations.yaml 20-database-access.yaml 30-runtime.yaml; do
+  for stage in 10-migrations.yaml 30-runtime.yaml; do
     [[ "$(sha256sum "$(release_file "$previous" "$stage")" | cut -d' ' -f1)" \
       == "$(sha256sum "$(release_file "$release_id" "$stage")" | cut -d' ' -f1)" ]] \
       || fail "upgrade PostgreSQL alterou estágio não permitido: ${stage}"
   done
-  [[ "$(normalized_platform_sha "$previous" "$old_image")" \
-    == "$(normalized_platform_sha "$release_id" "$new_image")" ]] \
+  [[ "$(normalized_postgres_stage_sha \
+      "$previous" 20-database-access.yaml "$old_image" 2)" \
+    == "$(normalized_postgres_stage_sha \
+      "$release_id" 20-database-access.yaml "$new_image" 2)" ]] \
+    || fail 'upgrade PostgreSQL alterou o acesso ao banco além do digest da imagem'
+  [[ "$(normalized_postgres_stage_sha \
+      "$previous" 00-platform.yaml "$old_image" 1)" \
+    == "$(normalized_postgres_stage_sha \
+      "$release_id" 00-platform.yaml "$new_image" 1)" ]] \
     || fail 'upgrade PostgreSQL alterou a plataforma além do digest do banco'
 }
 

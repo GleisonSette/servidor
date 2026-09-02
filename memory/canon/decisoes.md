@@ -933,9 +933,11 @@ recibo e rollback.
 A decisão é acrescentar `upgrade-postgres` à interface fechada. A ação exige
 release schema 2 já importada e validada, plano ainda vigente e backup `full` ou
 `diff` aprovado da release corrente, concluído depois da geração desse plano. A
-candidata precisa manter exatamente a imagem Rust, a quantidade de migrations e
-os estágios de migration, acesso e runtime; o manifesto de plataforma, depois
-de normalizar o digest PostgreSQL, também precisa ser byte a byte equivalente.
+candidata precisa manter exatamente a imagem Rust, a quantidade de migrations
+e os estágios de migration e runtime. Os manifestos de plataforma e acesso ao
+banco, depois de normalizar todas as ocorrências esperadas do digest PostgreSQL,
+precisam ser byte a byte equivalentes. A contagem esperada também é validada
+para impedir que uma imagem estranha seja escondida pela normalização.
 Assim, a operação não serve como caminho genérico para alterar schema,
 configuração ou versão principal do banco.
 
