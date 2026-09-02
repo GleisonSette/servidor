@@ -2166,6 +2166,7 @@ backup_database() {
 restore_drill() {
   [[ "$#" -eq 3 ]] || fail 'uso: restore-drill RELEASE_ID OPERATION_ID {latest|YYYY-MM-DDTHH:MM:SSZ}'
   local release_id="$1" operation_id="$2" target="$3" temporary pvc_uid pv_name migration_count expected_migrations
+  local phase=preflight deadline pod_json ready
   require_cached_release "$release_id"
   require_operation_id "$operation_id"
   require_new_receipt restore "$operation_id"
@@ -2189,8 +2190,48 @@ restore_drill() {
   temporary="$(mktemp -d /run/dre-restore.XXXXXX)"
   trap 'rm -rf -- "$temporary"' RETURN
   restore_failed() {
-    local code="$1" release_id="$2" operation_id="$3" target="$4" temporary="$5"
+    local code="$1" release_id="$2" operation_id="$3" target="$4" temporary="$5" phase="$6"
+    local pod_diagnostics='{"observed":false}' logs='[]' raw_log sanitized_log container
     set +e
+    if pod_json="$(admin_kube -n "$RESTORE_NAMESPACE" get pod dre-restore-postgres-0 -o json 2>/dev/null)"; then
+      pod_diagnostics="$(jq -c '
+        {
+          observed:true,
+          phase:(.status.phase // ""),
+          reason:(.status.reason // ""),
+          message:(.status.message // ""),
+          conditions:[.status.conditions[]? | {type,status,reason:(.reason // ""),message:(.message // "")}],
+          init_containers:[.status.initContainerStatuses[]? | {
+            name,ready,restart_count:.restartCount,
+            last_exit_code:(.lastState.terminated.exitCode // null),
+            last_reason:(.lastState.terminated.reason // ""),
+            state:(if .state.waiting then {kind:"waiting",reason:(.state.waiting.reason // ""),message:(.state.waiting.message // "")}
+              elif .state.terminated then {kind:"terminated",reason:(.state.terminated.reason // ""),message:(.state.terminated.message // ""),exit_code:.state.terminated.exitCode,signal:(.state.terminated.signal // 0)}
+              elif .state.running then {kind:"running"} else {kind:"unknown"} end)
+          }],
+          containers:[.status.containerStatuses[]? | {
+            name,ready,restart_count:.restartCount,
+            last_exit_code:(.lastState.terminated.exitCode // null),
+            last_reason:(.lastState.terminated.reason // ""),
+            state:(if .state.waiting then {kind:"waiting",reason:(.state.waiting.reason // ""),message:(.state.waiting.message // "")}
+              elif .state.terminated then {kind:"terminated",reason:(.state.terminated.reason // ""),message:(.state.terminated.message // ""),exit_code:.state.terminated.exitCode,signal:(.state.terminated.signal // 0)}
+              elif .state.running then {kind:"running"} else {kind:"unknown"} end)
+          }]
+        }
+      ' <<<"$pod_json" | sanitize_diagnostic_output)"
+      for container in restore postgres; do
+        raw_log="$(admin_kube -n "$RESTORE_NAMESPACE" logs dre-restore-postgres-0 \
+          --container "$container" --tail=80 --limit-bytes=16384 2>&1 || true)"
+        sanitized_log="$(printf '%s' "$raw_log" | sanitize_diagnostic_output)"
+        logs="$(jq -cn \
+          --argjson current "$logs" \
+          --arg container "$container" \
+          --arg log "$sanitized_log" \
+          '$current + [{container:$container,log:$log}]')"
+      done
+    fi
+    printf '[dre-deployctl] restore diagnostics: %s\n' \
+      "$(jq -cn --arg phase "$phase" --argjson pod "$pod_diagnostics" --argjson logs "$logs" '{phase:$phase,pod:$pod,logs:$logs}')" >&2
     kube -n "$RESTORE_NAMESPACE" delete statefulset dre-restore-postgres --ignore-not-found --wait=true >/dev/null 2>&1
     kube -n "$RESTORE_NAMESPACE" delete service dre-restore-postgres --ignore-not-found >/dev/null 2>&1
     kube -n "$RESTORE_NAMESPACE" delete configmap dre-restore-postgres-config dre-restore-runtime-config --ignore-not-found >/dev/null 2>&1
@@ -2199,19 +2240,28 @@ restore_drill() {
       --arg release_id "$release_id" \
       --arg operation_id "$operation_id" \
       --arg target "$target" \
+      --arg phase "$phase" \
+      --argjson pod "$pod_diagnostics" \
+      --argjson logs "$logs" \
       --arg failed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      '{schema:1,status:"failed",release_id:$release_id,operation_id:$operation_id,target:$target,failed_at_utc:$failed_at_utc}' \
+      '{schema:1,status:"failed",release_id:$release_id,operation_id:$operation_id,target:$target,phase:$phase,diagnostics:{pod:$pod,logs:$logs},failed_at_utc:$failed_at_utc}' \
       | atomic_write "${RECEIPT_ROOT}/restore-${operation_id}.json" 0600 || true
     audit_event restore-drill failed "$release_id" "$operation_id"
     rm -rf -- "$temporary"
     exit "$code"
   }
   register_exit_trap restore_failed \
-    "$release_id" "$operation_id" "$target" "$temporary"
+    "$release_id" "$operation_id" "$target" "$temporary" "$phase"
+  phase=render
+  register_exit_trap restore_failed \
+    "$release_id" "$operation_id" "$target" "$temporary" "$phase"
   python3 "$RESTORE_RENDERER" \
     "$(release_file "$release_id" 00-platform.yaml)" \
     "$(release_postgres_image "$release_id")" "$operation_id" "$target" \
     "${temporary}/restore.yaml"
+  phase=materialize
+  register_exit_trap restore_failed \
+    "$release_id" "$operation_id" "$target" "$temporary" "$phase"
   for secret in dre-registry-pull dre-backup-runtime; do
     kube -n "$NAMESPACE" get secret "$secret" -o json \
       | jq --arg namespace "$RESTORE_NAMESPACE" \
@@ -2220,7 +2270,34 @@ restore_drill() {
   done
   kube apply --server-side --field-manager=dre-deployctl -f "${temporary}/restore.yaml" >/dev/null
   pvc_uid="$(kube -n "$RESTORE_NAMESPACE" get pvc dre-restore-data -o jsonpath='{.metadata.uid}')"
-  kube -n "$RESTORE_NAMESPACE" rollout status statefulset/dre-restore-postgres --timeout=1200s >/dev/null
+  phase=rollout
+  register_exit_trap restore_failed \
+    "$release_id" "$operation_id" "$target" "$temporary" "$phase"
+  deadline=$((SECONDS + 1200))
+  while true; do
+    ready="$(kube -n "$RESTORE_NAMESPACE" get statefulset dre-restore-postgres \
+      -o jsonpath='{.status.readyReplicas}' 2>/dev/null || printf 0)"
+    [[ "${ready:-0}" == 1 ]] && break
+    pod_json="$(kube -n "$RESTORE_NAMESPACE" get pod dre-restore-postgres-0 \
+      -o json 2>/dev/null || true)"
+    if [[ -n "$pod_json" ]]; then
+      jq -e 'any(.status.conditions[]?; .type == "PodScheduled" and .status == "False" and .reason == "Unschedulable")' \
+        <<<"$pod_json" >/dev/null && fail 'restore não pode ser agendado no nó'
+      jq -e 'any(.status.initContainerStatuses[]?; ((.state.terminated.exitCode // .lastState.terminated.exitCode // 0) != 0))' \
+        <<<"$pod_json" >/dev/null && fail 'init container do restore terminou com erro'
+      jq -e 'any(.status.initContainerStatuses[]?; .state.waiting.reason == "CreateContainerConfigError" or .state.waiting.reason == "ImagePullBackOff" or .state.waiting.reason == "ErrImagePull" or .state.waiting.reason == "CrashLoopBackOff")' \
+        <<<"$pod_json" >/dev/null && fail 'init container do restore não pode iniciar'
+      jq -e 'any(.status.containerStatuses[]?; ((.state.terminated.exitCode // .lastState.terminated.exitCode // 0) != 0))' \
+        <<<"$pod_json" >/dev/null && fail 'PostgreSQL restaurado terminou com erro'
+      jq -e 'any(.status.containerStatuses[]?; .state.waiting.reason == "CreateContainerConfigError" or .state.waiting.reason == "ImagePullBackOff" or .state.waiting.reason == "ErrImagePull" or .state.waiting.reason == "CrashLoopBackOff")' \
+        <<<"$pod_json" >/dev/null && fail 'PostgreSQL restaurado não pode iniciar'
+    fi
+    ((SECONDS < deadline)) || fail 'timeout aguardando PostgreSQL restaurado ficar Ready'
+    sleep 2
+  done
+  phase=database-checks
+  register_exit_trap restore_failed \
+    "$release_id" "$operation_id" "$target" "$temporary" "$phase"
   migration_count="$(kube -n "$RESTORE_NAMESPACE" exec dre-restore-postgres-0 -- \
     psql --no-psqlrc --tuples-only --no-align -h /var/run/postgresql \
     -U dre_postgres_admin -d dre \
@@ -2233,6 +2310,9 @@ restore_drill() {
     -U dre_postgres_admin -d dre \
     --command="SELECT count(*) FROM pg_index WHERE NOT indisvalid")" =~ ^[[:space:]]*0[[:space:]]*$ ]] \
     || fail 'restore contém índice inválido'
+  phase=cleanup
+  register_exit_trap restore_failed \
+    "$release_id" "$operation_id" "$target" "$temporary" "$phase"
   pv_name="$(kube -n "$RESTORE_NAMESPACE" get pvc dre-restore-data -o jsonpath='{.spec.volumeName}')"
   kube -n "$RESTORE_NAMESPACE" delete statefulset dre-restore-postgres --wait=true >/dev/null
   kube -n "$RESTORE_NAMESPACE" delete service dre-restore-postgres >/dev/null

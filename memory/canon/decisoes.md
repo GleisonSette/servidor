@@ -978,3 +978,21 @@ novo ID de operação e remove apenas o PVC fixo do restore cujo recibo está
 vínculo do PV e release corrente. Ela aguarda o PV `Delete` desaparecer,
 reverifica produção e projetos protegidos e grava recibo próprio; nome de
 recurso, caminho ou alvo livre continuam inexistentes na interface.
+
+## Resolvida D044 - Diagnóstico durável e falha rápida no restore DRE
+
+Em 2026-09-02, o segundo restore descartável também atingiu o timeout de 1.200
+segundos. O tratador removia StatefulSet e Pod antes de registrar estado ou log,
+por isso o recibo comprovava a falha sem explicar se a causa era agendamento,
+init container, imagem ou PostgreSQL. Repetir ciclos de vinte minutos sem essa
+evidência atrasaria a recuperação e esconderia a condição operacional real.
+
+A decisão é observar o StatefulSet e o Pod a cada dois segundos, encerrar cedo
+em erro definitivo de agendamento, pull, configuração ou processo e manter o
+timeout total de 1.200 segundos para operações apenas lentas. Antes de remover
+os workloads, o tratador grava no recibo root-only a fase, condições e estados
+estruturados do Pod e os últimos logs de `restore` e `postgres`, limitados a 16
+KiB por container e processados pelo sanitizador de credenciais. A mesma
+evidência sanitizada aparece na saída da operação para diagnóstico imediato.
+O PVC continua preservado e só pode ser removido por `cleanup-restore` com IDs
+distintos; a mudança não amplia a interface para shell ou `kubectl` genéricos.

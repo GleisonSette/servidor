@@ -426,6 +426,13 @@ remove StatefulSet, Service, ConfigMaps, Secrets e PVC e
 aguarda o PV ser apagado. Falha preserva o PVC para diagnóstico e exige
 reconciliação explícita; nunca apaga ou restaura sobre `dre-postgres-data`.
 
+Se o Pod não puder ser agendado, o init container falhar ou a imagem não puder
+iniciar, a operação encerra sem aguardar todo o timeout. O recibo `failed` e a
+saída do controlador preservam fase, estados do Pod e os últimos logs dos
+containers, limitados e sanitizados; credenciais e payloads financeiros não são
+registrados. Os workloads temporários são removidos e o PVC fica preservado
+para reconciliação explícita.
+
 Depois de identificar a causa, a única reconciliação autorizada do volume
 descartável preservado informa a mesma release, o ID da operação falha e um ID
 novo para a própria limpeza:
