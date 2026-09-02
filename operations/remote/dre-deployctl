@@ -1772,10 +1772,12 @@ upgrade_postgres() {
   postgres_upgrade_failed() {
     local code="$1" release_id="$2" operation_id="$3" previous="$4"
     local backup_operation_id="$5" backup_receipt_sha="$6" alert_backup="$7"
-    local work_started="$8" rollback_result=not-required
+    local work_started="$8" old_image="$9" rollback_result=not-required
     set +e
     if [[ "$work_started" == true ]]; then
-      if rollback_runtime_internal "$previous" \
+      if kube -n "$NAMESPACE" set image statefulset/dre-postgres \
+          postgres="$old_image" >/dev/null 2>&1 \
+          && rollback_runtime_internal "$previous" \
           && verify_runtime_core "$previous" >/dev/null 2>&1; then
         rollback_result=passed
       else
@@ -1811,15 +1813,15 @@ upgrade_postgres() {
   }
   register_exit_trap postgres_upgrade_failed \
     "$release_id" "$operation_id" "$previous" "$backup_operation_id" \
-    "$backup_receipt_sha" "$alert_backup" false
+    "$backup_receipt_sha" "$alert_backup" false "$old_image"
   work_started=true
   register_exit_trap postgres_upgrade_failed \
     "$release_id" "$operation_id" "$previous" "$backup_operation_id" \
-    "$backup_receipt_sha" "$alert_backup" "$work_started"
+    "$backup_receipt_sha" "$alert_backup" "$work_started" "$old_image"
   kube label namespace "$NAMESPACE" \
     platform.servidor.local/deployment-gate=postgres-upgrade --overwrite >/dev/null
-  kube apply --server-side --field-manager=dre-deployctl \
-    -f "$(release_file "$release_id" 00-platform.yaml)" >/dev/null
+  kube -n "$NAMESPACE" set image statefulset/dre-postgres \
+    postgres="$new_image" >/dev/null
   kube -n "$NAMESPACE" rollout status statefulset/dre-postgres --timeout=360s >/dev/null
   prepare_pgbackrest_runtime
   run_pgbackrest_action_with_retry stanza-create

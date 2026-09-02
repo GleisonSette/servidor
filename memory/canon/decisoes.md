@@ -941,11 +941,15 @@ para impedir que uma imagem estranha seja escondida pela normalização.
 Assim, a operação não serve como caminho genérico para alterar schema,
 configuração ou versão principal do banco.
 
-Durante a troca, o namespace recebe gate `postgres-upgrade`, os locks DRE,
-Blindou e slot secundário permanecem ativos, o StatefulSet faz rollout pelo
-manifesto assinado e `stanza-create`, `check`, readiness, migrations existentes,
+Durante a troca, o namespace recebe gate `postgres-upgrade` e os locks DRE,
+Blindou e slot secundário permanecem ativos. Como o campo da imagem já pertence
+ao gerenciador `kubectl-set`, o controlador altera somente
+`statefulset/dre-postgres:postgres` para o digest extraído do manifesto assinado;
+ele não reaplica toda a plataforma nem toma ownership com `--force-conflicts`.
+Depois do rollout, `stanza-create`, `check`, readiness, migrations existentes,
 API e worker são conferidos antes de avançar o ponteiro da release. O recibo
 vincula release anterior, digests antigo/novo e SHA-256 do recibo de backup, sem
-segredos. Qualquer falha reaplica a release anterior, restaura alertas e exige
-que o runtime antigo volte a passar na verificação; falha nessa compensação
-fecha o gate como `rollback-failed`.
+segredos. Qualquer falha primeiro restaura esse campo para o digest anterior,
+reaplica a release anterior, restaura alertas e exige que o runtime antigo volte
+a passar na verificação; falha nessa compensação fecha o gate como
+`rollback-failed`.

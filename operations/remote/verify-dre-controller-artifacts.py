@@ -382,6 +382,9 @@ for invariant in (
     "requires_current_backup_after_plan:true",
     "backup do upgrade PostgreSQL deve ser posterior ao plano vigente",
     "register_exit_trap postgres_upgrade_failed",
+    'set image statefulset/dre-postgres',
+    'postgres="$new_image"',
+    'postgres="$old_image"',
     "prepare_pgbackrest_runtime",
     "mkdir -p /tmp/pgbackrest/log /tmp/pgbackrest/lock",
     "chmod 0700 /tmp/pgbackrest/log /tmp/pgbackrest/lock",
@@ -530,6 +533,9 @@ for unsafe_trap in (
 ):
     if unsafe_trap in controller:
         fail(f"trap EXIT sem contexto preservado: {unsafe_trap}")
+
+if "--force-conflicts" in controller:
+    fail("controlador DRE não pode tomar ownership Kubernetes com --force-conflicts")
 
 bootstrap = read("operations/remote/bootstrap-dre-deployctl.sh")
 for invariant in (
