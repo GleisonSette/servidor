@@ -453,9 +453,31 @@ run_protected_gate() {
 }
 
 run_secondary_slot_gate() {
-  local output occupant apiwpp_workloads saferwpp_workloads
-  output="$(sudo -u apiadmin sudo -n /usr/local/sbin/secondary-slotctl verify)" \
-    || fail 'slot secundário não está íntegro'
+  local output output_file attempt code occupant apiwpp_workloads saferwpp_workloads
+  output_file="$(mktemp)"
+  for ((attempt = 1; attempt <= 12; attempt++)); do
+    if sudo -u apiadmin sudo -n /usr/local/sbin/secondary-slotctl verify \
+        >"$output_file" 2>&1; then
+      output="$(<"$output_file")"
+      rm -f -- "$output_file"
+      break
+    else
+      code=$?
+    fi
+    if [[ "$code" -ne 2 ]] \
+        || ! grep -Fq -- 'outra operação do slot está em andamento' "$output_file"; then
+      while IFS= read -r line; do
+        printf '[bootstrap-dre-deployctl] Slot: %s\n' "$line" >&2
+      done <"$output_file"
+      rm -f -- "$output_file"
+      fail 'slot secundário não está íntegro'
+    fi
+    if [[ "$attempt" -eq 12 ]]; then
+      rm -f -- "$output_file"
+      fail 'slot secundário permaneceu ocupado por 60 segundos'
+    fi
+    sleep 5
+  done
   if [[ "$output" =~ ^secondary_slot_verify=passed[[:space:]]occupant=(none|apiwpp|saferwpp)[[:space:]]generation=([0-9]+)[[:space:]]apiwpp_workloads=([0-9]+)[[:space:]]saferwpp_workloads=([0-9]+)$ ]]; then
     occupant="${BASH_REMATCH[1]}"
     apiwpp_workloads="${BASH_REMATCH[3]}"

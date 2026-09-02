@@ -158,6 +158,12 @@ não é reaplicada e os fingerprints completos de produção e edge precisam ser
 idênticos antes e depois. Assim, instalar uma nova operação administrativa não
 faz rollout, migration ou alteração de Secret por efeito colateral.
 
+A leitura do slot secundário repete por no máximo 60 segundos somente o erro
+transitório exato de lock ocupado. Qualquer código ou mensagem diferente falha
+imediatamente. Essa espera é aplicada antes e depois da troca dos arquivos para
+não confundir a corrida curta com o timer do slot com divergência de
+APIWPP/SaferWPP.
+
 `dre-validation` deve estar ausente ou ser uma validação
 descartável autêntica com gate `blocked`, release e operação válidas. O segundo
 caso existe para instalar uma correção de diagnóstico sem apagar a evidência da

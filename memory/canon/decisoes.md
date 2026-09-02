@@ -1116,3 +1116,17 @@ precedência explícita necessária e não muda o repositório, as credenciais, 
 alvo PITR nem o PostgreSQL permanente. O override de ambiente permanece como
 defesa complementar e o teste exige os dois mecanismos; sucesso ainda depende
 de migrations, índices e consultas financeiras no banco restaurado.
+
+## Resolvida D053 - Espera limitada pelo lock do slot no bootstrap DRE
+
+Duas tentativas de instalar D052 foram recusadas com a produção saudável: a
+primeira encontrou o `secondary-slotctl` ocupado antes da troca e a segunda o
+encontrou ocupado na verificação posterior. O bootstrap restaurou os arquivos
+anteriores, mas a leitura única permitia que o timer legítimo do slot tornasse
+a atualização impossível por uma corrida de poucos segundos.
+
+A decisão é repetir por até 60 segundos somente o retorno de código 2 que
+contenha a mensagem exata de operação do slot em andamento, tanto antes quanto
+depois da instalação. Qualquer outra falha continua imediata e a saída final
+ainda precisa corresponder integralmente ao atestado estruturado do slot. Não
+se remove lock, não se encerra processo vizinho e não se aceita estado parcial.
