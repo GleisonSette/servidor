@@ -70,10 +70,13 @@ Secrets e release validada no cache, mas produção continua sem runtime.
   `ee4a335236b0e99e5fac4ee3e30a986f0ddc8bb2`, 12 migrations, slot `none` na
   geração 2 e zero unit systemd falha.
 - O rollout persistente, migrations, backup/restore, rota HTTPS, contas e chave
-  Android estão autorizados e em andamento. A nova release ligada ao commit DRE
-  `e1423b7` ainda precisa passar build, gates integrais e validação descartável
-  antes do deploy. FCM, dispositivo autorizado, saldo inicial e dados
-  financeiros reais continuam ausentes.
+  Android estão autorizados e em andamento. A candidata agora está ligada ao
+  commit DRE `601e4224d59fb40f4418f6e9de153bbf6047fa2c`; o archive-fonte
+  determinístico tem SHA-256
+  `d164da586cb6d8aac59c22cdf0ab785a5e6a2c9761e213a90749997fbd049f9f`.
+  Os gates integrais estão em execução e build/publicação/validação descartável
+  ainda não ocorreram para essa candidata. FCM, dispositivo autorizado, saldo
+  inicial e dados financeiros reais continuam ausentes.
 
 ## PostgreSQL dedicado Blindou I1 autorizado em 2026-08-29
 

@@ -1806,3 +1806,23 @@ controlador instalado sem ativar produção.
   ausente e Ready `0/0/0`. O primeiro `plan` depois da correção retornou
   `status=passed` para a release já validada. Nenhum PVC, migration persistente,
   workload, conta, rota ou dado financeiro foi criado neste passo.
+
+## 2026-09-02 - Candidata persistente DRE fixada no commit 601e422
+
+Resultado: preparação declarativa e fonte autenticada concluídas; o gate
+integral continua em execução e produção permanece intacta.
+
+- O archive `source.tar` foi derivado por `git archive` do commit DRE
+  `601e4224d59fb40f4418f6e9de153bbf6047fa2c`, possui 6.748.160 bytes e
+  SHA-256 `d164da586cb6d8aac59c22cdf0ab785a5e6a2c9761e213a90749997fbd049f9f`.
+- Os orquestradores fechados de build e publicação foram fixados no novo SHA,
+  staging `/home/apiadmin/dre-image-build-601e4224d59f-20260902T043140Z` e
+  hashes das ferramentas já aprovadas; o teste integral do repositório passou
+  no Windows sem WSL.
+- O gate sintético rejeitou uma duplicação do próprio roteiro externo depois de
+  todos os testes do produto: `make dev-up` precedia `make e2e`, embora `e2e`
+  já possua `foundation-e2e -> dev-up`. O roteiro externo foi corrigido para
+  uma única subida limpa e reiniciado; nenhum código DRE ou runtime foi alterado
+  por essa correção.
+- Nenhuma imagem, release, migration, PVC, workload, conta, rota ou dado real
+  foi criado por esta preparação.
