@@ -88,11 +88,15 @@ restore_configuration_fingerprint() {
 }
 
 require_restore_bootstrap_state() {
-  if ! "$K3S" kubectl --namespace dre-restore-drill get pvc dre-restore-data \
-      >/dev/null 2>&1; then
+  local pvc_names
+  pvc_names="$("$K3S" kubectl --namespace dre-restore-drill get pvc \
+    --ignore-not-found -o name | sort)"
+  if [[ -z "$pvc_names" ]]; then
     require_empty_namespace dre-restore-drill
     return
   fi
+  [[ "$pvc_names" == 'persistentvolumeclaim/dre-restore-data' ]] \
+    || fail "inventário PVC do restore preservado diverge: ${pvc_names}"
   local pvc_json operation_id receipt release_id pvc_uid pv_name
   for resource in deployments.apps statefulsets.apps daemonsets.apps replicasets.apps \
       replicationcontrollers jobs.batch cronjobs.batch pods services secrets; do
