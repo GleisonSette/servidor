@@ -292,7 +292,7 @@ require_postgres_upgrade_backup() {
     '.schema == 1 and .status == "passed" and .release_id == $release_id and (.type == "full" or .type == "diff") and (.completed_at_epoch | type == "number")' \
     "$receipt" >/dev/null || fail 'recibo de backup não autoriza o upgrade PostgreSQL'
   completed="$(jq -r '.completed_at_epoch' "$receipt")"
-  generated="$(jq -r '.generated_at_epoch' <<<"$plan")"
+  generated="$(jq -r '.generated_at_epoch' "$plan")"
   now="$(date -u +%s)"
   [[ "$completed" -ge "$generated" && "$completed" -le "$now" ]] \
     || fail 'backup do upgrade PostgreSQL deve ser posterior ao plano vigente'
@@ -1737,14 +1737,14 @@ upgrade_postgres() {
   verify_protected_projects
   acquire_controller_lock
   plan="$(load_and_verify_plan "$release_id" "$plan_sha")"
-  previous="$(jq -r '.current_release' <<<"$plan")"
+  previous="$(jq -r '.current_release' "$plan")"
   [[ "$previous" != none && "$previous" == "$(current_release_id)" ]] \
     || fail 'upgrade PostgreSQL exige uma release corrente igual à do plano'
   require_cached_release "$previous"
   require_postgres_upgrade_compatibility "$previous" "$release_id"
   backup_receipt_sha="$(require_postgres_upgrade_backup \
     "$previous" "$backup_operation_id" "$plan")"
-  protected_before="$(jq -r '.protected_fingerprint' <<<"$plan")"
+  protected_before="$(jq -r '.protected_fingerprint' "$plan")"
   acquire_shared_maintenance_locks
   old_image="$(release_postgres_image "$previous")"
   new_image="$(release_postgres_image "$release_id")"
