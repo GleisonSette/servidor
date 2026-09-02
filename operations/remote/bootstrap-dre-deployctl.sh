@@ -88,25 +88,25 @@ restore_configuration_fingerprint() {
 }
 
 require_restore_bootstrap_state() {
-  local pvc_names
-  pvc_names="$("$K3S" kubectl --namespace dre-restore-drill get pvc \
-    --ignore-not-found -o name | sort)"
-  if [[ -z "$pvc_names" ]]; then
+  local pvc_list pvc_json operation_id receipt release_id pvc_uid pv_name
+  pvc_list="$("$K3S" kubectl --namespace dre-restore-drill \
+    get persistentvolumeclaims -o json)"
+  if [[ "$(jq '.items | length' <<<"$pvc_list")" -eq 0 ]]; then
     require_empty_namespace dre-restore-drill
     return
   fi
-  [[ "$pvc_names" == 'persistentvolumeclaim/dre-restore-data' ]] \
-    || fail "inventário PVC do restore preservado diverge: ${pvc_names}"
-  local pvc_json operation_id receipt release_id pvc_uid pv_name
+  [[ "$(jq '.items | length' <<<"$pvc_list")" -eq 1 ]] \
+    || fail 'restore preservado contém mais de um PVC'
+  pvc_json="$(jq -c '.items[0]' <<<"$pvc_list")"
   for resource in deployments.apps statefulsets.apps daemonsets.apps replicasets.apps \
       replicationcontrollers jobs.batch cronjobs.batch pods services secrets; do
     require_exact_names dre-restore-drill "$resource" ''
   done
   require_exact_names dre-restore-drill persistentvolumeclaims \
     'persistentvolumeclaim/dre-restore-data'
-  pvc_json="$("$K3S" kubectl --namespace dre-restore-drill \
-    get pvc dre-restore-data -o json)"
   jq -e '
+    .metadata.name == "dre-restore-data" and
+    .metadata.namespace == "dre-restore-drill" and
     .metadata.labels["app.kubernetes.io/name"] == "dre-restore-postgres" and
     .metadata.labels["app.kubernetes.io/component"] == "restore-drill" and
     .metadata.labels["app.kubernetes.io/part-of"] == "dre-familiar" and
