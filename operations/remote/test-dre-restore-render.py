@@ -61,7 +61,9 @@ class RestoreRenderTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            documents = [doc for doc in yaml.safe_load_all(output.read_text()) if doc]
+            rendered = output.read_text()
+            self.assertIn('value: "n"', rendered)
+            documents = [doc for doc in yaml.safe_load_all(rendered) if doc]
             self.assertFalse(any(doc.get("kind") == "Secret" for doc in documents))
             pvc = next(doc for doc in documents if doc.get("kind") == "PersistentVolumeClaim")
             self.assertEqual(pvc["spec"]["storageClassName"], "dre-local-delete-drill")

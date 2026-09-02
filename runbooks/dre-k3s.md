@@ -435,7 +435,9 @@ somente referências ao Secret e ao ConfigMap efêmeros para que o `restore_comm
 do pgBackRest resolva credenciais e repositório sem materializar valores no
 manifesto. `archive-async` fica desativado somente nesse container para que a
 ausência do próximo WAL encerre a recuperação em vez de aguardar o timeout de
-arquivamento usado pela produção.
+arquivamento usado pela produção. O valor `n` é emitido como string YAML
+explicitamente citada para não ser reinterpretado como booleano por parsers
+YAML 1.1.
 
 Se o Pod não puder ser agendado, o init container falhar ou a imagem não puder
 iniciar, a operação encerra sem aguardar todo o timeout. O recibo `failed` e a
@@ -454,8 +456,10 @@ sudo -n /usr/local/sbin/dre-deployctl cleanup-restore RELEASE_ID FAILED_OPERATIO
 
 A ação exige um novo `OPERATION_ID`, distinto do `FAILED_OPERATION_ID` cujo
 recibo está `failed`, ausência dos workloads temporários, labels e
-UIDs correspondentes, PVC de 20 GiB na StorageClass `Delete` e PV vinculado com
-reclaim policy `Delete`. Ela não aceita nome ou caminho fornecido pelo operador,
+UIDs correspondentes e PVC de 20 GiB na StorageClass `Delete`. PVC `Bound`
+exige PV vinculado com reclaim policy `Delete`; PVC `Pending` sem PV só é aceito
+quando o recibo registra falha na fase `materialize`. A ação não aceita nome ou
+caminho fornecido pelo operador,
 remove somente `dre-restore-data`, aguarda o PV desaparecer e reverifica a
 produção e os projetos protegidos.
 

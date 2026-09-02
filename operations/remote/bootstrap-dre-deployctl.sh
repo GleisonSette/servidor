@@ -82,13 +82,15 @@ restore_configuration_fingerprint() {
   {
     "$K3S" kubectl --namespace dre-restore-drill get pvc dre-restore-data -o json \
       | jq -cS '{apiVersion,kind,metadata:{name:.metadata.name,namespace:.metadata.namespace,uid:.metadata.uid,labels:.metadata.labels,annotations:.metadata.annotations,finalizers:.metadata.finalizers},spec,status:{phase:.status.phase}}'
-    "$K3S" kubectl get pv "$pv_name" -o json \
-      | jq -cS '{apiVersion,kind,metadata:{name:.metadata.name,uid:.metadata.uid,labels:.metadata.labels,annotations:.metadata.annotations,finalizers:.metadata.finalizers},spec,status:{phase:.status.phase}}'
+    if [[ -n "$pv_name" ]]; then
+      "$K3S" kubectl get pv "$pv_name" -o json \
+        | jq -cS '{apiVersion,kind,metadata:{name:.metadata.name,uid:.metadata.uid,labels:.metadata.labels,annotations:.metadata.annotations,finalizers:.metadata.finalizers},spec,status:{phase:.status.phase}}'
+    fi
   } | sha256sum | cut -d' ' -f1
 }
 
 require_restore_bootstrap_state() {
-  local pvc_list pvc_json operation_id receipt release_id pvc_uid pv_name
+  local pvc_list pvc_json operation_id receipt release_id pvc_uid pv_name pvc_phase
   pvc_list="$("$K3S" kubectl --namespace dre-restore-drill \
     get persistentvolumeclaims -o json)"
   if [[ "$(jq '.items | length' <<<"$pvc_list")" -eq 0 ]]; then
@@ -115,8 +117,8 @@ require_restore_bootstrap_state() {
     .spec.storageClassName == "dre-local-delete-drill" and
     .spec.accessModes == ["ReadWriteOnce"] and
     .spec.resources.requests.storage == "20Gi" and
-    .status.phase == "Bound" and
-    (.spec.volumeName | test("^pvc-[0-9a-f-]{36}$"))
+    ((.status.phase == "Bound" and (.spec.volumeName | test("^pvc-[0-9a-f-]{36}$"))) or
+     (.status.phase == "Pending" and ((.spec.volumeName // "") == "")))
   ' <<<"$pvc_json" >/dev/null \
     || fail 'PVC de restore preservado diverge do contrato fechado'
   operation_id="$(jq -r '.metadata.labels["dre.familiar/operation-id"]' <<<"$pvc_json")"
@@ -127,20 +129,25 @@ require_restore_bootstrap_state() {
   [[ -f "${STATE_ROOT}/current-release" && ! -L "${STATE_ROOT}/current-release" ]] \
     || fail 'restore preservado exige release corrente'
   release_id="$(<"${STATE_ROOT}/current-release")"
-  jq -e --arg release_id "$release_id" --arg operation_id "$operation_id" '
+  pvc_phase="$(jq -r '.status.phase' <<<"$pvc_json")"
+  jq -e --arg release_id "$release_id" --arg operation_id "$operation_id" \
+    --arg pvc_phase "$pvc_phase" '
     .schema == 1 and .status == "failed" and .release_id == $release_id and
-    .operation_id == $operation_id
+    .operation_id == $operation_id and
+    ($pvc_phase == "Bound" or ($pvc_phase == "Pending" and .phase == "materialize"))
   ' "$receipt" >/dev/null || fail 'recibo não comprova restore falho preservado'
   pvc_uid="$(jq -r '.metadata.uid' <<<"$pvc_json")"
-  pv_name="$(jq -r '.spec.volumeName' <<<"$pvc_json")"
-  "$K3S" kubectl get pv "$pv_name" -o json \
-    | jq -e --arg pvc_uid "$pvc_uid" '
-      .spec.storageClassName == "dre-local-delete-drill" and
-      .spec.persistentVolumeReclaimPolicy == "Delete" and
-      .spec.claimRef.namespace == "dre-restore-drill" and
-      .spec.claimRef.name == "dre-restore-data" and
-      .spec.claimRef.uid == $pvc_uid
-    ' >/dev/null || fail 'PV de restore preservado diverge do PVC fechado'
+  pv_name="$(jq -r '.spec.volumeName // ""' <<<"$pvc_json")"
+  if [[ -n "$pv_name" ]]; then
+    "$K3S" kubectl get pv "$pv_name" -o json \
+      | jq -e --arg pvc_uid "$pvc_uid" '
+        .spec.storageClassName == "dre-local-delete-drill" and
+        .spec.persistentVolumeReclaimPolicy == "Delete" and
+        .spec.claimRef.namespace == "dre-restore-drill" and
+        .spec.claimRef.name == "dre-restore-data" and
+        .spec.claimRef.uid == $pvc_uid
+      ' >/dev/null || fail 'PV de restore preservado diverge do PVC fechado'
+  fi
 }
 
 require_production_predeploy_state() {

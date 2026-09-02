@@ -17,6 +17,22 @@ TARGET_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z
 NAMESPACE = "dre-restore-drill"
 
 
+class QuotedString(str):
+    """String que precisa permanecer string também em parsers YAML 1.1."""
+
+
+class ManifestDumper(yaml.SafeDumper):
+    pass
+
+
+ManifestDumper.add_representer(
+    QuotedString,
+    lambda dumper, value: dumper.represent_scalar(
+        "tag:yaml.org,2002:str", value, style='"'
+    ),
+)
+
+
 def fail(message: str) -> None:
     raise SystemExit(f"[dre-restore-render] ERRO: {message}")
 
@@ -308,7 +324,10 @@ def main() -> None:
                                     {"name": "POSTGRES_USER", "value": "dre_postgres_admin"},
                                     {"name": "POSTGRES_DB", "value": "dre"},
                                     {"name": "PGDATA", "value": "/var/lib/postgresql/data/pgdata"},
-                                    {"name": "PGBACKREST_ARCHIVE_ASYNC", "value": "n"},
+                                    {
+                                        "name": "PGBACKREST_ARCHIVE_ASYNC",
+                                        "value": QuotedString("n"),
+                                    },
                                     *repository_environment,
                                     {
                                         "name": "PGBACKREST_REPO1_S3_KEY",
@@ -413,7 +432,12 @@ def main() -> None:
         },
     ]
     output.write_text(
-        yaml.safe_dump_all(restore_documents, sort_keys=False, explicit_start=True),
+        yaml.dump_all(
+            restore_documents,
+            Dumper=ManifestDumper,
+            sort_keys=False,
+            explicit_start=True,
+        ),
         encoding="utf-8",
         newline="\n",
     )

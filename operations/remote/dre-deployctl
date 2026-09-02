@@ -2345,7 +2345,7 @@ cleanup_restore() {
     || fail 'uso: cleanup-restore RELEASE_ID FAILED_OPERATION_ID OPERATION_ID'
   local release_id="$1" source_operation_id="$2" operation_id="$3"
   local source_receipt cleanup_receipt
-  local pvc_json pvc_uid pv_name protected_before deadline phase=preflight
+  local pvc_json pvc_uid pv_name pvc_phase protected_before deadline phase=preflight
   require_cached_release "$release_id"
   require_schema_two_release "$release_id"
   require_operation_id "$source_operation_id"
@@ -2389,20 +2389,26 @@ cleanup_restore() {
     .spec.storageClassName == "dre-local-delete-drill" and
     .spec.accessModes == ["ReadWriteOnce"] and
     .spec.resources.requests.storage == "20Gi" and
-    .status.phase == "Bound" and
-    (.spec.volumeName | test("^pvc-[0-9a-f-]{36}$"))
+    ((.status.phase == "Bound" and (.spec.volumeName | test("^pvc-[0-9a-f-]{36}$"))) or
+     (.status.phase == "Pending" and ((.spec.volumeName // "") == "")))
   ' <<<"$pvc_json" >/dev/null \
     || fail 'PVC preservado não corresponde ao restore falho'
   pvc_uid="$(jq -r '.metadata.uid' <<<"$pvc_json")"
-  pv_name="$(jq -r '.spec.volumeName' <<<"$pvc_json")"
-  admin_kube get pv "$pv_name" -o json \
-    | jq -e --arg namespace "$RESTORE_NAMESPACE" --arg pvc_uid "$pvc_uid" '
-      .spec.storageClassName == "dre-local-delete-drill" and
-      .spec.persistentVolumeReclaimPolicy == "Delete" and
-      .spec.claimRef.namespace == $namespace and
-      .spec.claimRef.name == "dre-restore-data" and
-      .spec.claimRef.uid == $pvc_uid
-    ' >/dev/null || fail 'PV preservado não corresponde ao PVC descartável'
+  pvc_phase="$(jq -r '.status.phase' <<<"$pvc_json")"
+  pv_name="$(jq -r '.spec.volumeName // ""' <<<"$pvc_json")"
+  if [[ "$pvc_phase" == Pending ]]; then
+    jq -e '.phase == "materialize"' "$source_receipt" >/dev/null \
+      || fail 'PVC Pending não foi produzido por falha de materialização'
+  else
+    admin_kube get pv "$pv_name" -o json \
+      | jq -e --arg namespace "$RESTORE_NAMESPACE" --arg pvc_uid "$pvc_uid" '
+        .spec.storageClassName == "dre-local-delete-drill" and
+        .spec.persistentVolumeReclaimPolicy == "Delete" and
+        .spec.claimRef.namespace == $namespace and
+        .spec.claimRef.name == "dre-restore-data" and
+        .spec.claimRef.uid == $pvc_uid
+      ' >/dev/null || fail 'PV preservado não corresponde ao PVC descartável'
+  fi
   cleanup_receipt="${RECEIPT_ROOT}/restore-cleanup-${operation_id}.json"
   jq -cn \
     --arg release_id "$release_id" \
@@ -2410,9 +2416,10 @@ cleanup_restore() {
     --arg operation_id "$operation_id" \
     --arg source_receipt_sha256 "$(sha256sum "$source_receipt" | cut -d' ' -f1)" \
     --arg pvc_uid "$pvc_uid" \
+    --arg pvc_phase "$pvc_phase" \
     --arg pv_name "$pv_name" \
     --arg started_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{schema:1,status:"started",release_id:$release_id,source_operation_id:$source_operation_id,operation_id:$operation_id,source_receipt_sha256:$source_receipt_sha256,pvc_uid:$pvc_uid,pv_name:$pv_name,started_at_utc:$started_at_utc}' \
+    '{schema:1,status:"started",release_id:$release_id,source_operation_id:$source_operation_id,operation_id:$operation_id,source_receipt_sha256:$source_receipt_sha256,pvc_uid:$pvc_uid,pvc_phase:$pvc_phase,pv_name:$pv_name,started_at_utc:$started_at_utc}' \
     | atomic_write "$cleanup_receipt" 0600
   restore_cleanup_failed() {
     local code="$1" release_id="$2" source_operation_id="$3"
@@ -2436,12 +2443,14 @@ cleanup_restore() {
     "$release_id" "$source_operation_id" "$operation_id" "$cleanup_receipt" "$phase"
   kube -n "$RESTORE_NAMESPACE" delete pvc dre-restore-data \
     --wait=true --timeout=120s >/dev/null
-  deadline=$((SECONDS + 180))
-  while admin_kube get pv "$pv_name" >/dev/null 2>&1; do
-    ((SECONDS < deadline)) \
-      || fail 'PV descartável preservado não foi removido pela StorageClass Delete'
-    sleep 2
-  done
+  if [[ -n "$pv_name" ]]; then
+    deadline=$((SECONDS + 180))
+    while admin_kube get pv "$pv_name" >/dev/null 2>&1; do
+      ((SECONDS < deadline)) \
+        || fail 'PV descartável preservado não foi removido pela StorageClass Delete'
+      sleep 2
+    done
+  fi
   [[ -z "$(admin_kube -n "$RESTORE_NAMESPACE" get pvc --ignore-not-found -o name)" ]] \
     || fail 'PVC permaneceu após a limpeza do restore'
   phase=protected-projects
@@ -2457,13 +2466,14 @@ cleanup_restore() {
     --arg source_operation_id "$source_operation_id" \
     --arg operation_id "$operation_id" \
     --arg pvc_uid "$pvc_uid" \
+    --arg pvc_phase "$pvc_phase" \
     --arg pv_name "$pv_name" \
     --arg completed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{schema:1,status:"passed",release_id:$release_id,source_operation_id:$source_operation_id,operation_id:$operation_id,pvc_uid:$pvc_uid,pv_name:$pv_name,cleaned:true,completed_at_utc:$completed_at_utc}' \
+    '{schema:1,status:"passed",release_id:$release_id,source_operation_id:$source_operation_id,operation_id:$operation_id,pvc_uid:$pvc_uid,pvc_phase:$pvc_phase,pv_name:$pv_name,cleaned:true,completed_at_utc:$completed_at_utc}' \
     | atomic_write "$cleanup_receipt" 0600
   trap - EXIT
   audit_event cleanup-restore passed "$release_id" "$operation_id"
-  pass 'PVC/PV preservados pelo restore falho foram removidos'
+  pass 'PVC e eventual PV preservados pelo restore falho foram removidos'
 }
 
 write_metrics() {

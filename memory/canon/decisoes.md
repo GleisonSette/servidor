@@ -1072,3 +1072,30 @@ aplicando todo WAL existente, mas retorna imediatamente quando o próximo não
 existe, permitindo ao PostgreSQL concluir e promover a recuperação. O banco
 permanente, a configuração assinada e a política de arquivamento de produção
 não são alterados; o teste do renderer fixa explicitamente esse override local.
+
+## Resolvida D050 - String YAML explícita para archive-async
+
+A primeira materialização de D049 foi recusada pela API Kubernetes: o PyYAML
+emitiu o texto `n` sem aspas e o parser YAML 1.1 o converteu em booleano
+`false`, enquanto `EnvVar.value` exige string. StatefulSet e Pod não chegaram a
+ser criados; o apply já havia materializado o PVC, que permaneceu `Pending` e
+sem PV pela StorageClass `WaitForFirstConsumer`.
+
+A decisão é representar somente esse valor por um tipo de string citada e um
+`SafeDumper` dedicado, produzindo `value: "n"` sem alterar a semântica dos demais
+campos. O teste verifica tanto o texto serializado quanto o valor reaberto. Não
+se troca o parâmetro por booleano ou forma alternativa não reconhecida pelo
+pgBackRest.
+
+## Resolvida D051 - Reconciliação fechada de PVC Pending
+
+O `cleanup-restore` original exigia PVC `Bound` e PV vinculado, portanto não
+podia reconciliar a aplicação parcial D050. A decisão é aceitar também o único
+estado `Pending` sem `spec.volumeName`, desde que labels, operação, tamanho,
+StorageClass e recibo root-only comprovem falha na fase `materialize`. Nesse
+caso remove-se somente o PVC fixo; nenhuma consulta ou remoção de PV é feita.
+
+O bootstrap usa o mesmo contrato para permitir atualizar o controlador sem
+mutação indireta, inclui o PVC Pending no fingerprint antes/depois e mantém o
+caminho Bound anterior inalterado. Qualquer outro estado, fase, nome, label,
+volume ou recibo continua falhando fechado.
