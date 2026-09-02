@@ -843,3 +843,26 @@ recibo resumido, inventário, eventos, log técnico do PostgreSQL, `pgBackRest
 info` e arquivos fixos de log. A operação é recusada assim que o estado deixar
 de corresponder ao rollback anterior às migrations. Corrigir a causa e repetir
 o deploy continuam sujeitos ao plano autenticado e às verificações vigentes.
+
+## Resolvida D039 - Recuperação mutável e limitada do primeiro deploy DRE
+
+Em 2026-09-02, o usuário autorizou concluir o deploy persistente, migrations,
+backup/restore, borda e contas privadas. A release corrigida não podia ser
+importada porque o próprio rollback anterior removeu o rótulo de projeto; após
+a importação, o deploy normal também recusaria trocar implicitamente a imagem
+PostgreSQL preservada. Remover o PVC, editar o cluster manualmente ou enfraquecer
+os gates não preservaria a rastreabilidade exigida.
+
+A decisão acrescenta uma recuperação única ao controlador fechado. Importação e
+validação descartável podem tolerar o rótulo ausente somente quando recompõem o
+estado exato D038. Depois que a nova release schema 2 possui recibo de validação
+aprovado, `recover-first-deploy` restaura `project=dre`, substitui apenas o
+digest do contêiner PostgreSQL e executa o `pgBackRest check` corrigido. PVC,
+Secrets, configurações e projetos vizinhos são protegidos por inventário,
+fingerprints e locks; `_sqlx_migrations` deve continuar ausente.
+
+Falha tenta restaurar imagem e rótulo anteriores e registra recibo; compensação
+incompleta fecha o gate como `rollback-failed`. Sucesso não cria release
+corrente nem aplica migration: ele apenas devolve o ambiente ao pré-estado em
+que o fluxo autenticado `plan`/`deploy` pode continuar. A interface continua sem
+`kubectl`, shell, caminho ou imagem fornecida livremente pelo operador.

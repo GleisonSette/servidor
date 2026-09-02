@@ -1984,3 +1984,25 @@ imutáveis publicadas; produção permaneceu no estado seguro do rollback.
 - Nenhuma release renovada, migration, conta, backup, rota ou dado financeiro
   foi criada neste passo. O próximo gate é empacotar e validar a release
   assinada antes da recuperação controlada do primeiro deploy.
+
+## 2026-09-02 - Recuperação limitada do primeiro deploy preparada
+
+Resultado: contrato fechado D039 implementado e validado offline; runtime ainda
+permaneceu no estado do rollback.
+
+- A importação da release `dre-20260902T094748Z-8c5280709b2f`, archive SHA-256
+  `07980835cfc28c19b8ae2312c68cf08878aaa7f73bc877f0346160cf9161663e`,
+  foi recusada antes do cache pelo rótulo de projeto ausente já diagnosticado.
+- O controlador passou a admitir importação e validação nesse estado somente
+  após recompor recibo falho, imagem anterior, inventário, cinco Secrets, PVC
+  `Bound` e ausência de migrations.
+- A nova ação `recover-first-deploy` exige release schema 2 validada e troca
+  somente o rótulo canônico e a imagem PostgreSQL pelo digest assinado. Ela
+  confere `pgBackRest`, preserva PVC/Secrets/projetos por fingerprint e não
+  aplica migration nem publica release corrente.
+- Rollback restaura a imagem/rótulo anteriores; falha de compensação fecha o
+  gate. Sudoers, contrato, verificador independente e runbook foram atualizados
+  sem adicionar shell, `kubectl` ou imagem livre.
+- Nenhuma mutação adicional foi executada no cluster por este registro. O
+  próximo passo é publicar/instalar o controlador e repetir importação,
+  validação e recuperação sob os gates D038/D039.

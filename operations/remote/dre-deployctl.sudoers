@@ -8,6 +8,7 @@ apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl import-release *
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl initialize-secrets *
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl validate-release *
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl cleanup-validation *
+apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl recover-first-deploy *
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl plan *
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl deploy *
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl verify *

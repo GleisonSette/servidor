@@ -100,8 +100,12 @@ API e worker continuam ausentes.
   publicadas como `dre-app@sha256:9d2e0af0e3857ecd634f185d1c46e8dda99051b2b4b19d0b976d194e48fdd88e`,
   `dre-postgres@sha256:30ef6d4e0e695878f684e6fc50c97c84b903f79e582b9cfc5ad6155d02561cd5`
   e `dre-validation-runner@sha256:1e7ece3835bb075d8a70f023931dccbc74c543496c7ea82d51ee1f91f002ac5b`.
-  A release renovada ainda precisa ser empacotada, assinada, importada e
-  validada antes da recuperação do deploy. Backup/restore, HTTPS, contas e
+  A release renovada `dre-20260902T094748Z-8c5280709b2f` foi empacotada duas
+  vezes com archive SHA-256
+  `07980835cfc28c19b8ae2312c68cf08878aaa7f73bc877f0346160cf9161663e`
+  e assinatura Ed25519 aprovada. A importação foi recusada pelo rótulo ausente,
+  sem copiar a candidata ao cache; D039 está preparada no repositório, mas o
+  controlador novo ainda não foi instalado. Backup/restore, HTTPS, contas e
   chave Android ainda não foram concluídos. FCM, dispositivo autorizado, saldo
   inicial e dados financeiros reais continuam ausentes.
 

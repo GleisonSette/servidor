@@ -331,12 +331,130 @@ protected_fingerprint() {
   trap - RETURN
 }
 
+require_production_recovery_exact_names() {
+  local resource="$1" expected="$2" actual
+  actual="$(admin_kube -n "$NAMESPACE" get "$resource" \
+    --ignore-not-found -o name | sort)"
+  [[ "$actual" == "$expected" ]] \
+    || fail "inventário ${resource} diverge da recuperação do primeiro deploy"
+}
+
+failed_first_deploy_release_id() {
+  local receipt
+  receipt="$(find "$RECEIPT_ROOT" -maxdepth 1 -type f -name 'deploy-*.json' \
+    -printf '%T@ %p\n' | sort -nr | head -n 1 | cut -d' ' -f2-)"
+  [[ -n "$receipt" ]] || fail 'recibo do primeiro deploy falho está ausente'
+  require_root_file "$receipt" '^600$'
+  jq -e \
+    '.schema == 1 and .status == "failed" and .previous_release == "none" and .rollback == "passed" and (.release_id | test("^dre-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$"))' \
+    "$receipt" >/dev/null || fail 'recibo não comprova rollback do primeiro deploy'
+  jq -r '.release_id' "$receipt"
+}
+
+production_migrations_absent() {
+  local relation_absent
+  relation_absent="$(admin_kube -n "$NAMESPACE" exec dre-postgres-0 \
+    --container postgres -- psql --no-psqlrc --tuples-only --no-align \
+    -h /var/run/postgresql -U dre_postgres_admin -d dre \
+    --command="SELECT to_regclass('public._sqlx_migrations') IS NULL")"
+  [[ "${relation_absent//[[:space:]]/}" == t ]]
+}
+
+require_failed_first_deploy_recovery_state() {
+  local expected_project="$1" project gate pvc failed_release postgres_image secret_names
+  [[ "$expected_project" == missing || "$expected_project" == dre ]] \
+    || fail 'estado esperado do rótulo de recuperação é inválido'
+  [[ "$(current_release_id)" == none ]] \
+    || fail 'recuperação do primeiro deploy exige release corrente ausente'
+  project="$(admin_kube get namespace "$NAMESPACE" \
+    -o jsonpath='{.metadata.labels.platform\.servidor\.local/project}')"
+  if [[ "$expected_project" == missing ]]; then
+    [[ -z "$project" ]] || fail 'recuperação exige rótulo de projeto ausente'
+  else
+    [[ "$project" == dre ]] || fail 'recuperação não restaurou o rótulo do projeto DRE'
+  fi
+  gate="$(admin_kube get namespace "$NAMESPACE" \
+    -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}')"
+  pvc="$(admin_kube -n "$NAMESPACE" get pvc dre-postgres-data \
+    -o jsonpath='{.status.phase}' 2>/dev/null || printf absent)"
+  [[ "$gate" == secrets-only && "$pvc" == Bound ]] \
+    || fail 'recuperação exige gate secrets-only e PVC Bound'
+  failed_release="$(failed_first_deploy_release_id)"
+  require_cached_release "$failed_release"
+  postgres_image="$(release_postgres_image "$failed_release")"
+  require_production_recovery_exact_names deployments.apps ''
+  require_production_recovery_exact_names statefulsets.apps 'statefulset.apps/dre-postgres'
+  require_production_recovery_exact_names daemonsets.apps ''
+  require_production_recovery_exact_names replicasets.apps ''
+  require_production_recovery_exact_names replicationcontrollers ''
+  require_production_recovery_exact_names jobs.batch ''
+  require_production_recovery_exact_names cronjobs.batch ''
+  require_production_recovery_exact_names pods 'pod/dre-postgres-0'
+  require_production_recovery_exact_names services 'service/dre-postgres'
+  require_production_recovery_exact_names persistentvolumeclaims \
+    'persistentvolumeclaim/dre-postgres-data'
+  [[ "$(admin_kube -n "$NAMESPACE" get statefulset dre-postgres \
+      -o jsonpath='{.spec.replicas}:{.status.readyReplicas}:{.spec.template.spec.containers[0].image}')" \
+      == "1:1:${postgres_image}" ]] \
+    || fail 'PostgreSQL preservado diverge da release do primeiro deploy'
+  [[ "$(admin_kube -n "$NAMESPACE" get pvc dre-postgres-data \
+      -o jsonpath='{.status.phase}:{.spec.storageClassName}:{.spec.resources.requests.storage}')" \
+      == 'Bound:dre-local-retain:20Gi' ]] \
+    || fail 'PVC preservado diverge do volume retido aprovado'
+  secret_names="$(admin_kube -n "$NAMESPACE" get secrets -o json \
+    | jq -r '.items[].metadata.name' | sort)"
+  [[ "$secret_names" == $'dre-api-runtime\ndre-backup-runtime\ndre-database-access\ndre-postgres-admin\ndre-registry-pull' ]] \
+    || fail 'Secrets divergem do inventário fechado da recuperação'
+  production_migrations_absent \
+    || fail 'recuperação exige falha anterior às migrations'
+}
+
+production_recovery_immutable_fingerprint() {
+  {
+    admin_kube get namespace "$NAMESPACE" -o json | jq -cS '
+      del(
+        .metadata.labels["platform.servidor.local/project"],
+        .metadata.creationTimestamp,
+        .metadata.generation,
+        .metadata.managedFields,
+        .metadata.resourceVersion,
+        .status
+      )'
+    admin_kube -n "$NAMESPACE" get statefulsets.apps -o json | jq -cS '
+      [.items[] |
+        del(
+          .metadata.creationTimestamp,
+          .metadata.generation,
+          .metadata.managedFields,
+          .metadata.resourceVersion,
+          .status
+        ) |
+        .spec.template.spec.containers |= map(del(.image))
+      ] | sort_by(.kind,.metadata.name)'
+    admin_kube -n "$NAMESPACE" \
+      get services,persistentvolumeclaims,configmaps,secrets,serviceaccounts,limitranges,resourcequotas,networkpolicies.networking.k8s.io,poddisruptionbudgets.policy \
+      -o json | jq -cS '
+        [.items[] |
+          del(
+            .metadata.creationTimestamp,
+            .metadata.generation,
+            .metadata.managedFields,
+            .metadata.resourceVersion,
+            .status
+          )
+        ] | sort_by(.kind,.metadata.name)'
+  } | sha256sum | cut -d' ' -f1
+}
+
 secrets_encryption_enabled() {
   "$K3S" secrets-encrypt status 2>/dev/null \
     | grep -Eq 'Encryption Status:[[:space:]]+Enabled|Encryption Status:[[:space:]]+enabled'
 }
 
 verify_foundation() {
+  local mode="${1:-strict}" production_project
+  [[ "$#" -le 1 && ("$mode" == strict || "$mode" == allow-failed-first-deploy) ]] \
+    || fail 'modo de verificação da fundação inválido'
   [[ "$(hostname)" == "$EXPECTED_HOSTNAME" ]] || fail 'hostname inesperado'
   [[ "$(uname -m)" == 'x86_64' ]] || fail 'nó não é x86_64'
   [[ "$($K3S --version | head -n 1)" == 'k3s version v1.36.2+k3s1 '* ]] \
@@ -352,8 +470,13 @@ verify_foundation() {
   kube auth whoami -o json \
     | jq -e '.status.userInfo.username == "dre-deployctl"' >/dev/null \
     || fail 'kubeconfig não usa a identidade dre-deployctl'
-  [[ "$(kube get namespace "$NAMESPACE" -o jsonpath='{.metadata.labels.platform\.servidor\.local/project}')" == dre ]] \
-    || fail 'namespace de produção fora do projeto DRE'
+  production_project="$(kube get namespace "$NAMESPACE" \
+    -o jsonpath='{.metadata.labels.platform\.servidor\.local/project}')"
+  if [[ "$production_project" != dre ]]; then
+    [[ "$mode" == allow-failed-first-deploy && -z "$production_project" ]] \
+      || fail 'namespace de produção fora do projeto DRE'
+    require_failed_first_deploy_recovery_state missing
+  fi
   [[ "$(kube get namespace "$EDGE_NAMESPACE" -o jsonpath='{.metadata.labels.platform\.servidor\.local/project}')" == dre ]] \
     || fail 'namespace de edge fora do projeto DRE'
   [[ "$(kube get namespace "$EDGE_NAMESPACE" -o jsonpath='{.metadata.labels.dre\.familiar/api-access}')" == true ]] \
@@ -566,7 +689,7 @@ import_release() {
   require_release_id "$release_id"
   require_sha256 "$archive_sha"
   require_sha256 "$signature_sha"
-  verify_foundation
+  verify_foundation allow-failed-first-deploy
   acquire_controller_lock
   inbox="${RELEASE_INBOX}/${release_id}"
   archive="${inbox}/release.tar.gz"
@@ -896,7 +1019,7 @@ validate_release_disposable() {
   require_operation_id "$operation_id"
   require_new_receipt validation "$operation_id"
   verify_cached_release_again "$release_id"
-  verify_foundation
+  verify_foundation allow-failed-first-deploy
   verify_release_secret_inventory "$release_id"
   verify_protected_projects
   acquire_controller_lock
@@ -1082,6 +1205,122 @@ cleanup_validation() {
   trap - EXIT
   audit_event cleanup-validation passed "$release_id" "$operation_id"
   pass 'namespace/PVC/PV da validação bloqueada foram removidos'
+}
+
+recover_first_deploy() {
+  [[ "$#" -eq 2 ]] || fail 'uso: recover-first-deploy RELEASE_ID OPERATION_ID'
+  local release_id="$1" operation_id="$2" failed_release old_image new_image
+  local protected_before immutable_before secrets_before receipt work_started=false
+  require_cached_release "$release_id"
+  require_schema_two_release "$release_id"
+  require_operation_id "$operation_id"
+  require_new_receipt recovery "$operation_id"
+  verify_cached_release_again "$release_id"
+  verify_foundation allow-failed-first-deploy
+  verify_release_secret_inventory "$release_id"
+  require_validation_receipt "$release_id" >/dev/null
+  verify_protected_projects
+  acquire_controller_lock
+  acquire_shared_maintenance_locks
+  capacity_values >/dev/null
+  require_failed_first_deploy_recovery_state missing
+  failed_release="$(failed_first_deploy_release_id)"
+  old_image="$(release_postgres_image "$failed_release")"
+  new_image="$(release_postgres_image "$release_id")"
+  [[ "$release_id" != "$failed_release" && "$new_image" != "$old_image" ]] \
+    || fail 'recuperação exige nova release validada e nova imagem PostgreSQL'
+  protected_before="$(protected_fingerprint)"
+  immutable_before="$(production_recovery_immutable_fingerprint)"
+  secrets_before="$(secret_inventory_fingerprint)"
+  receipt="${RECEIPT_ROOT}/recovery-${operation_id}.json"
+  jq -cn \
+    --arg release_id "$release_id" \
+    --arg operation_id "$operation_id" \
+    --arg failed_release "$failed_release" \
+    --arg old_postgres_image "$old_image" \
+    --arg new_postgres_image "$new_image" \
+    --arg started_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{schema:1,status:"started",release_id:$release_id,operation_id:$operation_id,failed_release:$failed_release,old_postgres_image:$old_postgres_image,new_postgres_image:$new_postgres_image,started_at_utc:$started_at_utc}' \
+    | atomic_write "$receipt" 0600
+
+  recover_first_deploy_failed() {
+    local code="$1" release_id="$2" operation_id="$3" failed_release="$4"
+    local old_image="$5" immutable_before="$6" secrets_before="$7" work_started="$8"
+    local rollback_result=not-required
+    set +e
+    if [[ "$work_started" == true ]]; then
+      rollback_result=passed
+      kube -n "$NAMESPACE" set image statefulset/dre-postgres \
+        "postgres=${old_image}" >/dev/null 2>&1 || rollback_result=failed
+      kube -n "$NAMESPACE" rollout status statefulset/dre-postgres \
+        --timeout=240s >/dev/null 2>&1 || rollback_result=failed
+      kube label namespace "$NAMESPACE" \
+        platform.servidor.local/project- >/dev/null 2>&1 || rollback_result=failed
+      require_failed_first_deploy_recovery_state missing >/dev/null 2>&1 \
+        || rollback_result=failed
+      [[ "$(production_recovery_immutable_fingerprint)" == "$immutable_before" \
+        && "$(secret_inventory_fingerprint)" == "$secrets_before" ]] \
+        || rollback_result=failed
+      if [[ "$rollback_result" == failed ]]; then
+        kube label namespace "$NAMESPACE" \
+          platform.servidor.local/deployment-gate=rollback-failed \
+          --overwrite >/dev/null 2>&1 || true
+      fi
+    fi
+    jq -cn \
+      --arg release_id "$release_id" \
+      --arg operation_id "$operation_id" \
+      --arg failed_release "$failed_release" \
+      --arg rollback "$rollback_result" \
+      --arg failed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{schema:1,status:"failed",release_id:$release_id,operation_id:$operation_id,failed_release:$failed_release,rollback:$rollback,failed_at_utc:$failed_at_utc}' \
+      | atomic_write "${RECEIPT_ROOT}/recovery-${operation_id}.json" 0600 || true
+    audit_event recover-first-deploy failed "$release_id" "$operation_id"
+    exit "$code"
+  }
+  register_exit_trap recover_first_deploy_failed \
+    "$release_id" "$operation_id" "$failed_release" "$old_image" \
+    "$immutable_before" "$secrets_before" false
+  work_started=true
+  register_exit_trap recover_first_deploy_failed \
+    "$release_id" "$operation_id" "$failed_release" "$old_image" \
+    "$immutable_before" "$secrets_before" "$work_started"
+
+  kube label namespace "$NAMESPACE" \
+    platform.servidor.local/project=dre --overwrite >/dev/null
+  kube -n "$NAMESPACE" set image statefulset/dre-postgres \
+    "postgres=${new_image}" >/dev/null
+  kube -n "$NAMESPACE" rollout status statefulset/dre-postgres \
+    --timeout=240s >/dev/null
+  [[ "$(kube -n "$NAMESPACE" get statefulset dre-postgres \
+      -o jsonpath='{.spec.replicas}:{.status.readyReplicas}:{.spec.template.spec.containers[0].image}')" \
+      == "1:1:${new_image}" ]] \
+    || fail 'PostgreSQL não convergiu para a imagem corrigida'
+  production_migrations_absent \
+    || fail 'recuperação alterou o estado anterior às migrations'
+  kube -n "$NAMESPACE" exec dre-postgres-0 -- dre-pgbackrest stanza-create >/dev/null
+  kube -n "$NAMESPACE" exec dre-postgres-0 -- dre-pgbackrest check >/dev/null
+  [[ "$(production_recovery_immutable_fingerprint)" == "$immutable_before" ]] \
+    || fail 'recurso persistente fora do rótulo/imagem mudou durante a recuperação'
+  [[ "$(secret_inventory_fingerprint)" == "$secrets_before" ]] \
+    || fail 'Secrets mudaram durante a recuperação do primeiro deploy'
+  [[ "$(protected_fingerprint)" == "$protected_before" ]] \
+    || fail 'projeto protegido mudou durante a recuperação do DRE'
+  verify_foundation
+  release_shared_maintenance_locks
+  verify_protected_projects
+  jq -cn \
+    --arg release_id "$release_id" \
+    --arg operation_id "$operation_id" \
+    --arg failed_release "$failed_release" \
+    --arg old_postgres_image "$old_image" \
+    --arg new_postgres_image "$new_image" \
+    --arg completed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{schema:1,status:"passed",release_id:$release_id,operation_id:$operation_id,failed_release:$failed_release,old_postgres_image:$old_postgres_image,new_postgres_image:$new_postgres_image,namespace_project:"dre",migrations_applied:false,pvc_preserved:true,pgbackrest_check:"passed",completed_at_utc:$completed_at_utc}' \
+    | atomic_write "$receipt" 0600
+  trap - EXIT
+  audit_event recover-first-deploy passed "$release_id" "$operation_id"
+  pass 'primeiro deploy recuperado; PVC preservado, migrations ausentes e pgBackRest aprovado'
 }
 
 create_plan() {
@@ -2040,7 +2279,7 @@ status() {
 
 contract() {
   [[ "$#" -eq 0 ]] || fail 'uso: contract'
-  jq -cn '{schema:2,controller:"dre-deployctl",namespace:"dre-production",edge_namespace:"dre-edge",validation_namespace:"dre-validation",restore_namespace:"dre-restore-drill",lifecycle:"always-active",secondary_slot_member:false,permanent_containers:["api","worker","postgres"],edge_connector:"cloudflared-isolated",images:"digest-only",release_signature:"ed25519",release_schemas:{import:[1,2],deploy:[2],rollback:[1,2]},migration_count:9,validation:{required_before_plan:true,disposable:true,preserve_on_failure:true,cleanup_on_success:true,restarts:["api","worker","postgres"]},secret_input_schema:1,bridge_token_source:"orchestrator-stdin",edge_token_source:"orchestrator-stdin",read_only:["contract","status","diagnose-validation","diagnose-production"],mutations:["import-release","initialize-secrets","validate-release","cleanup-validation","plan","deploy","configure-edge","provision-accounts","backup","restore-drill"],generic_shell:false,generic_kubectl:false}'
+  jq -cn '{schema:2,controller:"dre-deployctl",namespace:"dre-production",edge_namespace:"dre-edge",validation_namespace:"dre-validation",restore_namespace:"dre-restore-drill",lifecycle:"always-active",secondary_slot_member:false,permanent_containers:["api","worker","postgres"],edge_connector:"cloudflared-isolated",images:"digest-only",release_signature:"ed25519",release_schemas:{import:[1,2],deploy:[2],rollback:[1,2]},migration_count:9,validation:{required_before_plan:true,disposable:true,preserve_on_failure:true,cleanup_on_success:true,restarts:["api","worker","postgres"]},first_deploy_recovery:{requires_failed_receipt:true,requires_validation:true,preserves_pvc:true,applies_migrations:false},secret_input_schema:1,bridge_token_source:"orchestrator-stdin",edge_token_source:"orchestrator-stdin",read_only:["contract","status","diagnose-validation","diagnose-production"],mutations:["import-release","initialize-secrets","validate-release","cleanup-validation","recover-first-deploy","plan","deploy","configure-edge","provision-accounts","backup","restore-drill"],generic_shell:false,generic_kubectl:false}'
 }
 
 main() {
@@ -2060,6 +2299,7 @@ main() {
     initialize-secrets) initialize_secrets "$@" ;;
     validate-release) validate_release_disposable "$@" ;;
     cleanup-validation) cleanup_validation "$@" ;;
+    recover-first-deploy) recover_first_deploy "$@" ;;
     plan) create_plan "$@" ;;
     deploy) deploy_release "$@" ;;
     verify) verify_release "$@" ;;

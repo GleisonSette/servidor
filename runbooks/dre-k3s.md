@@ -239,6 +239,12 @@ O plano dura 30 minutos e vincula release, archive, release corrente, inventári
 de Secrets, recursos protegidos e capacidade viva. A saída contém apenas o
 `plan_sha256` não secreto. Mudança em qualquer prova exige plano novo.
 
+Se o primeiro deploy falhou antes das migrations e o rollback comprovado deixou
+o rótulo de projeto ausente, somente `import-release` e `validate-release` podem
+usar a exceção de leitura desse estado. Ela recompõe recibo, release anterior,
+inventário, imagem, Secrets, PVC e ausência de `_sqlx_migrations`; qualquer
+outra divergência mantém a operação bloqueada.
+
 ## Validação descartável, deploy e verificação
 
 Antes de qualquer plano permanente:
@@ -335,6 +341,23 @@ namespace é informado como evidência, porque sua ausência pode ser parte da
 falha investigada. A ação não repete o `check`, não grava no R2, não expõe
 Secrets e não oferece shell ou `kubectl`. Fora do estado fechado de recuperação
 a operação é recusada.
+
+Depois que uma nova release schema 2 for importada e aprovada integralmente em
+`dre-validation`, a recuperação única é:
+
+```text
+sudo -n /usr/local/sbin/dre-deployctl recover-first-deploy RELEASE_ID OPERATION_ID
+```
+
+Ela exige o recibo falho com rollback aprovado, a validação da nova release,
+capacidade viva, os cinco Secrets exatos, PostgreSQL Ready na imagem anterior,
+PVC `Retain` de 20 GiB e ausência de migrations. Sob os locks DRE/Blindou/slot,
+restaura somente o rótulo `project=dre`, troca o único contêiner PostgreSQL para
+o digest assinado novo e executa `stanza-create`/`check`. Um fingerprint ignora
+exclusivamente o rótulo e a imagem permitidos; todo outro recurso, PVC e Secret
+precisa permanecer idêntico. Falha volta a imagem anterior, remove o rótulo e
+reprova fechado se essa compensação não convergir. Sucesso não aplica migration,
+não cria release corrente e apenas libera o fluxo normal `plan`/`deploy`.
 
 ## Provisionamento privado das contas iniciais
 

@@ -459,8 +459,9 @@ Ordem obrigatória:
 10. em andamento sob autorização explícita de 2026-09-01: a segunda correção
    fail-closed e a validação `69716bb` passaram; o código 82 do pgBackRest foi
    diagnosticado sob D038; a causa foi corrigida em `8c52807`, cujos gates e
-   três imagens renovadas já passaram; empacotar/validar a release e aplicar
-   migrations/deploy persistentes,
+   três imagens renovadas já passaram; D039 prepara a recuperação limitada do
+   rótulo/imagem preservada; empacotar/validar a release, instalar o controlador
+   e aplicar migrations/deploy persistentes,
    criar contas atomicamente e comprovar backup/restore;
 11. em andamento sob a mesma autorização: criar rota HTTPS, configurar
    `DRE_API_ORIGIN` e chave Android definitiva. FCM, saldo inicial e dados
