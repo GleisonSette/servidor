@@ -2031,3 +2031,11 @@ recuperação D039 falhou no `pgBackRest` e restaurou integralmente o pré-estad
   transitória, com oito tentativas, backoff exponencial, jitter e espera máxima
   de 30 segundos. Ela também cria os diretórios efêmeros de log/lock em `0700`
   e é reutilizada pelo deploy normal.
+- A recuperação `20260902T104328Z-15a7949958f0` passou após uma repetição do
+  lock. O deploy `20260902T104815Z-e1fc00227bd3` aplicou as nove migrations e
+  deixou API, worker e PostgreSQL prontos, PVC `Bound`, gate `passed` e release
+  corrente `dre-20260902T094748Z-8c5280709b2f`.
+- A criação de contas `20260902T105244Z-cb01dc6c61cf` falhou atomicamente: o
+  CLI usava o Pod da API, cujo login limitado não pode assumir `dre_migrator`.
+  D040 mantém esse isolamento e move a transação para um Pod administrativo
+  efêmero, preso ao digest da release e removido antes do recibo.

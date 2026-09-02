@@ -381,12 +381,17 @@ sudo -n /usr/local/sbin/dre-deployctl provision-accounts RELEASE_ID OPERATION_ID
 
 Os cinco identificadores não secretos são validados e permanecem estáveis. As
 duas senhas chegam exclusivamente por `stdin`, uma por linha, e nunca entram em
-argumento, variável de ambiente, audit log ou recibo. O controlador seleciona
-exatamente um Pod pronto da API e chama o binário assinado
-`dre-admin-cli provision-private-family --passwords-stdin`. Núcleo, usuários e
-auditorias são gravados em uma única transação PostgreSQL: falha em qualquer
-conta reverte tudo. O recibo root-only registra somente release, operação,
-identificadores, logins e o atestado `atomic=true`.
+argumento, variável de ambiente, audit log ou recibo. O login permanente
+`dre_api_runtime` não pode assumir `dre_migrator`; por isso o controlador não
+executa essa operação no Pod da API. Ele cria um único Pod administrativo
+efêmero, preso ao digest Rust da release corrente, sem token de ServiceAccount,
+com filesystem raiz somente leitura e a URL admin montada apenas durante a
+transação. O Pod aceita o par de senhas por `exec -i`, é removido antes do
+recibo e possui deadline de cinco minutos. Falha de limpeza fecha o gate como
+`accounts-cleanup-failed`. Núcleo, usuários e auditorias são gravados em uma
+única transação PostgreSQL: falha em qualquer conta reverte tudo. O recibo
+root-only registra somente release, operação, identificadores, logins e o
+atestado `atomic=true`.
 
 Essa ação é de uso único para a primeira família. Troca de senha, dispositivo e
 saldo inicial continuam fluxos administrativos separados e exigem autorização

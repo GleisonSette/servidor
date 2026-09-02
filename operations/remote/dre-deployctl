@@ -1727,7 +1727,8 @@ provision_accounts() {
   [[ "$#" -eq 5 ]] \
     || fail 'uso: provision-accounts RELEASE_ID OPERATION_ID HOUSEHOLD_ID PRIMARY_USER_ID SECONDARY_USER_ID'
   local release_id="$1" operation_id="$2" household_id="$3"
-  local primary_user_id="$4" secondary_user_id="$5" protected_before api_pod receipt
+  local primary_user_id="$4" secondary_user_id="$5" protected_before secrets_before
+  local receipt rust_image provisioner_pod=dre-account-provisioner
   require_cached_release "$release_id"
   require_schema_two_release "$release_id"
   require_operation_id "$operation_id"
@@ -1749,6 +1750,7 @@ provision_accounts() {
   acquire_controller_lock
   acquire_shared_maintenance_locks
   protected_before="$(protected_fingerprint)"
+  secrets_before="$(secret_inventory_fingerprint)"
   receipt="${RECEIPT_ROOT}/accounts-${operation_id}.json"
   jq -cn \
     --arg release_id "$release_id" \
@@ -1757,24 +1759,94 @@ provision_accounts() {
     '{schema:1,status:"started",release_id:$release_id,operation_id:$operation_id,started_at_utc:$started_at_utc}' \
     | atomic_write "$receipt" 0600
   provision_accounts_failed() {
-    local code="$1" release_id="$2" operation_id="$3" receipt="$4"
+    local code="$1" release_id="$2" operation_id="$3" receipt="$4" pod="$5"
+    local cleanup=passed
     set +e
+    kube -n "$NAMESPACE" delete pod "$pod" --ignore-not-found \
+      --wait=true --timeout=60s >/dev/null 2>&1 || cleanup=failed
+    if [[ "$cleanup" == failed ]]; then
+      kube label namespace "$NAMESPACE" \
+        platform.servidor.local/deployment-gate=accounts-cleanup-failed \
+        --overwrite >/dev/null 2>&1 || true
+    fi
     jq -cn \
       --arg release_id "$release_id" \
       --arg operation_id "$operation_id" \
+      --arg cleanup "$cleanup" \
       --arg failed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      '{schema:1,status:"failed",release_id:$release_id,operation_id:$operation_id,atomic:true,failed_at_utc:$failed_at_utc}' \
+      '{schema:1,status:"failed",release_id:$release_id,operation_id:$operation_id,atomic:true,provisioner_cleanup:$cleanup,failed_at_utc:$failed_at_utc}' \
       | atomic_write "$receipt" 0600 || true
     audit_event provision-accounts failed "$release_id" "$operation_id"
     exit "$code"
   }
   register_exit_trap provision_accounts_failed \
-    "$release_id" "$operation_id" "$receipt"
-  api_pod="$(kube -n "$NAMESPACE" get pods \
-    -l app.kubernetes.io/name=dre-api,app.kubernetes.io/component=api -o json \
-    | jq -r '[.items[] | select(.status.phase == "Running" and any(.status.conditions[]; .type == "Ready" and .status == "True"))] | if length == 1 then .[0].metadata.name else empty end')"
-  [[ -n "$api_pod" ]] || fail 'não existe exatamente um Pod pronto da API para provisionamento'
-  kube --request-timeout=120s -n "$NAMESPACE" exec -i "$api_pod" --container api -- \
+    "$release_id" "$operation_id" "$receipt" "$provisioner_pod"
+  if kube -n "$NAMESPACE" get pod "$provisioner_pod" >/dev/null 2>&1; then
+    fail 'Pod administrativo efêmero preexistente'
+  fi
+  rust_image="$(release_rust_image "$release_id")"
+  jq -cn --arg image "$rust_image" '{
+    apiVersion:"v1",kind:"Pod",
+    metadata:{
+      name:"dre-account-provisioner",namespace:"dre-production",
+      labels:{
+        "app.kubernetes.io/name":"dre-account-provisioner",
+        "app.kubernetes.io/component":"admin",
+        "app.kubernetes.io/part-of":"dre-familiar",
+        "app.kubernetes.io/managed-by":"dre-deployctl"
+      }
+    },
+    spec:{
+      restartPolicy:"Never",activeDeadlineSeconds:300,terminationGracePeriodSeconds:1,
+      serviceAccountName:"dre-admin",automountServiceAccountToken:false,
+      enableServiceLinks:false,imagePullSecrets:[{name:"dre-registry-pull"}],
+      securityContext:{
+        runAsNonRoot:true,runAsUser:65532,runAsGroup:65532,fsGroup:65532,
+        fsGroupChangePolicy:"OnRootMismatch",seccompProfile:{type:"RuntimeDefault"}
+      },
+      containers:[{
+        name:"provisioner",image:$image,imagePullPolicy:"IfNotPresent",
+        command:["/bin/sleep"],args:["300"],
+        env:[
+          {name:"DRE_DATABASE_URL_FILE",value:"/var/run/secrets/dre/database-url"},
+          {name:"DRE_DATABASE_MAX_CONNECTIONS",value:"2"},
+          {name:"RUST_LOG",value:"info"}
+        ],
+        resources:{
+          requests:{cpu:"50m",memory:"96Mi"},
+          limits:{cpu:"500m",memory:"256Mi"}
+        },
+        securityContext:{
+          allowPrivilegeEscalation:false,readOnlyRootFilesystem:true,
+          capabilities:{drop:["ALL"]}
+        },
+        volumeMounts:[
+          {name:"postgres-admin",mountPath:"/var/run/secrets/dre/database-url",subPath:"database-url",readOnly:true},
+          {name:"temporary",mountPath:"/tmp"}
+        ]
+      }],
+      volumes:[
+        {name:"postgres-admin",secret:{secretName:"dre-postgres-admin",defaultMode:288,items:[{key:"database-url",path:"database-url"}]}},
+        {name:"temporary",emptyDir:{sizeLimit:"32Mi"}}
+      ]
+    }
+  }' | kube apply --server-side --field-manager=dre-deployctl -f - >/dev/null
+  kube -n "$NAMESPACE" wait --for=condition=Ready \
+    "pod/${provisioner_pod}" --timeout=120s >/dev/null
+  kube -n "$NAMESPACE" get pod "$provisioner_pod" -o json \
+    | jq -e --arg image "$rust_image" '
+        .spec.serviceAccountName == "dre-admin"
+        and .spec.automountServiceAccountToken == false
+        and .spec.activeDeadlineSeconds == 300
+        and (.spec.containers | length) == 1
+        and .spec.containers[0].image == $image
+        and .spec.containers[0].command == ["/bin/sleep"]
+        and .spec.containers[0].args == ["300"]
+        and (.spec.volumes[] | select(.name == "postgres-admin")
+          | .secret.secretName == "dre-postgres-admin")
+      ' >/dev/null || fail 'Pod administrativo efêmero divergiu do contrato'
+  kube --request-timeout=120s -n "$NAMESPACE" exec -i "$provisioner_pod" \
+    --container provisioner -- \
     /app/dre-admin-cli provision-private-family \
     --household-id "$household_id" \
     --household-name 'Família' \
@@ -1785,7 +1857,14 @@ provision_accounts() {
     --secondary-login aline \
     --secondary-display-name Aline \
     --passwords-stdin >/dev/null
+  kube -n "$NAMESPACE" delete pod "$provisioner_pod" \
+    --wait=true --timeout=60s >/dev/null
+  if kube -n "$NAMESPACE" get pod "$provisioner_pod" >/dev/null 2>&1; then
+    fail 'Pod administrativo efêmero permaneceu após o provisionamento'
+  fi
   verify_runtime_core "$release_id"
+  [[ "$(secret_inventory_fingerprint)" == "$secrets_before" ]] \
+    || fail 'Secrets mudaram durante o provisionamento das contas DRE'
   [[ "$(protected_fingerprint)" == "$protected_before" ]] \
     || fail 'recurso protegido mudou durante o provisionamento das contas DRE'
   release_shared_maintenance_locks

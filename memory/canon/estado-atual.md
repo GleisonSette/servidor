@@ -111,6 +111,11 @@ API e worker continuam ausentes.
   transitória do lock pelo `archive-async`; não houve erro de R2 nem corrupção.
   O controlador está sendo renovado com retry classificado e limitado para esse
   caso exato, diretórios efêmeros `0700` e falha imediata para erros diferentes.
+  A recuperação e o deploy persistente passaram: release corrente
+  `dre-20260902T094748Z-8c5280709b2f`, gate `passed`, nove migrations, PVC
+  `Bound` e API/worker/PostgreSQL Ready. A primeira criação de contas falhou
+  atomicamente porque o Pod da API não pode assumir `dre_migrator`; D040 está
+  preparada para usar um Pod administrativo efêmero sem ampliar esse privilégio.
   Backup/restore, HTTPS e contas ainda não foram concluídos. A chave Android
   definitiva já existe protegida fora do Git, mas o APK definitivo ainda não foi
   gerado. FCM, dispositivo autorizado, saldo inicial e dados financeiros reais

@@ -879,3 +879,19 @@ lock ocupado recebe até oito tentativas com backoff exponencial, jitter e esper
 máxima de 30 segundos. O mesmo helper protege recuperação e deploy normal;
 qualquer erro não classificado continua falhando imediatamente. Diretórios de
 log e lock existem apenas no `emptyDir` do Pod, em modo `0700`.
+
+## Resolvida D040 - Provisionamento inicial por Pod administrativo efêmero
+
+Em 2026-09-02, a primeira criação das contas falhou atomicamente porque o CLI
+foi executado no Pod da API. Esse Pod possui somente `dre_api_runtime`, que por
+desenho não recebe `dre_migrator`; conceder a ele privilégio administrativo
+permanente romperia o menor privilégio aprovado.
+
+A decisão é materializar, somente dentro de `provision-accounts`, um Pod
+administrativo de nome fixo, imagem presa ao digest assinado da release e
+ServiceAccount sem token. Apenas esse Pod monta a URL `dre-postgres-admin`,
+recebe as duas senhas por `exec -i` e termina após a transação. O filesystem é
+somente leitura, recursos são limitados, a rede já permite somente PostgreSQL e
+o deadline é de cinco minutos. O controlador recusa Pod preexistente, confere o
+manifesto vivo, remove o Pod antes do recibo e compara Secrets e projetos
+protegidos. Se a limpeza falhar, fecha o gate como `accounts-cleanup-failed`.
