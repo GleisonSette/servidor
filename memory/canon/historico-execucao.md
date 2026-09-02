@@ -1927,3 +1927,10 @@ banco/PVC para diagnóstico.
   transporte foi corrigido para aspas simples do shell remoto e passou a exigir
   o marcador final com os hashes esperados; código zero isolado não declara
   mais sucesso.
+- O bundle corrigido foi instalado de fato e gerou backup transacional em
+  `/var/backups/servidor-local/dre-controller-bootstrap/20260902T075135Z`.
+  A primeira coleta recusou o namespace porque o rótulo canônico de projeto não
+  estava disponível após o rollback. O diagnóstico foi endurecido para
+  recomprovar por leitura administrativa o recibo, os objetos exatos, a imagem
+  assinada e a ausência de migrations, e passou a registrar o rótulo como
+  evidência em vez de presumir que metadado ausente não integra a própria causa.

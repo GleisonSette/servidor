@@ -1747,16 +1747,29 @@ sanitize_diagnostic_output() {
     -e 's#((password|token|secret|api[_-]?key|access[_-]?key|aws_access_key_id|aws_secret_access_key|repo[0-9]+-s3-key(-secret)?)[=:])[[:graph:]]+#\1[redacted]#gI'
 }
 
+require_diagnostic_exact_names() {
+  local resource="$1" expected="$2" actual
+  actual="$(admin_kube -n "$NAMESPACE" get "$resource" \
+    --ignore-not-found -o name | sort)"
+  [[ "$actual" == "$expected" ]] \
+    || fail "inventário ${resource} diverge do primeiro deploy revertido"
+}
+
 diagnose_production() {
   [[ "$#" -eq 0 ]] || fail 'uso: diagnose-production'
-  local gate current pvc receipt receipt_state workloads events postgres_pod
+  local gate current pvc receipt receipt_state release_id release_manifest
+  local postgres_image relation_absent namespace_project workloads events postgres_pod
   local postgres_log raw_output pgbackrest_info pgbackrest_info_code
   local check_log check_log_code archive_log archive_log_code
-  verify_foundation
+  require_root_file "$KUBECONFIG_FILE" '^600$'
+  require_root_file "$TRUST_KEY" '^(600|644)$'
+  require_root_file "$VERIFIER" '^(500|700|755)$'
   current="$(current_release_id)"
-  gate="$(kube get namespace "$NAMESPACE" \
+  gate="$(admin_kube get namespace "$NAMESPACE" \
     -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}')"
-  pvc="$(kube -n "$NAMESPACE" get pvc dre-postgres-data \
+  namespace_project="$(admin_kube get namespace "$NAMESPACE" \
+    -o jsonpath='{.metadata.labels.platform\.servidor\.local/project}')"
+  pvc="$(admin_kube -n "$NAMESPACE" get pvc dre-postgres-data \
     -o jsonpath='{.status.phase}' 2>/dev/null || printf absent)"
   [[ "$current" == none && "$gate" == secrets-only && "$pvc" == Bound ]] \
     || fail 'diagnóstico de produção exige primeiro deploy revertido com PVC preservado'
@@ -1764,6 +1777,41 @@ diagnose_production() {
     -printf '%T@ %p\n' | sort -nr | head -n 1 | cut -d' ' -f2-)"
   [[ -n "$receipt" ]] || fail 'recibo de deploy ausente'
   require_root_file "$receipt" '^600$'
+  jq -e \
+    '.schema == 1 and .status == "failed" and .previous_release == "none" and .rollback == "passed" and (.release_id | test("^dre-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$"))' \
+    "$receipt" >/dev/null || fail 'recibo não comprova rollback do primeiro deploy'
+  release_id="$(jq -r '.release_id' "$receipt")"
+  release_manifest="$(release_file "$release_id" release.json)"
+  [[ -f "$release_manifest" && ! -L "$release_manifest" ]] \
+    || fail 'release do primeiro deploy não está no cache fechado'
+  postgres_image="$(jq -r '.postgres_image' "$release_manifest")"
+  [[ "$postgres_image" =~ ^[a-z0-9][a-z0-9._:/-]*@sha256:[0-9a-f]{64}$ ]] \
+    || fail 'imagem PostgreSQL da release falha é inválida'
+  require_diagnostic_exact_names deployments.apps ''
+  require_diagnostic_exact_names statefulsets.apps 'statefulset.apps/dre-postgres'
+  require_diagnostic_exact_names daemonsets.apps ''
+  require_diagnostic_exact_names replicasets.apps ''
+  require_diagnostic_exact_names replicationcontrollers ''
+  require_diagnostic_exact_names jobs.batch ''
+  require_diagnostic_exact_names cronjobs.batch ''
+  require_diagnostic_exact_names pods 'pod/dre-postgres-0'
+  require_diagnostic_exact_names services 'service/dre-postgres'
+  require_diagnostic_exact_names persistentvolumeclaims \
+    'persistentvolumeclaim/dre-postgres-data'
+  [[ "$(admin_kube -n "$NAMESPACE" get statefulset dre-postgres \
+      -o jsonpath='{.spec.replicas}:{.status.readyReplicas}:{.spec.template.spec.containers[0].image}')" \
+      == "1:1:${postgres_image}" ]] \
+    || fail 'PostgreSQL preservado diverge da release falha'
+  [[ "$(admin_kube -n "$NAMESPACE" get pvc dre-postgres-data \
+      -o jsonpath='{.status.phase}:{.spec.storageClassName}:{.spec.resources.requests.storage}')" \
+      == 'Bound:dre-local-retain:20Gi' ]] \
+    || fail 'PVC preservado diverge do volume retido aprovado'
+  relation_absent="$(admin_kube -n "$NAMESPACE" exec dre-postgres-0 \
+    --container postgres -- psql --no-psqlrc --tuples-only --no-align \
+    -h /var/run/postgresql -U dre_postgres_admin -d dre \
+    --command="SELECT to_regclass('public._sqlx_migrations') IS NULL")"
+  [[ "${relation_absent//[[:space:]]/}" == t ]] \
+    || fail 'diagnóstico exige falha anterior às migrations'
   receipt_state="$(jq -c \
     '{status:(.status // "unknown"),release_id:(.release_id // "unknown"),operation_id:(.operation_id // "unknown"),previous_release:(.previous_release // "unknown"),rollback:(.rollback // "unknown")}' \
     "$receipt")"
@@ -1796,7 +1844,7 @@ diagnose_production() {
     --container postgres --tail=120 --limit-bytes=32768 2>&1 || true)"
   postgres_log="$(printf '%s' "$raw_output" | sanitize_diagnostic_output)"
   set +e
-  raw_output="$(kube -n "$NAMESPACE" exec "$postgres_pod" --container postgres -- \
+  raw_output="$(admin_kube -n "$NAMESPACE" exec "$postgres_pod" --container postgres -- \
     dre-pgbackrest info 2>&1)"
   pgbackrest_info_code=$?
   set -e
@@ -1815,6 +1863,7 @@ diagnose_production() {
   archive_log="$(printf '%s' "$raw_output" | sanitize_diagnostic_output)"
   jq -cn \
     --arg gate "$gate" \
+    --arg namespace_project "$namespace_project" \
     --arg current_release "$current" \
     --arg pvc "$pvc" \
     --arg pod "$postgres_pod" \
@@ -1828,7 +1877,7 @@ diagnose_production() {
     --argjson receipt "$receipt_state" \
     --argjson workloads "$workloads" \
     --argjson events "$events" \
-    '{schema:1,namespace:"dre-production",gate:$gate,current_release:$current_release,pvc_phase:$pvc,deploy_receipt:$receipt,workloads:$workloads,events:$events,postgres:{pod:$pod,log:$postgres_log,pgbackrest_info:{exit_code:$pgbackrest_info_code,output:$pgbackrest_info},check_log:{exit_code:$check_log_code,output:$check_log},archive_log:{exit_code:$archive_log_code,output:$archive_log}}}'
+    '{schema:1,namespace:"dre-production",namespace_project:$namespace_project,gate:$gate,current_release:$current_release,pvc_phase:$pvc,deploy_receipt:$receipt,workloads:$workloads,events:$events,postgres:{pod:$pod,log:$postgres_log,pgbackrest_info:{exit_code:$pgbackrest_info_code,output:$pgbackrest_info},check_log:{exit_code:$check_log_code,output:$check_log},archive_log:{exit_code:$archive_log_code,output:$archive_log}}}'
 }
 
 diagnose_validation() {

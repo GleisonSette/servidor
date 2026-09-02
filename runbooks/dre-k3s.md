@@ -325,7 +325,11 @@ sudo -n /usr/local/sbin/dre-deployctl diagnose-production
 
 Ela não recebe argumentos e retorna JSON com recibo resumido, workloads,
 eventos, log técnico redigido do PostgreSQL, `pgBackRest info` e os logs fixos
-de `check`/`archive-push`. Não repete o `check`, não grava no R2, não expõe
+de `check`/`archive-push`. Antes da coleta, a interface administrativa somente
+leitura recompõe a prova do recibo, imagem por digest, inventário exato,
+PostgreSQL Ready e ausência de `_sqlx_migrations`; o rótulo de projeto do
+namespace é informado como evidência, porque sua ausência pode ser parte da
+falha investigada. A ação não repete o `check`, não grava no R2, não expõe
 Secrets e não oferece shell ou `kubectl`. Fora do estado fechado de recuperação
 a operação é recusada.
 
