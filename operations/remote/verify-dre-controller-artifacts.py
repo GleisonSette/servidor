@@ -528,11 +528,23 @@ for invariant in (
     "trap rollback EXIT",
     "require_production_predeploy_state",
     "require_production_failed_first_deploy_state",
+    "require_production_active_release_state",
     "latest_failed_deploy_receipt",
     "production_recovery_fingerprint",
+    "edge_configuration_fingerprint",
     "runtime preservado mudou durante o bootstrap de diagnóstico",
+    "runtime da release ativa mudou durante a atualização do controlador",
+    "runtime do edge mudou durante a atualização do controlador",
     "recuperação fechada exige falha anterior às migrations",
     "production_bootstrap_mode=failed-first-deploy",
+    "production_bootstrap_mode=active-release",
+    "release corrente está ausente ou insegura para atualizar o controlador",
+    '"$(wc -l <"$current_release_file")" -eq 1',
+    '.migration_count == 9',
+    '.ready == {api:1,worker:1,postgres:1}',
+    '.edge.gate == "connector-only" and .edge.ready == 1',
+    'dre-deployctl verify "$release_id"',
+    "Pod administrativo efêmero existe durante a atualização do controlador",
     "require_empty_namespace dre-restore-drill",
     "require_validation_namespace_absent",
     "require_validation_bootstrap_state",
@@ -546,6 +558,8 @@ for invariant in (
     "validation-access.yaml",
     "edge-runtime.yaml",
     "require_edge_bootstrap_state",
+    'require_edge_bootstrap_state "$production_bootstrap_mode"',
+    "runtime do edge da release ativa diverge do inventário fechado",
     'edge_namespace == "dre-edge"',
     'index("configure-edge")',
     'for resource in "${resources[@]}"',
@@ -571,6 +585,23 @@ for invariant in (
 ):
     if invariant not in bootstrap:
         fail(f"gate do bootstrap ausente: {invariant}")
+if bootstrap.count('require_edge_bootstrap_state "$production_bootstrap_mode"') != 2:
+    fail("edge não é validado nos dois gates anteriores à troca do controlador")
+active_state_match = re.search(
+    r"(?ms)^require_production_active_release_state\(\) \{.*?^\}", bootstrap
+)
+if active_state_match is None:
+    fail("verificação da release ativa está ausente")
+active_state = active_state_match.group(0)
+for invariant in (
+    "root:root:600:1",
+    'dre-deployctl status',
+    'dre-deployctl verify "$release_id"',
+    "dre-account-provisioner",
+    '.validation.gate == "absent"',
+):
+    if invariant not in active_state:
+        fail(f"gate da release ativa está incompleto: {invariant}")
 blindou_checks = [
     index
     for index, line in enumerate(bootstrap.splitlines())

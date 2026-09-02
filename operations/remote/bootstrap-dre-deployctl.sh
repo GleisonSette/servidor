@@ -178,17 +178,101 @@ production_recovery_fingerprint() {
   } | sha256sum | cut -d' ' -f1
 }
 
-require_edge_bootstrap_state() {
+require_production_active_release_state() {
+  local current_release_file="${STATE_ROOT}/current-release"
+  local release_id status
+  [[ -f "$current_release_file" && ! -L "$current_release_file" \
+      && "$(stat -c '%U:%G:%a:%h' "$current_release_file")" == 'root:root:600:1' \
+      && "$(wc -l <"$current_release_file")" -eq 1 ]] \
+    || fail 'release corrente está ausente ou insegura para atualizar o controlador'
+  release_id="$(<"$current_release_file")"
+  [[ "$release_id" =~ ^dre-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$ ]] \
+    || fail 'release corrente possui identificador inválido'
+  [[ -f "${STATE_ROOT}/releases/${release_id}/extracted/release.json" \
+      && ! -L "${STATE_ROOT}/releases/${release_id}/extracted/release.json" ]] \
+    || fail 'release corrente não está no cache fechado'
+  jq -e '
+    .schema == 2 and
+    .namespace == "dre-production" and
+    .migration_count == 9 and
+    (.rust_image | test("@sha256:[0-9a-f]{64}$")) and
+    (.postgres_image | test("@sha256:[0-9a-f]{64}$"))
+  ' "${STATE_ROOT}/releases/${release_id}/extracted/release.json" >/dev/null \
+    || fail 'release corrente não possui o contrato persistente schema 2'
+  status="$(sudo -u apiadmin sudo -n /usr/local/sbin/dre-deployctl status)"
+  jq -e --arg release_id "$release_id" '
+    .schema == 2 and
+    .release == $release_id and
+    .gate == "passed" and
+    .pvc_phase == "Bound" and
+    .ready == {api:1,worker:1,postgres:1} and
+    .validation.gate == "absent" and
+    ((.edge.gate == "blocked" and .edge.ready == 0) or
+     (.edge.gate == "connector-only" and .edge.ready == 1))
+  ' <<<"$status" >/dev/null \
+    || fail 'status não corresponde a uma release ativa e saudável'
+  if "$K3S" kubectl --namespace dre-production get pod dre-account-provisioner \
+      >/dev/null 2>&1; then
+    fail 'Pod administrativo efêmero existe durante a atualização do controlador'
+  fi
+  sudo -u apiadmin sudo -n /usr/local/sbin/dre-deployctl verify "$release_id" \
+    >/dev/null || fail 'release ativa não passou pela verificação fechada do controlador'
+}
+
+edge_configuration_fingerprint() {
   if ! "$K3S" kubectl get namespace dre-edge >/dev/null 2>&1; then
+    printf absent
+    return
+  fi
+  {
+    "$K3S" kubectl get namespace dre-edge -o json \
+      | jq -cS '{kind,metadata:{name:.metadata.name,uid:.metadata.uid,labels:.metadata.labels,annotations:.metadata.annotations}}'
+    "$K3S" kubectl --namespace dre-edge \
+      get deployments.apps,statefulsets.apps,daemonsets.apps,replicasets.apps,replicationcontrollers,jobs.batch,cronjobs.batch,pods,services,persistentvolumeclaims,configmaps,secrets,serviceaccounts,limitranges,resourcequotas,networkpolicies.networking.k8s.io,poddisruptionbudgets.policy,roles.rbac.authorization.k8s.io,rolebindings.rbac.authorization.k8s.io \
+      -o json \
+      | jq -cS '[.items[] | {
+          apiVersion,kind,
+          metadata:{name:.metadata.name,uid:.metadata.uid,labels:.metadata.labels,annotations:.metadata.annotations,ownerReferences:.metadata.ownerReferences},
+          spec,data,stringData,type,immutable,automountServiceAccountToken,rules,roleRef,subjects
+        }] | sort_by(.kind,.metadata.name)'
+  } | sha256sum | cut -d' ' -f1
+}
+
+require_edge_bootstrap_state() {
+  local mode="$1" gate deployments secrets pods prohibited
+  if ! "$K3S" kubectl get namespace dre-edge >/dev/null 2>&1; then
+    [[ "$mode" != active-release ]] \
+      || fail 'namespace dre-edge está ausente para a release ativa'
     return
   fi
   [[ "$("$K3S" kubectl get namespace dre-edge \
     -o jsonpath='{.metadata.labels.platform\.servidor\.local/project}')" == dre ]] \
     || fail 'namespace dre-edge saiu do ownership DRE'
-  [[ "$("$K3S" kubectl get namespace dre-edge \
-    -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}')" == blocked ]] \
-    || fail 'bootstrap exige dre-edge bloqueada antes do deploy persistente'
-  require_empty_namespace dre-edge
+  gate="$("$K3S" kubectl get namespace dre-edge \
+    -o jsonpath='{.metadata.labels.platform\.servidor\.local/deployment-gate}')"
+  if [[ "$mode" != active-release || "$gate" == blocked ]]; then
+    [[ "$gate" == blocked ]] \
+      || fail 'bootstrap pré-release exige dre-edge bloqueada'
+    require_empty_namespace dre-edge
+    return
+  fi
+  [[ "$gate" == connector-only ]] \
+    || fail 'gate do edge da release ativa é inválido'
+  deployments="$("$K3S" kubectl --namespace dre-edge get deployments.apps \
+    -o json | jq -r '[.items[].metadata.name] | sort | join(",")')"
+  secrets="$("$K3S" kubectl --namespace dre-edge get secrets \
+    -o json | jq -r '[.items[].metadata.name] | sort | join(",")')"
+  pods="$("$K3S" kubectl --namespace dre-edge get pods \
+    -l app.kubernetes.io/name=dre-cloudflared -o json \
+    | jq -r '[.items[]] | length')"
+  prohibited="$("$K3S" kubectl --namespace dre-edge \
+    get statefulsets.apps,daemonsets.apps,replicationcontrollers,jobs.batch,cronjobs.batch,services,persistentvolumeclaims \
+    -o json | jq -r '[.items[]] | length')"
+  [[ "$deployments" == dre-cloudflared && "$secrets" == dre-cloudflare-tunnel \
+      && "$pods" == 1 && "$prohibited" == 0 \
+      && "$("$K3S" kubectl --namespace dre-edge get deployment dre-cloudflared \
+        -o jsonpath='{.spec.replicas}:{.status.availableReplicas}')" == '1:1' ]] \
+    || fail 'runtime do edge da release ativa diverge do inventário fechado'
 }
 
 require_validation_namespace_absent() {
@@ -389,6 +473,7 @@ production_gate_before='blocked'
 production_secret_count=0
 production_bootstrap_mode=predeploy
 production_fingerprint_before=absent
+edge_fingerprint_before=absent
 validation_fingerprint_before=absent
 declare -a targets=(
   /usr/local/sbin/dre-deployctl
@@ -466,13 +551,20 @@ reset_dre_unit_failures
 if "$K3S" kubectl get validatingadmissionpolicy dre-controller-only >/dev/null 2>&1; then
   if "$K3S" kubectl --namespace dre-production get statefulset dre-postgres \
       >/dev/null 2>&1; then
-    production_bootstrap_mode=failed-first-deploy
-    require_production_failed_first_deploy_state
+    if [[ -f "${STATE_ROOT}/current-release" \
+        && ! -L "${STATE_ROOT}/current-release" ]]; then
+      production_bootstrap_mode=active-release
+      require_production_active_release_state
+      edge_fingerprint_before="$(edge_configuration_fingerprint)"
+    else
+      production_bootstrap_mode=failed-first-deploy
+      require_production_failed_first_deploy_state
+    fi
     production_fingerprint_before="$(production_recovery_fingerprint)"
   else
     require_production_predeploy_state
   fi
-  require_edge_bootstrap_state
+  require_edge_bootstrap_state "$production_bootstrap_mode"
   require_empty_namespace dre-restore-drill
   require_validation_bootstrap_state
   validation_fingerprint_before="$(validation_configuration_fingerprint)"
@@ -498,12 +590,13 @@ else
   foundation_created=true
   "$K3S" kubectl apply -f "$FOUNDATION_SOURCE" >/dev/null
 fi
-if [[ "$production_bootstrap_mode" == failed-first-deploy ]]; then
-  require_production_failed_first_deploy_state
-else
-  require_production_predeploy_state
-fi
-require_edge_bootstrap_state
+case "$production_bootstrap_mode" in
+  failed-first-deploy) require_production_failed_first_deploy_state ;;
+  active-release) require_production_active_release_state ;;
+  predeploy) require_production_predeploy_state ;;
+  *) fail 'modo interno de bootstrap DRE inválido' ;;
+esac
+require_edge_bootstrap_state "$production_bootstrap_mode"
 require_empty_namespace dre-restore-drill
 require_validation_bootstrap_state
 
@@ -614,13 +707,22 @@ run_protected_gate Blindou 'outra operação Blindou está em andamento' \
   sudo -u apiadmin sudo -n /usr/local/sbin/blindou-deployctl status
 wait_for_protected_locks_release
 run_secondary_slot_gate
-if [[ "$production_bootstrap_mode" == failed-first-deploy ]]; then
-  require_production_failed_first_deploy_state
-  [[ "$(production_recovery_fingerprint)" == "$production_fingerprint_before" ]] \
-    || fail 'runtime preservado mudou durante o bootstrap de diagnóstico'
-else
-  require_production_predeploy_state
-fi
+case "$production_bootstrap_mode" in
+  failed-first-deploy)
+    require_production_failed_first_deploy_state
+    [[ "$(production_recovery_fingerprint)" == "$production_fingerprint_before" ]] \
+      || fail 'runtime preservado mudou durante o bootstrap de diagnóstico'
+    ;;
+  active-release)
+    require_production_active_release_state
+    [[ "$(production_recovery_fingerprint)" == "$production_fingerprint_before" ]] \
+      || fail 'runtime da release ativa mudou durante a atualização do controlador'
+    [[ "$(edge_configuration_fingerprint)" == "$edge_fingerprint_before" ]] \
+      || fail 'runtime do edge mudou durante a atualização do controlador'
+    ;;
+  predeploy) require_production_predeploy_state ;;
+  *) fail 'modo interno de bootstrap DRE inválido' ;;
+esac
 require_empty_namespace dre-restore-drill
 require_validation_bootstrap_state
 [[ "$(validation_configuration_fingerprint)" == "$validation_fingerprint_before" ]] \

@@ -144,14 +144,21 @@ Um dry-run com identidade não
 autorizada precisa ser recusado. Falha restaura arquivos e Prometheus; se a
 fundação era nova e ainda vazia, ela também é removida.
 
-Uma atualização normal do controlador é aceita somente enquanto produção não
-possui PVC/workload. Existe uma única exceção de recuperação: o primeiro deploy
-precisa ter recibo `failed`, release anterior `none`, rollback `passed`, somente
-o StatefulSet/Pod/Service/PVC exatos do PostgreSQL preservados e ausência
-comprovada da tabela `_sqlx_migrations`. Nesse estado o bootstrap pode instalar
-apenas a correção de diagnóstico, não reaplica a fundação e compara antes e
-depois um fingerprint de namespace, workloads, configurações, Secrets e PVC.
-Qualquer divergência falha fechado.
+O bootstrap distingue três estados fechados. `predeploy` aceita somente produção
+sem PVC/workload. `failed-first-deploy` exige recibo `failed`, release anterior
+`none`, rollback `passed`, apenas o StatefulSet/Pod/Service/PVC exatos do
+PostgreSQL preservados e ausência comprovada de `_sqlx_migrations`. Nesse estado
+ele não reaplica a fundação e compara antes/depois o fingerprint de namespace,
+workloads, configurações, Secrets e PVC.
+
+`active-release` permite atualizar somente os arquivos do controlador depois do
+deploy. Ele exige ponteiro corrente root-only `0600`, release schema 2 no cache,
+nove migrations, gate `passed`, PVC `Bound`, API/worker/PostgreSQL 1/1 Ready,
+validação descartável ausente e nenhum Pod `dre-account-provisioner`. O
+controlador anterior e o novo executam `verify` sobre a mesma release. A fundação
+não é reaplicada e os fingerprints completos de produção e edge precisam ser
+idênticos antes e depois. Assim, instalar uma nova operação administrativa não
+faz rollout, migration ou alteração de Secret por efeito colateral.
 
 `dre-validation` deve estar ausente ou ser uma validação
 descartável autêntica com gate `blocked`, release e operação válidas. O segundo
@@ -163,11 +170,12 @@ de produção além de `secrets-only` são recusados. A ampliação aditiva da
 fundação permanece compatível com o controlador anterior caso a troca dos
 arquivos precise ser revertida.
 
-`dre-edge` também precisa estar ausente ou com gate `blocked`, sem Deployment
-nem Secret, durante a atualização anterior ao primeiro deploy. Depois que o
-conector for configurado, uma nova versão do controlador exige procedimento de
-upgrade específico que preserve o Secret do túnel; o bootstrap inicial falha
-fechado e não tenta ler, copiar ou substituir o token.
+Antes do primeiro deploy, `dre-edge` precisa estar ausente ou `blocked`, sem
+Deployment nem Secret. No modo `active-release`, ele pode continuar `blocked` e
+vazio ou estar `connector-only`, com exatamente um Deployment/Pod
+`dre-cloudflared`, o único Secret `dre-cloudflare-tunnel` e nenhum recurso
+proibido. O bootstrap compara o fingerprint do edge e não lê, copia nem
+substitui o valor do token.
 
 As provas de inventário vazio usam a interface administrativa somente leitura
 do controlador. A identidade mutável DRE não possui `list` amplo no edge e não

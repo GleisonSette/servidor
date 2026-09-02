@@ -116,10 +116,15 @@ API e worker continuam ausentes.
   `Bound` e API/worker/PostgreSQL Ready. A primeira criação de contas falhou
   atomicamente porque o Pod da API não pode assumir `dre_migrator`; D040 está
   preparada para usar um Pod administrativo efêmero sem ampliar esse privilégio.
-  Backup/restore, HTTPS e contas ainda não foram concluídos. A chave Android
-  definitiva já existe protegida fora do Git, mas o APK definitivo ainda não foi
-  gerado. FCM, dispositivo autorizado, saldo inicial e dados financeiros reais
-  continuam ausentes.
+  O primeiro bootstrap D040 foi recusado antes da troca de arquivos porque o
+  instalador confundiu a release ativa com a recuperação D039 e exigiu
+  `release=none`; produção permaneceu saudável com o controlador anterior. D041
+  está preparada para aceitar somente uma release ativa integralmente
+  verificada, sem reaplicar fundação e com fingerprints imutáveis de produção e
+  edge. Backup/restore, HTTPS e contas ainda não foram concluídos. A chave
+  Android definitiva já existe protegida fora do Git, mas o APK definitivo ainda
+  não foi gerado. FCM, dispositivo autorizado, saldo inicial e dados financeiros
+  reais continuam ausentes.
 
 ## PostgreSQL dedicado Blindou I1 autorizado em 2026-08-29
 

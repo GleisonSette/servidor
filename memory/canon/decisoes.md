@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-decisoes
   source_path: memory/canon/decisoes.md
   generated_from: decisões do usuário e limites observados do laboratório
-  updated_at: 2026-08-29
+  updated_at: 2026-09-02
   status: canonical
 
 ## Resolvida D001 - Projetos admitidos pela plataforma
@@ -895,3 +895,28 @@ somente leitura, recursos são limitados, a rede já permite somente PostgreSQL 
 o deadline é de cinco minutos. O controlador recusa Pod preexistente, confere o
 manifesto vivo, remove o Pod antes do recibo e compara Secrets e projetos
 protegidos. Se a limpeza falhar, fecha o gate como `accounts-cleanup-failed`.
+
+## Resolvida D041 - Atualização do controlador com release DRE ativa
+
+Em 2026-09-02, a instalação do controlador D040 foi recusada antes de substituir
+qualquer arquivo porque o bootstrap interpretava todo PostgreSQL existente como
+resto do primeiro deploy falho. A produção já possuía release corrente saudável,
+nove migrations e os três componentes Ready; exigir `release=none` era correto
+para D038/D039, mas incorreto para uma atualização normal posterior ao deploy.
+
+A decisão é separar três estados fechados no mesmo bootstrap: `predeploy`,
+`failed-first-deploy` e `active-release`. O terceiro exige ponteiro corrente
+root-only íntegro, release schema 2 no cache, nove migrations, gate de produção
+`passed`, PVC `Bound`, API/worker/PostgreSQL Ready, validação descartável ausente
+e nenhuma instância do Pod administrativo efêmero. O controlador instalado antes
+da troca e a versão recém-instalada precisam aprovar `verify` para a mesma
+release.
+
+Nesse modo a fundação Kubernetes não é reaplicada. Impressões digitais de todo o
+runtime de produção e do edge são comparadas antes e depois da troca dos arquivos
+do controlador. O edge pode estar `blocked` e sem runtime ou `connector-only`
+com exatamente um Deployment/Pod e o único Secret do Tunnel; o token nunca é
+lido como valor. Qualquer mudança em workload, PVC, Secret, configuração,
+ownership ou inventário falha fechado e aciona o rollback transacional dos
+arquivos instalados. D041 não concede `kubectl`, shell, migration ou alteração
+de release e não transforma upgrade do controlador em deploy da aplicação.

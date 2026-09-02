@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-historico-execucao
   source_path: memory/canon/historico-execucao.md
   generated_from: auditorias e implementações autorizadas no laboratório
-  updated_at: 2026-08-31
+  updated_at: 2026-09-02
   status: canonical
 
 ## Regra de registro
@@ -2039,3 +2039,23 @@ recuperação D039 falhou no `pgBackRest` e restaurou integralmente o pré-estad
   CLI usava o Pod da API, cujo login limitado não pode assumir `dre_migrator`.
   D040 mantém esse isolamento e move a transação para um Pod administrativo
   efêmero, preso ao digest da release e removido antes do recibo.
+
+## 2026-09-02 - Upgrade do controlador com release ativa preparado
+
+Resultado: D041 implementada e validada offline; a tentativa D040 recusada não
+alterou a produção e a nova revisão ainda não foi instalada neste registro.
+
+- O bootstrap D040 identificou o StatefulSet PostgreSQL existente como se fosse
+  o rollback do primeiro deploy e exigiu ausência de release corrente. A recusa
+  ocorreu antes da troca do controlador; a release ativa permaneceu saudável.
+- O instalador agora diferencia `predeploy`, `failed-first-deploy` e
+  `active-release`. O último exige ponteiro root-only, release schema 2, nove
+  migrations, API/worker/PostgreSQL Ready, PVC `Bound`, gate `passed`, validação
+  ausente e ausência do Pod administrativo efêmero.
+- Antes e depois da instalação, as duas versões do controlador verificam a mesma
+  release. Produção e edge recebem fingerprints separados; a fundação não é
+  reaplicada e qualquer alteração em workload, PVC, Secret ou configuração faz o
+  bootstrap falhar fechado e restaurar os arquivos anteriores.
+- O edge ativo é aceito somente como `connector-only`, com um conector e o único
+  Secret do Tunnel; o modo bloqueado continua exigindo runtime vazio. Nenhum
+  token é lido, transportado ou persistido pelo upgrade.

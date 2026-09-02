@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-plano-implementacao
   source_path: memory/canon/plano-implementacao.md
   generated_from: plano aprovado pelo usuário em 2026-08-15
-  updated_at: 2026-08-31
+  updated_at: 2026-09-02
   status: canonical
 
 ## Regra de continuidade
@@ -463,7 +463,10 @@ Ordem obrigatória:
    descartável passou e a primeira recuperação limitada compensou um novo
    código 50 sem tocar migrations; a causa foi classificada como lock transitório
    do `archive-async`. O retry limitado foi instalado, a recuperação e o deploy
-   persistente passaram com nove migrations. Instalar D040, criar as contas
+   persistente passaram com nove migrations. O primeiro bootstrap D040 foi
+   recusado sem efeito porque o instalador ainda exigia `release=none`; D041 está
+   preparada para atualizar o controlador preservando uma release ativa por
+   verificação dupla e fingerprints. Instalar D041/D040, criar as contas
    atomicamente e comprovar backup/restore;
 11. em andamento sob a mesma autorização: criar rota HTTPS, configurar
    `DRE_API_ORIGIN` e chave Android definitiva. FCM, saldo inicial e dados
