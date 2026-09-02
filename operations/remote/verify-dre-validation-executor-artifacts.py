@@ -96,7 +96,8 @@ for invariant in (
     "/var/lib/servidor-local/bootstrap-releases/dre-validation-executor",
     "bootstrap-dre-validation-executor.sh",
     "verify-dre-validation-executor-artifacts.py",
-    "sudo -S -p '' -- /bin/bash -c",
+    "sudo -S -p DRE_SUDO_PROMPT -- /bin/bash -c 'printf %s ",
+    "Bootstrap remoto do executor não retornou o atestado final esperado.",
     "C:\\github\\servidor\\.env",
 ):
     if invariant not in helper:

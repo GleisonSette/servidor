@@ -312,22 +312,31 @@ function Invoke-DreSudoBootstrap {
         [Text.Encoding]::UTF8.GetBytes($rootScript)
     )
     $remoteCommand =
-        "sudo -S -p '' -- /bin/bash -c `"printf '%s' '$encodedScript' | " +
-        "base64 --decode | /bin/bash`""
+        "sudo -S -p DRE_SUDO_PROMPT -- /bin/bash -c 'printf %s " +
+        "$encodedScript | base64 --decode | /bin/bash'"
+    $expectedMarker =
+        'dre_root_bootstrap=passed archive_sha256=' +
+        "$ExpectedArchiveSha256 public_key_sha256=$PublicKeySha256"
 
     $envFile = 'C:\github\servidor\.env'
     $password = Read-DreSudoPassword -EnvFile $envFile
     try {
-        $password | & ssh.exe @SshArguments $Server $remoteCommand
+        $output = @($password | & ssh.exe @SshArguments $Server $remoteCommand)
         if ($LASTEXITCODE -ne 0) {
             throw 'Bootstrap remoto autenticado do DRE falhou.'
         }
+        if ($output -notcontains $expectedMarker) {
+            throw 'Bootstrap remoto não retornou o atestado final esperado.'
+        }
+        $output | Write-Output
     }
     finally {
         $password = $null
         $rootScript = $null
         $encodedScript = $null
         $remoteCommand = $null
+        $expectedMarker = $null
+        $output = $null
     }
 }
 
@@ -569,22 +578,31 @@ function Invoke-DreValidationExecutorSudoBootstrap {
         [Text.Encoding]::UTF8.GetBytes($rootScript)
     )
     $remoteCommand =
-        "sudo -S -p '' -- /bin/bash -c `"printf '%s' '$encodedScript' | " +
-        "base64 --decode | /bin/bash`""
+        "sudo -S -p DRE_SUDO_PROMPT -- /bin/bash -c 'printf %s " +
+        "$encodedScript | base64 --decode | /bin/bash'"
+    $expectedMarker =
+        'dre_validation_executor_root_bootstrap=passed commit=' +
+        "$ExpectedGitCommit archive_sha256=$ExpectedArchiveSha256"
 
     $envFile = 'C:\github\servidor\.env'
     $password = Read-DreSudoPassword -EnvFile $envFile
     try {
-        $password | & ssh.exe @SshArguments $Server $remoteCommand
+        $output = @($password | & ssh.exe @SshArguments $Server $remoteCommand)
         if ($LASTEXITCODE -ne 0) {
             throw 'Bootstrap remoto autenticado do executor DRE falhou.'
         }
+        if ($output -notcontains $expectedMarker) {
+            throw 'Bootstrap remoto do executor não retornou o atestado final esperado.'
+        }
+        $output | Write-Output
     }
     finally {
         $password = $null
         $rootScript = $null
         $encodedScript = $null
         $remoteCommand = $null
+        $expectedMarker = $null
+        $output = $null
     }
 }
 

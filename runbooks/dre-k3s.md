@@ -42,7 +42,10 @@ também entram obrigatoriamente na proteção.
   padrão do staging, hashes,
   inventário, cache root-owned e instalador; não aceita comando livre. O valor
   não pode ser impresso, persistido, colocado em argumento ou variável de
-  ambiente. Os helpers do Blindou/slot continuam capacidades separadas.
+  ambiente. O script root é transportado em Base64 dentro de um comando remoto
+  sem aspas ambíguas para o `ssh.exe`; sucesso só é aceito quando o marcador
+  final contém os hashes esperados. Os helpers do Blindou/slot continuam
+  capacidades separadas.
 - Por D035, `Dre.ImageBuild.psm1` usa a mesma origem de senha somente para o
   build efêmero fechado. Ele não aceita comando root livre, não instala daemon
   e não acessa o socket containerd do K3s.

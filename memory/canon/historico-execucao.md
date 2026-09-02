@@ -1920,3 +1920,10 @@ banco/PVC para diagnóstico.
 - D038 limita a recuperação a um bootstrap que prova esse inventário, não
   reaplica a fundação, preserva fingerprint do runtime e instala somente
   `diagnose-production`, sem argumentos, escrita no R2, shell ou `kubectl`.
+- A primeira chamada do helper para o bundle de diagnóstico exibiu `printf:
+  usage` e retornou zero sem executar o script root: as aspas duplas internas
+  foram reinterpretadas pelo `ssh.exe`. O contrato vivo continuou antigo e o
+  novo comando permaneceu sem sudoers, comprovando ausência de mutação. O
+  transporte foi corrigido para aspas simples do shell remoto e passou a exigir
+  o marcador final com os hashes esperados; código zero isolado não declara
+  mais sucesso.
