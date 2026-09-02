@@ -872,3 +872,10 @@ Como a primeira execução da recuperação devolveu apenas o código interno do
 `stanza-create`/`check`, redigir padrões de credencial e limitar o diagnóstico a
 16 KiB antes do rollback. A mensagem não é persistida no recibo e não amplia os
 comandos aceitos pelo controlador.
+
+O diagnóstico revelou concorrência legítima com o `archive-async`, não falha de
+R2 ou corrupção. Somente o código 50 acompanhado das duas mensagens exatas de
+lock ocupado recebe até oito tentativas com backoff exponencial, jitter e espera
+máxima de 30 segundos. O mesmo helper protege recuperação e deploy normal;
+qualquer erro não classificado continua falhando imediatamente. Diretórios de
+log e lock existem apenas no `emptyDir` do Pod, em modo `0700`.

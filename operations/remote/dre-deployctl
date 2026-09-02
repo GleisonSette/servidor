@@ -1207,25 +1207,47 @@ cleanup_validation() {
   pass 'namespace/PVC/PV da validação bloqueada foram removidos'
 }
 
-run_recovery_pgbackrest_action() {
-  [[ "$#" -eq 1 ]] || fail 'ação pgBackRest de recuperação ausente'
-  local action="$1" raw_output sanitized_output result
+prepare_pgbackrest_runtime() {
+  kube -n "$NAMESPACE" exec dre-postgres-0 -- \
+    mkdir -p /tmp/pgbackrest/log /tmp/pgbackrest/lock
+  kube -n "$NAMESPACE" exec dre-postgres-0 -- \
+    chmod 0700 /tmp/pgbackrest/log /tmp/pgbackrest/lock
+}
+
+run_pgbackrest_action_with_retry() {
+  [[ "$#" -eq 1 ]] || fail 'ação pgBackRest controlada ausente'
+  local action="$1" raw_output sanitized_output result attempt=1
+  local maximum_attempts=8 base_delay retry_delay
   case "$action" in
     stanza-create|check) ;;
-    *) fail 'ação pgBackRest fora da recuperação fechada' ;;
+    *) fail 'ação pgBackRest fora da allowlist fechada' ;;
   esac
-  set +e
-  raw_output="$(kube -n "$NAMESPACE" exec dre-postgres-0 -- \
-    dre-pgbackrest "$action" 2>&1)"
-  result=$?
-  set -e
-  if [[ "$result" -ne 0 ]]; then
+  while true; do
+    set +e
+    raw_output="$(kube -n "$NAMESPACE" exec dre-postgres-0 -- \
+      dre-pgbackrest "$action" 2>&1)"
+    result=$?
+    set -e
+    [[ "$result" -ne 0 ]] || return 0
+    if [[ "$result" -eq 50 \
+        && "$raw_output" == *"unable to acquire lock on file"* \
+        && "$raw_output" == *"Resource temporarily unavailable"* \
+        && "$attempt" -lt "$maximum_attempts" ]]; then
+      base_delay=$((1 << attempt))
+      retry_delay=$((base_delay + RANDOM % 3))
+      [[ "$retry_delay" -le 30 ]] || retry_delay=30
+      printf '[dre-deployctl] pgBackRest %s ocupado; tentativa %s/%s em %ss\n' \
+        "$action" "$((attempt + 1))" "$maximum_attempts" "$retry_delay" >&2
+      sleep "$retry_delay"
+      attempt=$((attempt + 1))
+      continue
+    fi
     sanitized_output="$(printf '%s' "$raw_output" \
       | sanitize_diagnostic_output | tail -c 16384)"
     printf '[dre-deployctl] pgBackRest %s falhou (código %s):\n%s\n' \
       "$action" "$result" "${sanitized_output:-sem saída técnica}" >&2
     return "$result"
-  fi
+  done
 }
 
 recover_first_deploy() {
@@ -1319,8 +1341,9 @@ recover_first_deploy() {
     || fail 'PostgreSQL não convergiu para a imagem corrigida'
   production_migrations_absent \
     || fail 'recuperação alterou o estado anterior às migrations'
-  run_recovery_pgbackrest_action stanza-create
-  run_recovery_pgbackrest_action check
+  prepare_pgbackrest_runtime
+  run_pgbackrest_action_with_retry stanza-create
+  run_pgbackrest_action_with_retry check
   [[ "$(production_recovery_immutable_fingerprint)" == "$immutable_before" ]] \
     || fail 'recurso persistente fora do rótulo/imagem mudou durante a recuperação'
   [[ "$(secret_inventory_fingerprint)" == "$secrets_before" ]] \
@@ -1565,8 +1588,9 @@ deploy_release() {
   kube apply --server-side --field-manager=dre-deployctl \
     -f "$(release_file "$release_id" 00-platform.yaml)" >/dev/null
   kube -n "$NAMESPACE" rollout status statefulset/dre-postgres --timeout=240s >/dev/null
-  kube -n "$NAMESPACE" exec dre-postgres-0 -- dre-pgbackrest stanza-create >/dev/null
-  kube -n "$NAMESPACE" exec dre-postgres-0 -- dre-pgbackrest check >/dev/null
+  prepare_pgbackrest_runtime
+  run_pgbackrest_action_with_retry stanza-create
+  run_pgbackrest_action_with_retry check
   kube -n "$NAMESPACE" delete job dre-database-migrate --ignore-not-found --wait=true >/dev/null
   kube apply --server-side --field-manager=dre-deployctl \
     -f "$(release_file "$release_id" 10-migrations.yaml)" >/dev/null

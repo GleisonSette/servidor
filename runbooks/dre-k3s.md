@@ -364,6 +364,12 @@ redige padrões de credencial e a devolve ao operador antes da compensação. O
 recibo continua sem payload técnico ou segredo; a imagem e o rótulo anteriores
 são restaurados antes de uma nova tentativa.
 
+O código 50 só é transitório quando a saída também comprova lock ocupado por
+outro processo pgBackRest. Nesse caso específico, o controlador faz no máximo
+oito tentativas, com backoff exponencial, jitter e espera individual limitada a
+30 segundos. Qualquer outro código ou mensagem falha imediatamente. Os
+diretórios efêmeros de log e lock são criados com modo `0700` antes da ação.
+
 ## Provisionamento privado das contas iniciais
 
 Depois que a release corrente estiver saudável, o único caminho autorizado para

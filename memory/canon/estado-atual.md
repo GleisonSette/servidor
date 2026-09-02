@@ -107,8 +107,10 @@ API e worker continuam ausentes.
   entrou no cache e a validação descartável passou. A primeira recuperação
   limitada chegou ao `pgBackRest`, recebeu código 50 e compensou corretamente:
   imagem/rótulo anteriores restaurados, gate `secrets-only`, PVC `Bound`, banco
-  Ready e migrations ausentes. A saída técnica estava suprimida; o controlador
-  está sendo renovado para devolvê-la sanitizada e limitada na próxima tentativa.
+  Ready e migrations ausentes. A repetição diagnosticada confirmou disputa
+  transitória do lock pelo `archive-async`; não houve erro de R2 nem corrupção.
+  O controlador está sendo renovado com retry classificado e limitado para esse
+  caso exato, diretórios efêmeros `0700` e falha imediata para erros diferentes.
   Backup/restore, HTTPS e contas ainda não foram concluídos. A chave Android
   definitiva já existe protegida fora do Git, mas o APK definitivo ainda não foi
   gerado. FCM, dispositivo autorizado, saldo inicial e dados financeiros reais

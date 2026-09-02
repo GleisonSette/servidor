@@ -2024,3 +2024,10 @@ recuperação D039 falhou no `pgBackRest` e restaurou integralmente o pré-estad
 - Como a saída do comando havia sido suprimida, o controlador passou a devolver
   somente o erro sanitizado e limitado de `stanza-create`/`check`, sem
   persistir payload técnico no recibo nem ampliar a interface administrativa.
+- A repetição `20260902T103328Z-570f872cbbf9` confirmou código 50 porque
+  `archive-async` mantinha o lock `dre-archive-1.lock`; endpoint e credenciais
+  R2 foram redigidos, e o rollback voltou a preservar o pré-estado.
+- A correção classifica somente essa combinação de código e mensagens como
+  transitória, com oito tentativas, backoff exponencial, jitter e espera máxima
+  de 30 segundos. Ela também cria os diretórios efêmeros de log/lock em `0700`
+  e é reutilizada pelo deploy normal.

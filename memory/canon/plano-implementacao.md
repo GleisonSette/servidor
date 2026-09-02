@@ -461,8 +461,9 @@ Ordem obrigatória:
    diagnosticado sob D038; a causa foi corrigida em `8c52807`, cujos gates,
    imagens e release renovada passaram. D039 foi instalado, a validação
    descartável passou e a primeira recuperação limitada compensou um novo
-   código 50 sem tocar migrations; capturar o erro sanitizado, concluir a
-   recuperação, aplicar migrations/deploy persistentes, criar contas
+   código 50 sem tocar migrations; a causa foi classificada como lock transitório
+   do `archive-async`. Instalar o retry limitado, concluir a recuperação,
+   aplicar migrations/deploy persistentes, criar contas
    atomicamente e comprovar backup/restore;
 11. em andamento sob a mesma autorização: criar rota HTTPS, configurar
    `DRE_API_ORIGIN` e chave Android definitiva. FCM, saldo inicial e dados
