@@ -996,3 +996,19 @@ KiB por container e processados pelo sanitizador de credenciais. A mesma
 evidência sanitizada aparece na saída da operação para diagnóstico imediato.
 O PVC continua preservado e só pode ser removido por `cleanup-restore` com IDs
 distintos; a mudança não amplia a interface para shell ou `kubectl` genéricos.
+
+## Resolvida D045 - Arquivos de segredo canônicos no restore DRE
+
+O diagnóstico D044 mostrou que o init container terminou com código 78 porque
+`s3-key` era um link simbólico. Montar o Secret inteiro em um diretório usa a
+estrutura projetada do Kubernetes, cujos nomes visíveis apontam para arquivos
+versionados por links. O helper `dre-pgbackrest-env` recusa links por desenho,
+para que uma credencial não possa ser redirecionada entre a validação e a
+leitura. O PostgreSQL permanente já evita isso com mounts `subPath`.
+
+A decisão é montar `s3-key`, `s3-key-secret` e `cipher-pass` individualmente nos
+caminhos canônicos por `subPath`, declarar exatamente esses três itens no
+volume e manter o Secret somente em memória no namespace descartável. O teste
+do renderer afirma os caminhos, os `subPath` e o inventário de itens. Não se
+relaxa a verificação antissymlink e nenhuma credencial é gravada em manifesto,
+recibo, log ou repositório.

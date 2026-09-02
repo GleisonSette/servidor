@@ -719,6 +719,10 @@ for invariant in (
     '"archive_mode=off"',
     '"archive_command=/bin/false"',
     '"DRE_RESTORE_CONFIRM", "value": "DISPOSABLE_RESTORE"',
+    "/var/run/secrets/dre/backup/s3-key",
+    "/var/run/secrets/dre/backup/s3-key-secret",
+    "/var/run/secrets/dre/backup/cipher-pass",
+    '"subPath": "s3-key"',
 ):
     if invariant not in restore_renderer:
         fail(f"proteção de restore ausente: {invariant}")

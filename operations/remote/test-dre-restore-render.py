@@ -71,7 +71,32 @@ class RestoreRenderTests(unittest.TestCase):
             self.assertEqual(pod["securityContext"]["runAsGroup"], 70)
             self.assertEqual(pod["securityContext"]["fsGroup"], 70)
             self.assertEqual(pod["imagePullSecrets"], [{"name": "dre-registry-pull"}])
-            self.assertEqual(pod["initContainers"][0]["command"], ["/usr/local/bin/dre-pgbackrest-restore"])
+            restore = pod["initContainers"][0]
+            self.assertEqual(restore["command"], ["/usr/local/bin/dre-pgbackrest-restore"])
+            backup_mounts = [
+                mount for mount in restore["volumeMounts"]
+                if mount["name"] == "backup-runtime"
+            ]
+            self.assertEqual(
+                [(mount["mountPath"], mount["subPath"]) for mount in backup_mounts],
+                [
+                    ("/var/run/secrets/dre/backup/s3-key", "s3-key"),
+                    ("/var/run/secrets/dre/backup/s3-key-secret", "s3-key-secret"),
+                    ("/var/run/secrets/dre/backup/cipher-pass", "cipher-pass"),
+                ],
+            )
+            backup_volume = next(
+                volume for volume in pod["volumes"]
+                if volume["name"] == "backup-runtime"
+            )
+            self.assertEqual(
+                backup_volume["secret"]["items"],
+                [
+                    {"key": "s3-key", "path": "s3-key"},
+                    {"key": "s3-key-secret", "path": "s3-key-secret"},
+                    {"key": "cipher-pass", "path": "cipher-pass"},
+                ],
+            )
             self.assertIn("archive_mode=off", pod["containers"][0]["args"])
             self.assertIn("archive_command=/bin/false", pod["containers"][0]["args"])
 

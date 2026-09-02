@@ -175,7 +175,20 @@ def main() -> None:
         },
         {
             "name": "backup-runtime",
-            "mountPath": "/var/run/secrets/dre/backup",
+            "mountPath": "/var/run/secrets/dre/backup/s3-key",
+            "subPath": "s3-key",
+            "readOnly": True,
+        },
+        {
+            "name": "backup-runtime",
+            "mountPath": "/var/run/secrets/dre/backup/s3-key-secret",
+            "subPath": "s3-key-secret",
+            "readOnly": True,
+        },
+        {
+            "name": "backup-runtime",
+            "mountPath": "/var/run/secrets/dre/backup/cipher-pass",
+            "subPath": "cipher-pass",
             "readOnly": True,
         },
         {
@@ -349,6 +362,17 @@ def main() -> None:
                                 "secret": {
                                     "secretName": "dre-backup-runtime",
                                     "defaultMode": 0o440,
+                                    "items": [
+                                        {"key": "s3-key", "path": "s3-key"},
+                                        {
+                                            "key": "s3-key-secret",
+                                            "path": "s3-key-secret",
+                                        },
+                                        {
+                                            "key": "cipher-pass",
+                                            "path": "cipher-pass",
+                                        },
+                                    ],
                                 },
                             },
                             {"name": "postgres-run", "emptyDir": {"medium": "Memory", "sizeLimit": "32Mi"}},
