@@ -1130,3 +1130,18 @@ contenha a mensagem exata de operação do slot em andamento, tanto antes quanto
 depois da instalação. Qualquer outra falha continua imediata e a saída final
 ainda precisa corresponder integralmente ao atestado estruturado do slot. Não
 se remove lock, não se encerra processo vizinho e não se aceita estado parcial.
+
+## Resolvida D054 - Caminho canônico do psql na probe do restore
+
+O restore `20260902T212645Z-9a64005ef8af` comprovou que D052 funcionou: o
+`archive-get` executou com `--no-archive-async`, restaurou todos os segmentos,
+encerrou o redo e o PostgreSQL passou a aceitar conexões somente leitura após
+282 segundos. Mesmo assim o StatefulSet nunca ficou Ready porque o renderer
+chamava `/usr/bin/psql`, enquanto a imagem e o manifesto permanente usam
+`/usr/local/bin/psql`. A limpeza
+`20260902T214847Z-f2ff9eb47b31` removeu apenas o PVC/PV descartável.
+
+A decisão é alinhar a probe do drill ao caminho absoluto canônico já exercitado
+em produção. Não se reduz a consulta, o timeout nem as provas posteriores: o
+recibo aprovado ainda exige as nove migrations, zero índice inválido e remoção
+do PV. O teste do renderer fixa o caminho para impedir regressão.

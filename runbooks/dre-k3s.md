@@ -445,6 +445,8 @@ ambiente quanto no `restore_command` com a opção explícita
 em vez de aguardar o timeout de arquivamento usado pela produção. O valor `n`
 é emitido como string YAML explicitamente citada para não ser reinterpretado
 como booleano por parsers YAML 1.1.
+A probe usa o caminho canônico `/usr/local/bin/psql` fornecido pela imagem e só
+marca o Pod pronto depois que o banco restaurado aceita a consulta local.
 
 Se o Pod não puder ser agendado, o init container falhar ou a imagem não puder
 iniciar, a operação encerra sem aguardar todo o timeout. O recibo `failed` e a

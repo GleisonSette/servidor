@@ -377,7 +377,7 @@ def main() -> None:
                                 "readinessProbe": {
                                     "exec": {
                                         "command": [
-                                            "/usr/bin/psql",
+                                            "/usr/local/bin/psql",
                                             "--no-psqlrc",
                                             "--tuples-only",
                                             "--no-align",

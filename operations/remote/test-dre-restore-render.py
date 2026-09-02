@@ -108,6 +108,10 @@ class RestoreRenderTests(unittest.TestCase):
                 item["name"]: item for item in pod["containers"][0]["env"]
             }
             self.assertEqual(
+                pod["containers"][0]["readinessProbe"]["exec"]["command"][0],
+                "/usr/local/bin/psql",
+            )
+            self.assertEqual(
                 postgres_environment["PGBACKREST_ARCHIVE_ASYNC"],
                 {"name": "PGBACKREST_ARCHIVE_ASYNC", "value": "n"},
             )
