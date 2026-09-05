@@ -169,6 +169,11 @@ for orchestrator in \
     "${REPOSITORY_ROOT}/operations/${orchestrator}" \
     || fail "orquestrador não usa helper sudo: ${orchestrator}"
 done
+grep -Fq 'sudo -n /usr/local/sbin/secondary-slotctl verify' "$PULL_PROOF_SCRIPT" \
+  || fail 'prova GHCR não preserva o estado canônico do slot secundário'
+if grep -Fq 'sudo -n /usr/local/sbin/apiwpp-deployctl verify' "$PULL_PROOF_SCRIPT"; then
+  fail 'prova GHCR ainda exige APIWPP ativo apesar do estado D033'
+fi
 grep -Fq "Read-Host 'Cole o ID da chave de acesso' -AsSecureString" "$R2_RUNTIME_SCRIPT" \
   || fail 'orquestrador R2 não protege o access key no terminal'
 grep -Fq "Read-Host 'Cole a chave de acesso secreta' -AsSecureString" "$R2_RUNTIME_SCRIPT" \

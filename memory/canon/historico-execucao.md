@@ -2127,3 +2127,21 @@ alteração foi executada no host por este registro.
 - release Blindou, publicação GHCR, instalação no host, backup, Secret,
   migration, workload e tráfego real continuam pendentes dos passos
   operacionais seguintes já autorizados pelo usuário.
+
+## 2026-09-05 - Gate da prova GHCR alinhado ao slot suspenso
+
+Resultado: a candidata Blindou passou nos gates hospedados, e uma divergência
+do orquestrador foi corrigida no repositório antes da prova viva; nenhuma
+migration, Secret ou alteração de workload ocorreu neste registro.
+
+- o workflow Blindou `33975512382` aprovou o SHA
+  `cd605c83b3e330d69f977dc2664b2e3fe0bbc203`, incluindo Rust/PostgreSQL,
+  scans bloqueantes, SBOM, proveniência e identidades de runtime;
+- o host confirmou `secondary_slot_verify=passed`, ocupante `none`, geração 2 e
+  zero workloads de APIWPP e SaferWPP;
+- `apiwpp-deployctl verify` falhou como esperado porque seu contrato legado
+  exige uma réplica, enquanto o serviço está suspenso por D033;
+- a prova GHCR Blindou passou a usar somente `secondary-slotctl verify` no gate
+  final e a validação estática recusa reintroduzir a chamada legada;
+- release assinada, prova integral de pull, backup, Secrets, migrations,
+  workloads e ativação permaneceram pendentes ao final deste registro.

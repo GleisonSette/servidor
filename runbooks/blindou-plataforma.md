@@ -394,7 +394,10 @@ Esse script transfere no mesmo archive os artefatos versionados do controlador
 e exatamente `release.manifest`, `release.manifest.sig` e `rendered.tar.gz`.
 Ele carrega a senha temporária pelo helper fechado para o bootstrap, valida a
 release no cache e usa depois apenas a interface sem senha fechada para
-comprovar o pull. Ele não lê novamente o PAT.
+comprovar o pull. Ele não lê novamente o PAT. A verificação final preserva o
+estado D033 pelo `secondary-slotctl verify`: ocupante `none` e zero workloads
+de APIWPP e SaferWPP. O verificador legado do APIWPP exige uma réplica ativa e
+não é um gate válido enquanto esse serviço estiver suspenso pelo slot.
 
 ## Fundação de dados
 

@@ -1179,3 +1179,9 @@ permanecer. O controlador nunca remove publication, slot, stream, consumer ou
 segredo por uma falha automática. PostgreSQL dedicado, cutover de banco,
 Vultr, novo provedor, segredo distinto e alterações em outro projeto continuam
 fora desta decisão.
+
+A prova GHCR da E5 preserva o estado D033 por `secondary-slotctl verify`, que
+exige ocupante `none` e zero workloads de APIWPP e SaferWPP. Ela não executa o
+verificador legado do APIWPP, pois esse contrato exige uma réplica ativa e
+falha por definição quando o slot mantém o serviço suspenso. Isso não autoriza
+ativar, remover ou alterar nenhum dos dois membros do slot.

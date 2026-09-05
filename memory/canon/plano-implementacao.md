@@ -259,6 +259,12 @@ descreve somente o estado do repositório; até instalação do controlador,
 release assinada, backup, migrations e recibos vivos, a produção continua na
 release e nas 12 migrations observadas anteriormente.
 
+A candidata Blindou `cd605c83b3e330d69f977dc2664b2e3fe0bbc203` passou no
+workflow hospedado `33975512382`, incluindo suíte Rust/PostgreSQL, imagens,
+scans e identidades. O orquestrador de prova foi alinhado ao estado D033 para
+usar o gate do slot `none`; release assinada, prova viva, backup, Secrets,
+migrations, workloads e ativação continuam pendentes nesta fotografia.
+
 Ordem obrigatória da extensão:
 
 1. validar, publicar e instalar o controlador D055 sem alterar o runtime por

@@ -137,7 +137,7 @@ Write-Host 'Validando a release e as quatro imagens privadas sem iniciar workloa
     "sudo -n /usr/local/sbin/blindou-deployctl verify-ghcr-candidate-pull $ReleaseId && " +
     'sudo -n /usr/local/sbin/blindou-deployctl status && ' +
     'sudo -n /usr/local/sbin/blindou-hostctl verify && ' +
-    'sudo -n /usr/local/sbin/apiwpp-deployctl verify && ' +
+    'sudo -n /usr/local/sbin/secondary-slotctl verify && ' +
     "rm -f $remoteArchive"
 )
 if ($LASTEXITCODE -ne 0) {
