@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -20,6 +21,10 @@ IMAGE_RE = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 NAME_RE = re.compile(r"^blindou-[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
 WORKER_RE = re.compile(r"^blindou-worker-[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
 EXPECTED_WORKER_COUNT = 16
+EXPECTED_DEBEZIUM_IMAGE = (
+    "ghcr.io/gleisonsette/blindou-debezium@"
+    "sha256:04da6c9bfe2276985d8c30e5444b395a63467111225750c06d15d908c8595e08"
+)
 ALLOWED_NETWORK_POLICIES = {
     "default-deny",
     "allow-dns",
@@ -33,6 +38,9 @@ ALLOWED_NETWORK_POLICIES = {
     "allow-cloudflared-edge",
     "allow-edge-to-backend",
     "allow-edge-to-redirector",
+    "blindou-debezium-v3-egress",
+    "blindou-dispatch-authority-v3",
+    "blindou-dispatch-sender-v3",
 }
 NAMESPACES = {"blindou-production", "blindou-edge"}
 ALLOWED_KINDS = {
@@ -54,6 +62,11 @@ REQUIRED_FILES = {
     "30-network-policies.yaml",
     "40-workloads.yaml",
     "60-cloudflared.yaml",
+    "70-dispatch-v3-foundation.yaml",
+    "71-dispatch-v3-workloads.yaml",
+    "72-dispatch-v3-network-policies.yaml",
+    "dispatch-v3/streams.json",
+    "dispatch-v3/consumers.json",
 }
 ALLOWED_SECRET_NAMES = {
     "blindou-cloudflare-tunnel",
@@ -65,6 +78,16 @@ ALLOWED_SECRET_NAMES = {
     "blindou-postgres-client",
     "blindou-redirect-secrets",
     "blindou-redis-auth",
+    "blindou-debezium-v3",
+    "blindou-dispatch-authority-v3",
+    "blindou-dispatch-authority-v3-database",
+    "blindou-dispatch-authority-v3-mtls",
+    "blindou-dispatch-authority-v3-nats",
+    "blindou-dispatch-authority-v3-provider",
+    "blindou-dispatch-sender-v3",
+    "blindou-dispatch-sender-v3-mtls",
+    "blindou-dispatch-sender-v3-nats",
+    "blindou-dispatch-sender-v3-r2",
 }
 GHCR_PULL_SECRET = "blindou-ghcr-pull"
 
@@ -204,11 +227,47 @@ def load_documents(paths: Iterable[Path]) -> list[dict[str, Any]]:
     return documents
 
 
+def validate_dispatch_v3_contract(destination: Path) -> None:
+    try:
+        streams = json.loads(
+            (destination / "dispatch-v3/streams.json").read_text(encoding="utf-8")
+        )
+        consumers = json.loads(
+            (destination / "dispatch-v3/consumers.json").read_text(encoding="utf-8")
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        fail(f"contrato JetStream inválido: {error}")
+    if not isinstance(streams, list) or {
+        stream.get("name") for stream in streams if isinstance(stream, dict)
+    } != {
+        "BLINDOU_DISPATCH_V3_SCHEDULE",
+        "BLINDOU_DISPATCH_V3_WORK",
+        "BLINDOU_DISPATCH_V3_RESULTS",
+        "BLINDOU_DISPATCH_V3_CONTROL",
+        "BLINDOU_DISPATCH_V3_DLQ",
+    }:
+        fail("inventário de streams Dispatch V3 divergente")
+    if json.dumps(streams).count("__STREAM_INCARNATION_UUID__") != 5:
+        fail("streams Dispatch V3 não possuem a incarnation operacional")
+    if not isinstance(consumers, list) or {
+        consumer.get("config", {}).get("durable_name")
+        for consumer in consumers
+        if isinstance(consumer, dict)
+    } != {
+        "blindou-sender-v3",
+        "blindou-settlement-v3",
+        "blindou-projector-v3",
+        "blindou-operator-v3",
+    }:
+        fail("inventário de consumers Dispatch V3 divergente")
+
+
 def validate_documents(documents: list[dict[str, Any]], release_id: str) -> None:
     deployment_names: set[str] = set()
     worker_names: set[str] = set()
     cloudflared_deployments = 0
     migration_jobs = 0
+    dispatch_v3_workloads: set[str] = set()
 
     for document in documents:
         api_version = document.get("apiVersion")
@@ -269,6 +328,38 @@ def validate_documents(documents: list[dict[str, Any]], release_id: str) -> None
             elif namespace != "blindou-production":
                 fail(f"workload de aplicação fora de blindou-production: {name}")
 
+        if (kind, name) in {
+            ("StatefulSet", "blindou-debezium-v3"),
+            ("Deployment", "blindou-dispatch-authority-v3"),
+            ("Deployment", "blindou-dispatch-sender-v3"),
+        }:
+            dispatch_v3_workloads.add(name)
+            pod_spec = document.get("spec", {}).get("template", {}).get("spec", {})
+            if pod_spec.get("imagePullSecrets") != [{"name": GHCR_PULL_SECRET}]:
+                fail(f"workload Dispatch V3 não usa o pull secret GHCR em {resource}")
+            annotations = (
+                document.get("spec", {}).get("template", {}).get("metadata", {}).get("annotations", {})
+            )
+            if annotations.get("blindou.io/activation") != "enabled-in-e5":
+                fail(f"marcador de ativação E5 ausente em {resource}")
+            if name == "blindou-debezium-v3":
+                containers = pod_spec.get("containers", []) or []
+                images = {
+                    container.get("image")
+                    for container in containers
+                    if container.get("name") == "debezium"
+                }
+                if images != {EXPECTED_DEBEZIUM_IMAGE}:
+                    fail("digest Debezium diverge da candidata aprovada")
+            if name == "blindou-dispatch-sender-v3":
+                mounted_secrets = {
+                    volume.get("secret", {}).get("secretName")
+                    for volume in pod_spec.get("volumes", []) or []
+                    if "secret" in volume
+                }
+                if any("database" in str(secret) for secret in mounted_secrets):
+                    fail("sender Dispatch V3 recebeu Secret de banco")
+
         if kind in {"Job", "StatefulSet"} and namespace != "blindou-production":
             fail(f"{kind} fora de blindou-production: {name}")
         if kind == "Job":
@@ -318,6 +409,12 @@ def validate_documents(documents: list[dict[str, Any]], release_id: str) -> None
         fail("deve existir exatamente um Deployment cloudflared")
     if migration_jobs != 1:
         fail("deve existir exatamente um Job de migration")
+    if dispatch_v3_workloads != {
+        "blindou-debezium-v3",
+        "blindou-dispatch-authority-v3",
+        "blindou-dispatch-sender-v3",
+    }:
+        fail("workloads Dispatch V3 ausentes ou duplicados")
 
 
 def main() -> None:
@@ -350,7 +447,10 @@ def main() -> None:
     if relative != allowed:
         fail("archive contém arquivo fora do contrato")
 
-    documents = load_documents(paths)
+    validate_dispatch_v3_contract(destination)
+    documents = load_documents(
+        path for path in paths if path.suffix in {".yaml", ".yml"}
+    )
     validate_documents(documents, release_id)
     print("[blindou-release-verify] bundle assinado em escopo fechado: passed")
 

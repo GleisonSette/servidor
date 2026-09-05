@@ -1,12 +1,12 @@
 {
   "manifest_version": "0.1.0",
-  "generated_at": "2026-09-02",
+  "generated_at": "2026-09-05",
   "project": "servidor-local-compartilhado",
   "memory_root": "memory",
   "source_scope": "Host, K3s, APIWPP, Blindou, slot SaferWPP, operacao, seguranca e continuidade.",
   "layers": {
     "canon": 6,
-    "index_chunks": 213
+    "index_chunks": 215
   },
   "topics": [
     "indice-canonico",

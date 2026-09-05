@@ -1145,3 +1145,37 @@ A decisão é alinhar a probe do drill ao caminho absoluto canônico já exercit
 em produção. Não se reduz a consulta, o timeout nem as provas posteriores: o
 recibo aprovado ainda exige as nove migrations, zero índice inválido e remoção
 do PV. O teste do renderer fixa o caminho para impedir regressão.
+
+## Resolvida D055 - Ativação fechada do Dispatch V3 no Blindou
+
+Em 2026-09-05, o usuário autorizou concluir a E5 do Dispatch V3 com tráfego
+real imediato, sem canário sintético nem espera de 72 horas. A dispensa desses
+dois marcos não remove os gates de segurança, backup, release assinada,
+migrations, menor privilégio, saúde ou rollback. A decisão D079 do repositório
+Blindou é a fonte do comportamento do produto; esta decisão limita a autoridade
+operacional da plataforma.
+
+O `blindou-deployctl` passa a ser o único caminho mutável para preparar e
+ativar o runtime V3. A preparação recebe por `stdin` um endpoint HTTPS do
+UAZAPI e uma credencial R2 nova de leitura estrita, comprova GET permitido e
+PUT/DELETE negados, gera localmente credenciais internas e PKI mTLS, habilita
+logical decoding com orçamento fixo e materializa somente Secrets e ConfigMap
+allowlisted. A credencial R2 de escrita existente continua exclusiva dos
+produtores de objetos; o sender recebe somente a identidade read-only.
+
+A release assinada precisa conter as migrations `0013` e `0014`, cinco streams
+JetStream e quatro consumers, Debezium no digest aprovado e authority/sender no
+mesmo digest do backend. O controlador cria os grupos antes da migration,
+ativa os dois logins mínimos, a publication insert-only e o slot somente depois
+da migration expand, reconcilia JetStream por contrato e inicialmente mantém
+`DISPATCH_V3_MODE` fora de `active`. A ação separada
+`activate-dispatch-v3-runtime` exige confirmação literal, release corrente e
+todos os workloads Ready antes de liberar novas admissões.
+
+Depois da primeira ativação, rollback para uma release sem Dispatch V3 é
+proibido. Antes dela, a compensação pode restaurar a release anterior somente
+se ainda não existir owner V3; schema aditivo e material inativo podem
+permanecer. O controlador nunca remove publication, slot, stream, consumer ou
+segredo por uma falha automática. PostgreSQL dedicado, cutover de banco,
+Vultr, novo provedor, segredo distinto e alterações em outro projeto continuam
+fora desta decisão.

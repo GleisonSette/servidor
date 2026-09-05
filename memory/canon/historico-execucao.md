@@ -2102,3 +2102,28 @@ recuperação e D052 foi preparada.
 - D052 sobrescreve somente o `restore_command` do PostgreSQL descartável com
   `--no-archive-async`, mantendo o override de ambiente como defesa adicional.
   O teste do renderer fixa ambos antes de nova instalação.
+
+## 2026-09-05 - Controlador Dispatch V3 E5 preparado no repositório
+
+Resultado: contrato mutável D055 implementado e validado offline; nenhuma
+alteração foi executada no host por este registro.
+
+- `blindou-deployctl` recebeu preparação protegida de Secrets, PKI mTLS,
+  logical decoding, grupos/logins mínimos, publication/slot, JetStream e uma
+  ativação separada por confirmação literal;
+- o verificador de release passou a exigir as migrations `0013`/`0014`, cinco
+  streams, quatro consumers, digest Debezium aprovado e os workloads V3 com
+  imagens imutáveis;
+- o provisionador JetStream usa TLS e identidades mínimas, reconcilia somente o
+  inventário fechado e oferece verificação read-only independente; sua suíte
+  determinística passou;
+- o bootstrap, sudoers e todos os orquestradores que reinstalam o controlador
+  transportam o novo helper, evitando instalação parcial;
+- `bash -n`, compilação sintática Python, testes do helper e `git diff --check`
+  passaram sem usar Docker, WSL, K3s, banco ou segredo operacional;
+- o gate integral deixou de classificar nomes de recursos, paths e placeholders
+  SQL como credenciais; a detecção continua bloqueando chave privada e literal
+  sensível, e `blindou_platform_artifacts=passed` concluiu após a correção;
+- release Blindou, publicação GHCR, instalação no host, backup, Secret,
+  migration, workload e tráfego real continuam pendentes dos passos
+  operacionais seguintes já autorizados pelo usuário.

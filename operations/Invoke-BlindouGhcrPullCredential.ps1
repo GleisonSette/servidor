@@ -35,6 +35,7 @@ $files = @(
     @{ Local = "operations/remote/blindou-release-verify.py"; Remote = "operations/remote/" },
     @{ Local = "operations/remote/blindou-ghcr-pull-verify.py"; Remote = "operations/remote/" },
     @{ Local = "operations/remote/blindou-pagarme-plans.py"; Remote = "operations/remote/" },
+    @{ Local = "operations/remote/blindou-dispatch-v3-jetstream.py"; Remote = "operations/remote/" },
     @{ Local = "operations/remote/blindou-platform-metrics"; Remote = "operations/remote/" },
     @{ Local = "operations/remote/blindou-platform-metrics.service"; Remote = "operations/remote/" },
     @{ Local = "operations/remote/blindou-platform-metrics.timer"; Remote = "operations/remote/" },

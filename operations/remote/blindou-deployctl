@@ -15,6 +15,7 @@ readonly EDGE_RUNTIME_MANIFEST="${FOUNDATION_DIR}/16-edge-connector-runtime.yaml
 readonly EDGE_CONNECTOR_IMAGE='docker.io/cloudflare/cloudflared@sha256:18626b1baac4450214535cd5bc40ef44c0635244d585ebf707749c22b6f3408f'
 readonly RELEASE_VERIFIER='/usr/local/lib/blindou-platform/blindou-release-verify.py'
 readonly GHCR_PULL_VERIFIER='/usr/local/lib/blindou-platform/blindou-ghcr-pull-verify.py'
+readonly DISPATCH_V3_JETSTREAM_PROVISIONER='/usr/local/lib/blindou-platform/blindou-dispatch-v3-jetstream.py'
 readonly STATE_ROOT='/var/lib/blindou-platform'
 readonly FOUNDATION_STATE="${STATE_ROOT}/foundation.state"
 readonly BACKUP_ROOT='/var/backups/blindou'
@@ -71,6 +72,14 @@ readonly GHCR_PULL_PROOF_LATEST="${STATE_ROOT}/ghcr-pull-proof-latest"
 readonly RUNTIME_SECRET_DIR="${DATA_ROOT}/runtime"
 readonly RUNTIME_CONFIG_FILE="${RUNTIME_SECRET_DIR}/production.env"
 readonly NATS_PKI_DIR="${DATA_ROOT}/nats-pki"
+readonly DISPATCH_V3_SECRET_DIR="${DATA_ROOT}/dispatch-v3"
+readonly DISPATCH_V3_RESOLVER_PKI_DIR="${DISPATCH_V3_SECRET_DIR}/resolver-pki"
+readonly DISPATCH_V3_R2_ACCESS_KEY_FILE="${DISPATCH_V3_SECRET_DIR}/r2-access-key-id"
+readonly DISPATCH_V3_R2_SECRET_KEY_FILE="${DISPATCH_V3_SECRET_DIR}/r2-secret-access-key"
+readonly DISPATCH_V3_PROVIDER_ENDPOINT_FILE="${DISPATCH_V3_SECRET_DIR}/provider-endpoint"
+readonly DISPATCH_V3_STREAM_INCARNATION_FILE="${DISPATCH_V3_SECRET_DIR}/stream-incarnation"
+readonly DISPATCH_V3_STATE="${STATE_ROOT}/dispatch-v3.state"
+readonly DISPATCH_V3_EXPECTED_DEBEZIUM_IMAGE='ghcr.io/gleisonsette/blindou-debezium@sha256:04da6c9bfe2276985d8c30e5444b395a63467111225750c06d15d908c8595e08'
 readonly ALERT_RECEIPT="${STATE_ROOT}/alert-receiver.state"
 readonly UI_REVIEW_RECEIPT="${STATE_ROOT}/ui-review-mode.state"
 readonly OFFSITE_BACKUP_RECEIPT="${STATE_ROOT}/offsite-backup.state"
@@ -96,6 +105,8 @@ readonly UI_REVIEW_RUNTIME_CONFIRMATION='blindou-ui-review-runtime'
 readonly ALERT_DELIVERY_CONFIRMATION='blindou-alert-delivered'
 readonly OFFSITE_BACKUP_CONFIRMATION='blindou-offsite-backup'
 readonly RELEASE_GATES_CONFIRMATION='blindou-release-gates'
+readonly DISPATCH_V3_SECRETS_CONFIRMATION='blindou-dispatch-v3-secrets'
+readonly DISPATCH_V3_ACTIVATION_CONFIRMATION='blindou-dispatch-v3-active'
 readonly SUPERADMIN_CONFIRMATION='blindou-bootstrap-superadmin'
 readonly SUPERADMIN_EMAIL='gleisonsette@gmail.com'
 readonly SUPERADMIN_NAME='Gleison Sette'
@@ -148,6 +159,9 @@ cleanup() {
       /etc/prometheus/rules/blindou-platform.yml.tmp|\
       /etc/default/prometheus-alertmanager.tmp|\
       "${RUNTIME_SECRET_DIR}"/*.tmp|\
+      "${DISPATCH_V3_SECRET_DIR}"/*.tmp|"${DISPATCH_V3_RESOLVER_PKI_DIR}"/*.tmp|\
+      "${DISPATCH_V3_RESOLVER_PKI_DIR}"/*.csr|"${DISPATCH_V3_RESOLVER_PKI_DIR}"/*.ext|\
+      "${DISPATCH_V3_STATE}.tmp"|/var/tmp/blindou-dispatch-v3-*|\
       "${UI_REVIEW_RECEIPT}.tmp"|\
       "${NATS_PKI_DIR}"/*.tmp|"${NATS_PKI_DIR}"/server-ext.*|\
       "${POSTGRES_CONFIG_FILE}.tmp"|"${POSTGRES_HBA_FILE}.tmp")
@@ -175,6 +189,15 @@ postgres_query() {
   runuser -u postgres -- psql -X --no-psqlrc --set=ON_ERROR_STOP=1 "$@"
 }
 
+verify_secondary_slot_preservation() {
+  local receipt
+  receipt="$(/usr/local/sbin/secondary-slotctl verify)" \
+    || fail 'slot secundário não passou no gate de preservação'
+  grep -Eq '^secondary_slot_verify=passed occupant=none generation=[1-9][0-9]* apiwpp_workloads=0 saferwpp_workloads=0$' \
+    <<<"$receipt" \
+    || fail 'slot secundário diverge do estado D033: sem ocupante e sem workloads'
+}
+
 require_root_and_host() {
   [[ "${EUID}" -eq 0 ]] || fail 'execute pelo sudo restrito do controlador'
   [[ "$(hostname)" == "$EXPECTED_HOSTNAME" ]] || fail 'hostname inesperado'
@@ -187,8 +210,7 @@ require_platform_preconditions() {
   require_root_and_host
   /usr/local/sbin/blindou-hostctl verify >/dev/null \
     || fail 'contenção temporária do host não passou'
-  /usr/local/sbin/apiwpp-deployctl verify >/dev/null \
-    || fail 'apiwpp não passou no gate de preservação'
+  verify_secondary_slot_preservation
   [[ -d "$FOUNDATION_DIR" && ! -L "$FOUNDATION_DIR" ]] \
     || fail 'bundle root-owned da fundação está ausente'
 }
@@ -1538,12 +1560,60 @@ load_database_credentials() {
   source "$DATABASE_CREDENTIALS"
 }
 
+dispatch_v3_file_is_secure() {
+  local path="$1"
+  [[ -f "$path" && ! -L "$path" \
+      && "$(stat -c '%U:%G:%a' "$path")" == 'root:root:600' ]]
+}
+
+dispatch_v3_expand_migration_applied() {
+  [[ "$(postgres_query -d blindou -Atqc \
+    "SELECT CASE WHEN to_regclass('public._sqlx_migrations') IS NULL THEN 0 ELSE (SELECT count(*) FROM public._sqlx_migrations WHERE version=13 AND success) END")" == '1' ]]
+}
+
+dispatch_v3_registry_migration_applied() {
+  [[ "$(postgres_query -d blindou -Atqc \
+    "SELECT CASE WHEN to_regclass('public._sqlx_migrations') IS NULL THEN 0 ELSE (SELECT count(*) FROM public._sqlx_migrations WHERE version=14 AND success) END")" == '1' ]]
+}
+
+prepare_dispatch_v3_group_roles() {
+  postgres_query -d postgres <<'SQL' >/dev/null
+SELECT format('CREATE ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', role_name)
+FROM (VALUES
+  ('blindou_dispatch_writer'),
+  ('blindou_dispatch_api'),
+  ('blindou_credential_reader'),
+  ('blindou_debezium')
+) AS roles(role_name)
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name)
+\gexec
+ALTER ROLE blindou_dispatch_writer NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ALTER ROLE blindou_dispatch_api NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ALTER ROLE blindou_credential_reader NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ALTER ROLE blindou_debezium NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+SQL
+  if ! dispatch_v3_expand_migration_applied; then
+    [[ "$(postgres_query -d postgres -Atqc \
+      "SELECT count(*) FROM pg_auth_members membership JOIN pg_roles role ON role.oid=membership.roleid WHERE role.rolname IN ('blindou_dispatch_writer','blindou_dispatch_api','blindou_credential_reader','blindou_debezium')")" == '0' ]] \
+      || fail 'roles Dispatch V3 possuem membros antes da migration expand'
+  fi
+}
+
 install_postgres_client_auth() {
   cleanup_paths+=("${POSTGRES_CONFIG_FILE}.tmp" "${POSTGRES_HBA_FILE}.tmp")
   cat >"${POSTGRES_CONFIG_FILE}.tmp" <<EOF
 # Blindou: CA exclusiva para autenticação adicional dos clientes K3s.
 ssl_ca_file = '${POSTGRES_CA_FILE}'
 EOF
+  if dispatch_v3_file_is_secure "$DISPATCH_V3_PROVIDER_ENDPOINT_FILE"; then
+    cat >>"${POSTGRES_CONFIG_FILE}.tmp" <<'EOF'
+# Dispatch V3: logical decoding exclusivo, limitado e monitorado.
+wal_level = 'logical'
+max_replication_slots = 4
+max_wal_senders = 4
+max_slot_wal_keep_size = '4GB'
+EOF
+  fi
   install -o root -g root -m 0644 "${POSTGRES_CONFIG_FILE}.tmp" "$POSTGRES_CONFIG_FILE"
   rm -f -- "${POSTGRES_CONFIG_FILE}.tmp"
   cat >"${POSTGRES_HBA_FILE}.tmp" <<'EOF'
@@ -1553,6 +1623,12 @@ hostssl blindou blindou_runtime_login   10.42.0.0/16 scram-sha-256 clientcert=ve
 hostssl blindou blindou_redirect_login  10.42.0.0/16 scram-sha-256 clientcert=verify-ca
 hostssl blindou blindou_ml_login        10.42.0.0/16 scram-sha-256 clientcert=verify-ca
 EOF
+  if dispatch_v3_file_is_secure "$DISPATCH_V3_PROVIDER_ENDPOINT_FILE"; then
+    cat >>"${POSTGRES_HBA_FILE}.tmp" <<'EOF'
+hostssl blindou blindou_dispatch_authority_login 10.42.0.0/16 scram-sha-256 clientcert=verify-ca
+hostssl blindou blindou_debezium_login           10.42.0.0/16 scram-sha-256 clientcert=verify-ca
+EOF
+  fi
   install -o postgres -g postgres -m 0640 "${POSTGRES_HBA_FILE}.tmp" "$POSTGRES_HBA_FILE"
   rm -f -- "${POSTGRES_HBA_FILE}.tmp"
   if ! grep -Fxq 'include_if_exists "pg_hba_blindou.conf"' "$POSTGRES_HBA_MAIN" \
@@ -1571,8 +1647,18 @@ EOF
     install -o postgres -g postgres -m 0640 "$hba_tmp" "$POSTGRES_HBA_MAIN"
     rm -f -- "$hba_tmp"
   fi
-  pg_ctlcluster 18 main reload
-  sleep 1
+  if dispatch_v3_file_is_secure "$DISPATCH_V3_PROVIDER_ENDPOINT_FILE" \
+      && [[ "$(postgres_query -d postgres -Atqc "SHOW wal_level")" != 'logical' ]]; then
+    pg_ctlcluster 18 main restart
+    local postgres_deadline=$((SECONDS + 120))
+    until pg_isready -q -d blindou; do
+      (( SECONDS < postgres_deadline )) || fail 'PostgreSQL não voltou após habilitar logical decoding'
+      sleep 2
+    done
+  else
+    pg_ctlcluster 18 main reload
+    sleep 1
+  fi
   [[ "$(postgres_query -d postgres -Atqc \
     "SELECT count(*) FROM pg_file_settings WHERE error IS NOT NULL")" == '0' ]] \
     || fail 'PostgreSQL recusou a configuração Blindou'
@@ -1691,7 +1777,7 @@ write_database_urls() {
 
 verify_data_foundation() {
   require_root_and_host
-  local hba_rule_count hba_diagnostic redirector_contract
+  local hba_rule_count hba_diagnostic redirector_contract expected_hba_rules=4 login_summary='quatro logins'
   [[ -f "$DATABASE_CREDENTIALS" && "$(stat -c '%U:%G:%a' "$DATABASE_CREDENTIALS")" == 'root:root:600' ]] \
     || fail 'credenciais do banco ausentes ou expostas'
   [[ -f "${DATABASE_SECRET_DIR}/urls.env" \
@@ -1736,6 +1822,23 @@ verify_data_foundation() {
         || fail 'papel de transição do redirector está privilegiado'
     fi
   fi
+  if dispatch_v3_file_is_secure "$DISPATCH_V3_PROVIDER_ENDPOINT_FILE"; then
+    expected_hba_rules=6
+    login_summary='quatro logins base e dois logins Dispatch V3 preparados'
+    [[ "$(postgres_query -d postgres -Atqc 'SHOW wal_level')" == 'logical' ]] \
+      || fail 'logical decoding do Dispatch V3 não está ativo'
+    [[ "$(postgres_query -d postgres -Atqc 'SHOW max_replication_slots')" == '4' \
+        && "$(postgres_query -d postgres -Atqc 'SHOW max_wal_senders')" == '4' \
+        && "$(postgres_query -d postgres -Atqc "SELECT pg_size_bytes(current_setting('max_slot_wal_keep_size'))")" == '4294967296' ]] \
+      || fail 'orçamento de logical decoding do Dispatch V3 divergiu'
+    if dispatch_v3_expand_migration_applied; then
+      verify_dispatch_v3_database_contract
+    else
+      [[ "$(postgres_query -d postgres -Atqc \
+        "SELECT count(*) FROM pg_roles WHERE rolname IN ('blindou_dispatch_authority_login','blindou_debezium_login')")" == '0' ]] \
+        || fail 'logins Dispatch V3 existem antes da migration expand'
+    fi
+  fi
   [[ "$(postgres_query -d postgres -Atqc 'SHOW ssl_ca_file')" == "$POSTGRES_CA_FILE" ]] \
     || fail 'PostgreSQL não usa a CA cliente Blindou'
   hba_rule_count="$(postgres_query -d postgres -Atqc \
@@ -1744,14 +1847,14 @@ verify_data_foundation() {
       WHERE file_name='${POSTGRES_HBA_FILE}'
         AND type='hostssl'
         AND database=ARRAY['blindou']::text[]
-        AND user_name <@ ARRAY['blindou_migration_login','blindou_runtime_login','blindou_redirect_login','blindou_ml_login']::text[]
+        AND user_name <@ ARRAY['blindou_migration_login','blindou_runtime_login','blindou_redirect_login','blindou_ml_login','blindou_dispatch_authority_login','blindou_debezium_login']::text[]
         AND cardinality(user_name)=1
         AND address='10.42.0.0'
         AND netmask='255.255.0.0'
         AND auth_method='scram-sha-256'
         AND options @> ARRAY['clientcert=verify-ca']::text[]
         AND error IS NULL")"
-  if [[ "$hba_rule_count" != '4' ]]; then
+  if [[ "$hba_rule_count" != "$expected_hba_rules" ]]; then
     hba_diagnostic="$(postgres_query -d postgres -Atqc \
       "SELECT coalesce(string_agg(
           concat_ws('|', file_name, type, array_to_string(database, ','),
@@ -1760,11 +1863,10 @@ verify_data_foundation() {
           ';' ORDER BY rule_number), 'nenhuma')
          FROM pg_hba_file_rules
         WHERE file_name='${POSTGRES_HBA_FILE}' OR database @> ARRAY['blindou']::text[]")"
-    fail "HBA não exige TLS, certificado e SCRAM para os quatro logins (regras válidas=${hba_rule_count}; observadas=${hba_diagnostic})"
+    fail "HBA não exige TLS, certificado e SCRAM para o inventário esperado (esperadas=${expected_hba_rules}; válidas=${hba_rule_count}; observadas=${hba_diagnostic})"
   fi
-  /usr/local/sbin/apiwpp-deployctl verify >/dev/null \
-    || fail 'apiwpp regrediu depois do provisionamento do banco'
-  pass "database, quatro logins, TLS cliente e papéis isolados verificados (redirector=${redirector_contract})"
+  verify_secondary_slot_preservation
+  pass "database, ${login_summary}, TLS cliente e papéis isolados verificados (redirector=${redirector_contract})"
 }
 
 provision_data_foundation() {
@@ -2481,6 +2583,293 @@ write_marketplaces_runtime_config() {
   write_deferred_provider_runtime_config false true true
 }
 
+write_dispatch_v3_value() {
+  local name="$1" value="$2" path="${DISPATCH_V3_SECRET_DIR}/${name}"
+  [[ "$name" =~ ^[a-z0-9][a-z0-9.-]*$ ]] || fail 'nome de material Dispatch V3 inválido'
+  printf '%s' "$value" >"${path}.tmp"
+  cleanup_paths+=("${path}.tmp")
+  install -o root -g root -m 0600 "${path}.tmp" "$path"
+  rm -f -- "${path}.tmp"
+}
+
+ensure_dispatch_v3_random_hex() {
+  local name="$1"
+  dispatch_v3_file_is_secure "${DISPATCH_V3_SECRET_DIR}/${name}" \
+    || write_dispatch_v3_value "$name" "$(openssl rand -hex 32)"
+}
+
+dispatch_v3_r2_read_only_probe() {
+  local read_access="$1" read_secret="$2" write_access write_secret
+  local workdir object_key payload downloaded sink put_code get_code denied_put denied_delete cleanup_code result=0
+  r2_credential_files_are_secure || return 1
+  IFS= read -r write_access <"$R2_ACCESS_KEY_FILE" || return 1
+  IFS= read -r write_secret <"$R2_SECRET_KEY_FILE" || return 1
+  workdir="$(mktemp -d /var/tmp/blindou-dispatch-v3-r2-probe.XXXXXX)"
+  cleanup_paths+=("$workdir")
+  object_key="dispatch-v3/credential-probe/$(openssl rand -hex 16).txt"
+  payload="${workdir}/payload"
+  downloaded="${workdir}/downloaded"
+  sink="${workdir}/sink"
+  openssl rand -hex 32 >"$payload"
+  put_code="$(r2_signed_request "$write_access" "$write_secret" PUT "$object_key" "$payload" "$sink")" \
+    || result=1
+  [[ "$put_code" == '200' ]] || result=1
+  if (( result == 0 )); then
+    get_code="$(r2_signed_request "$read_access" "$read_secret" GET "$object_key" /dev/null "$downloaded")" \
+      || result=1
+    [[ "$get_code" == '200' \
+        && "$(sha256sum "$payload" | awk '{print $1}')" == "$(sha256sum "$downloaded" | awk '{print $1}')" ]] \
+      || result=1
+  fi
+  denied_put="$(r2_signed_request "$read_access" "$read_secret" PUT "$object_key" "$payload" "$sink")" \
+    || result=1
+  [[ "$denied_put" == '401' || "$denied_put" == '403' ]] || result=1
+  denied_delete="$(r2_signed_request "$read_access" "$read_secret" DELETE "$object_key" /dev/null "$sink")" \
+    || result=1
+  [[ "$denied_delete" == '401' || "$denied_delete" == '403' ]] || result=1
+  cleanup_code="$(r2_signed_request "$write_access" "$write_secret" DELETE "$object_key" /dev/null "$sink")" \
+    || result=1
+  [[ "$cleanup_code" == '200' || "$cleanup_code" == '204' ]] || result=1
+  unset read_access read_secret write_access write_secret
+  rm -rf -- "$workdir"
+  (( result == 0 ))
+}
+
+generate_dispatch_v3_resolver_pki() {
+  install -d -o root -g root -m 0700 "$DISPATCH_V3_RESOLVER_PKI_DIR"
+  if [[ ! -f "${DISPATCH_V3_RESOLVER_PKI_DIR}/ca.key" ]]; then
+    openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 825 \
+      -subj '/CN=Blindou Dispatch V3 Resolver CA' \
+      -addext 'basicConstraints=critical,CA:TRUE,pathlen:0' \
+      -addext 'keyUsage=critical,keyCertSign,cRLSign' \
+      -keyout "${DISPATCH_V3_RESOLVER_PKI_DIR}/ca.key.tmp" \
+      -out "${DISPATCH_V3_RESOLVER_PKI_DIR}/ca.crt.tmp" >/dev/null 2>&1
+    install -o root -g root -m 0600 "${DISPATCH_V3_RESOLVER_PKI_DIR}/ca.key.tmp" \
+      "${DISPATCH_V3_RESOLVER_PKI_DIR}/ca.key"
+    install -o root -g root -m 0600 "${DISPATCH_V3_RESOLVER_PKI_DIR}/ca.crt.tmp" \
+      "${DISPATCH_V3_RESOLVER_PKI_DIR}/ca.crt"
+    rm -f -- "${DISPATCH_V3_RESOLVER_PKI_DIR}/ca.key.tmp" \
+      "${DISPATCH_V3_RESOLVER_PKI_DIR}/ca.crt.tmp"
+  fi
+  local identity purpose subject alt_names
+  for identity in server client; do
+    [[ -f "${DISPATCH_V3_RESOLVER_PKI_DIR}/${identity}.key" ]] && continue
+    if [[ "$identity" == 'server' ]]; then
+      purpose='serverAuth'
+      subject='/CN=blindou-dispatch-authority-v3.blindou-production.svc'
+      alt_names='subjectAltName=DNS:blindou-dispatch-authority-v3,DNS:blindou-dispatch-authority-v3.blindou-production,DNS:blindou-dispatch-authority-v3.blindou-production.svc,DNS:blindou-dispatch-authority-v3.blindou-production.svc.cluster.local'
+    else
+      purpose='clientAuth'
+      subject='/CN=blindou-dispatch-sender-v3'
+      alt_names='subjectAltName=DNS:blindou-dispatch-sender-v3'
+    fi
+    printf '%s\n' 'basicConstraints=critical,CA:FALSE' \
+      'keyUsage=critical,digitalSignature,keyEncipherment' \
+      "extendedKeyUsage=${purpose}" "$alt_names" \
+      >"${DISPATCH_V3_RESOLVER_PKI_DIR}/${identity}.ext"
+    cleanup_paths+=("${DISPATCH_V3_RESOLVER_PKI_DIR}/${identity}.ext")
+    openssl req -new -newkey rsa:3072 -sha256 -nodes -subj "$subject" \
+      -keyout "${DISPATCH_V3_RESOLVER_PKI_DIR}/${identity}.key.tmp" \
+      -out "${DISPATCH_V3_RESOLVER_PKI_DIR}/${identity}.csr" >/dev/null 2>&1
+    openssl x509 -req -sha256 -days 397 \
+      -in "${DISPATCH_V3_RESOLVER_PKI_DIR}/${identity}.csr" \
+      -CA "${DISPATCH_V3_RESOLVER_PKI_DIR}/ca.crt" \
+      -CAkey "${DISPATCH_V3_RESOLVER_PKI_DIR}/ca.key" -CAcreateserial \
+      -extfile "${DISPATCH_V3_RESOLVER_PKI_DIR}/${identity}.ext" \
+      -out "${DISPATCH_V3_RESOLVER_PKI_DIR}/${identity}.crt.tmp" >/dev/null 2>&1
+    install -o root -g root -m 0600 "${DISPATCH_V3_RESOLVER_PKI_DIR}/${identity}.key.tmp" \
+      "${DISPATCH_V3_RESOLVER_PKI_DIR}/${identity}.key"
+    install -o root -g root -m 0600 "${DISPATCH_V3_RESOLVER_PKI_DIR}/${identity}.crt.tmp" \
+      "${DISPATCH_V3_RESOLVER_PKI_DIR}/${identity}.crt"
+    rm -f -- "${DISPATCH_V3_RESOLVER_PKI_DIR}/${identity}.key.tmp" \
+      "${DISPATCH_V3_RESOLVER_PKI_DIR}/${identity}.crt.tmp" \
+      "${DISPATCH_V3_RESOLVER_PKI_DIR}/${identity}.csr" \
+      "${DISPATCH_V3_RESOLVER_PKI_DIR}/${identity}.ext"
+  done
+  openssl verify -CAfile "${DISPATCH_V3_RESOLVER_PKI_DIR}/ca.crt" \
+    "${DISPATCH_V3_RESOLVER_PKI_DIR}/server.crt" \
+    "${DISPATCH_V3_RESOLVER_PKI_DIR}/client.crt" >/dev/null \
+    || fail 'PKI mTLS do Credential Resolver inválida'
+}
+
+generate_dispatch_v3_internal_material() {
+  install -d -o root -g root -m 0700 "$DISPATCH_V3_SECRET_DIR"
+  local name
+  for name in authority-db-password debezium-db-password nats-debezium-password \
+    nats-sender-password nats-authority-password nats-api-password; do
+    ensure_dispatch_v3_random_hex "$name"
+  done
+  if ! dispatch_v3_file_is_secure "$DISPATCH_V3_STREAM_INCARNATION_FILE"; then
+    write_dispatch_v3_value stream-incarnation "$(</proc/sys/kernel/random/uuid)"
+  fi
+  [[ "$(<"$DISPATCH_V3_STREAM_INCARNATION_FILE")" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] \
+    || fail 'stream incarnation Dispatch V3 inválida'
+  generate_dispatch_v3_resolver_pki
+  openssl pkcs12 -export -nokeys -in "${NATS_PKI_DIR}/ca.crt" \
+    -name blindou-nats-ca -passout 'pass:changeit' \
+    -out "${DISPATCH_V3_SECRET_DIR}/nats-truststore.p12.tmp" >/dev/null 2>&1
+  install -o root -g root -m 0600 "${DISPATCH_V3_SECRET_DIR}/nats-truststore.p12.tmp" \
+    "${DISPATCH_V3_SECRET_DIR}/nats-truststore.p12"
+  rm -f -- "${DISPATCH_V3_SECRET_DIR}/nats-truststore.p12.tmp" \
+    "${DISPATCH_V3_SECRET_DIR}/truststore-password" \
+    "${DISPATCH_V3_SECRET_DIR}/java-tool-options"
+  write_dispatch_v3_value source-host '192.168.100.59'
+  write_dispatch_v3_value source-port '5432'
+  write_dispatch_v3_value source-database 'blindou'
+  write_dispatch_v3_value source-user 'blindou_debezium_login'
+  write_dispatch_v3_value offset-user 'blindou_debezium_login'
+  write_dispatch_v3_value nats-url 'tls://blindou-nats.blindou-production.svc:4222'
+  write_dispatch_v3_value nats-user 'blindou-debezium-v3'
+  write_dispatch_v3_value r2-account-id "$R2_ACCOUNT_ID"
+  write_dispatch_v3_value r2-bucket "$R2_BUCKET"
+  write_dispatch_v3_value token-key-id 'uazapi-token-key-v1'
+  write_dispatch_v3_value redis-url \
+    "redis://default:$(<"${RUNTIME_SECRET_DIR}/REDIS_PASSWORD")@blindou-redis:6379/"
+  local database_tls='sslmode=verify-full&sslrootcert=/var/run/blindou/postgres/root.crt&sslcert=/var/run/blindou/postgres/client.crt&sslkey=/var/run/blindou/postgres/client.key'
+  write_dispatch_v3_value authority-database-url \
+    "postgresql://blindou_dispatch_authority_login:$(<"${DISPATCH_V3_SECRET_DIR}/authority-db-password")@192.168.100.59:5432/blindou?${database_tls}"
+  write_dispatch_v3_value offset-jdbc-url \
+    "jdbc:postgresql://192.168.100.59:5432/blindou?currentSchema=blindou_cdc_state&${database_tls}"
+}
+
+create_dispatch_v3_kubernetes_material() {
+  kube -n "$APP_NAMESPACE" create configmap blindou-dispatch-v3-runtime \
+    --from-file=provider-endpoint="$DISPATCH_V3_PROVIDER_ENDPOINT_FILE" \
+    --from-file=stream-incarnation="$DISPATCH_V3_STREAM_INCARNATION_FILE" \
+    --from-literal=media-public-base-url="$R2_PUBLIC_BASE_URL" \
+    --dry-run=client -o yaml | kube apply -f - >/dev/null
+  kube -n "$APP_NAMESPACE" create secret generic blindou-nats-auth \
+    --from-file=backend-password="${RUNTIME_SECRET_DIR}/NATS_PASSWORD" \
+    --from-file=debezium-v3-password="${DISPATCH_V3_SECRET_DIR}/nats-debezium-password" \
+    --from-file=sender-v3-password="${DISPATCH_V3_SECRET_DIR}/nats-sender-password" \
+    --from-file=authority-v3-password="${DISPATCH_V3_SECRET_DIR}/nats-authority-password" \
+    --from-file=api-v3-password="${DISPATCH_V3_SECRET_DIR}/nats-api-password" \
+    --dry-run=client -o yaml | kube apply -f - >/dev/null
+  kube -n "$APP_NAMESPACE" create secret generic blindou-dispatch-sender-v3-nats \
+    --from-file=password="${DISPATCH_V3_SECRET_DIR}/nats-sender-password" \
+    --from-file=ca.crt="${NATS_PKI_DIR}/ca.crt" --dry-run=client -o yaml \
+    | kube apply -f - >/dev/null
+  kube -n "$APP_NAMESPACE" create secret generic blindou-dispatch-authority-v3-nats \
+    --from-file=password="${DISPATCH_V3_SECRET_DIR}/nats-authority-password" \
+    --from-file=ca.crt="${NATS_PKI_DIR}/ca.crt" --dry-run=client -o yaml \
+    | kube apply -f - >/dev/null
+  kube -n "$APP_NAMESPACE" create secret generic blindou-dispatch-sender-v3-r2 \
+    --from-file=r2-account-id="${DISPATCH_V3_SECRET_DIR}/r2-account-id" \
+    --from-file=r2-bucket="${DISPATCH_V3_SECRET_DIR}/r2-bucket" \
+    --from-file=r2-access-key-id="$DISPATCH_V3_R2_ACCESS_KEY_FILE" \
+    --from-file=secret-access-key="$DISPATCH_V3_R2_SECRET_KEY_FILE" \
+    --dry-run=client -o yaml | kube apply -f - >/dev/null
+  kube -n "$APP_NAMESPACE" create secret generic blindou-dispatch-sender-v3 \
+    --from-file=redis-url="${DISPATCH_V3_SECRET_DIR}/redis-url" \
+    --dry-run=client -o yaml | kube apply -f - >/dev/null
+  kube -n "$APP_NAMESPACE" create secret generic blindou-dispatch-authority-v3 \
+    --from-file=redis-url="${DISPATCH_V3_SECRET_DIR}/redis-url" \
+    --from-file=token-key-id="${DISPATCH_V3_SECRET_DIR}/token-key-id" \
+    --dry-run=client -o yaml | kube apply -f - >/dev/null
+  kube -n "$APP_NAMESPACE" create secret generic blindou-dispatch-authority-v3-database \
+    --from-file=url="${DISPATCH_V3_SECRET_DIR}/authority-database-url" \
+    --dry-run=client -o yaml | kube apply -f - >/dev/null
+  kube -n "$APP_NAMESPACE" create secret generic blindou-dispatch-authority-v3-provider \
+    --from-file=token-encryption-key="${RUNTIME_SECRET_DIR}/UAZAPI_TOKEN_ENCRYPTION_KEY" \
+    --dry-run=client -o yaml | kube apply -f - >/dev/null
+  kube -n "$APP_NAMESPACE" create secret generic blindou-dispatch-authority-v3-mtls \
+    --from-file=ca.crt="${DISPATCH_V3_RESOLVER_PKI_DIR}/ca.crt" \
+    --from-file=tls.crt="${DISPATCH_V3_RESOLVER_PKI_DIR}/server.crt" \
+    --from-file=tls.key="${DISPATCH_V3_RESOLVER_PKI_DIR}/server.key" \
+    --dry-run=client -o yaml | kube apply -f - >/dev/null
+  kube -n "$APP_NAMESPACE" create secret generic blindou-dispatch-sender-v3-mtls \
+    --from-file=ca.crt="${DISPATCH_V3_RESOLVER_PKI_DIR}/ca.crt" \
+    --from-file=tls.crt="${DISPATCH_V3_RESOLVER_PKI_DIR}/client.crt" \
+    --from-file=tls.key="${DISPATCH_V3_RESOLVER_PKI_DIR}/client.key" \
+    --dry-run=client -o yaml | kube apply -f - >/dev/null
+  kube -n "$APP_NAMESPACE" create secret generic blindou-debezium-v3 \
+    --from-file=source-host="${DISPATCH_V3_SECRET_DIR}/source-host" \
+    --from-file=source-port="${DISPATCH_V3_SECRET_DIR}/source-port" \
+    --from-file=source-database="${DISPATCH_V3_SECRET_DIR}/source-database" \
+    --from-file=source-user="${DISPATCH_V3_SECRET_DIR}/source-user" \
+    --from-file=source-password="${DISPATCH_V3_SECRET_DIR}/debezium-db-password" \
+    --from-file=offset-jdbc-url="${DISPATCH_V3_SECRET_DIR}/offset-jdbc-url" \
+    --from-file=offset-user="${DISPATCH_V3_SECRET_DIR}/offset-user" \
+    --from-file=offset-password="${DISPATCH_V3_SECRET_DIR}/debezium-db-password" \
+    --from-file=nats-url="${DISPATCH_V3_SECRET_DIR}/nats-url" \
+    --from-file=nats-user="${DISPATCH_V3_SECRET_DIR}/nats-user" \
+    --from-file=nats-password="${DISPATCH_V3_SECRET_DIR}/nats-debezium-password" \
+    --from-file=database-root.crt="$SERVER_CA_FILE" \
+    --from-file=database-client.crt="$CLIENT_CERT_FILE" \
+    --from-file=database-client.key="$CLIENT_KEY_FILE" \
+    --from-file=nats-truststore.p12="${DISPATCH_V3_SECRET_DIR}/nats-truststore.p12" \
+    --dry-run=client -o yaml | kube apply -f - >/dev/null
+}
+
+verify_dispatch_v3_kubernetes_material() {
+  secret_has_keys "$APP_NAMESPACE" blindou-nats-auth backend-password \
+    debezium-v3-password sender-v3-password authority-v3-password api-v3-password
+  secret_has_keys "$APP_NAMESPACE" blindou-dispatch-sender-v3-nats password ca.crt
+  secret_has_keys "$APP_NAMESPACE" blindou-dispatch-sender-v3-mtls ca.crt tls.crt tls.key
+  secret_has_keys "$APP_NAMESPACE" blindou-dispatch-sender-v3-r2 \
+    r2-account-id r2-bucket r2-access-key-id secret-access-key
+  secret_has_keys "$APP_NAMESPACE" blindou-dispatch-sender-v3 redis-url
+  secret_has_keys "$APP_NAMESPACE" blindou-dispatch-authority-v3 redis-url token-key-id
+  secret_has_keys "$APP_NAMESPACE" blindou-dispatch-authority-v3-database url
+  secret_has_keys "$APP_NAMESPACE" blindou-dispatch-authority-v3-provider token-encryption-key
+  secret_has_keys "$APP_NAMESPACE" blindou-dispatch-authority-v3-mtls ca.crt tls.crt tls.key
+  secret_has_keys "$APP_NAMESPACE" blindou-dispatch-authority-v3-nats password ca.crt
+  secret_has_keys "$APP_NAMESPACE" blindou-debezium-v3 \
+    source-host source-port source-database source-user source-password \
+    offset-jdbc-url offset-user offset-password nats-url nats-user nats-password \
+    database-root.crt database-client.crt database-client.key nats-truststore.p12
+  [[ "$(kube -n "$APP_NAMESPACE" get configmap blindou-dispatch-v3-runtime \
+    -o 'go-template={{len .data}}')" == '3' ]] \
+    || fail 'ConfigMap Dispatch V3 diverge do contrato fechado'
+}
+
+provision_dispatch_v3_secrets() {
+  [[ "${1:-}" == "$DISPATCH_V3_SECRETS_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${DISPATCH_V3_SECRETS_CONFIRMATION}"
+  [[ ! -t 0 ]] || fail 'material Dispatch V3 deve chegar por stdin não interativo'
+  require_platform_preconditions
+  verify_data_foundation >/dev/null
+  verify_latest_backup >/dev/null
+  local schema endpoint_b64 access_b64 secret_b64 endpoint access secret
+  IFS= read -r schema || fail 'payload Dispatch V3 ausente'
+  IFS= read -r endpoint_b64 || fail 'provider endpoint ausente'
+  IFS= read -r access_b64 || fail 'R2 read-only access key ausente'
+  IFS= read -r secret_b64 || fail 'R2 read-only secret key ausente'
+  [[ "$schema" == 'schema=1' ]] || fail 'schema Dispatch V3 inválido'
+  endpoint="$(printf '%s' "$endpoint_b64" | base64 -d)" || fail 'provider endpoint inválido'
+  access="$(printf '%s' "$access_b64" | base64 -d)" || fail 'R2 read-only access key inválida'
+  secret="$(printf '%s' "$secret_b64" | base64 -d)" || fail 'R2 read-only secret key inválida'
+  unset endpoint_b64 access_b64 secret_b64
+  [[ "$endpoint" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[^[:space:]\"\\]*)?$ ]] \
+    || { unset endpoint access secret; fail 'provider endpoint deve ser HTTPS sem credencial'; }
+  r2_access_key_format_is_valid "$access" && r2_secret_key_format_is_valid "$secret" \
+    || { unset endpoint access secret; fail 'credencial R2 read-only possui formato inválido'; }
+  dispatch_v3_r2_read_only_probe "$access" "$secret" \
+    || { unset endpoint access secret; fail 'credencial R2 do sender não é leitura estrita'; }
+  install -d -o root -g root -m 0700 "$DISPATCH_V3_SECRET_DIR"
+  write_dispatch_v3_value provider-endpoint "$endpoint"
+  write_dispatch_v3_value r2-access-key-id "$access"
+  write_dispatch_v3_value r2-secret-access-key "$secret"
+  unset endpoint access secret
+  generate_dispatch_v3_internal_material
+  prepare_dispatch_v3_group_roles
+  install_postgres_client_auth
+  create_runtime_kubernetes_material
+  verify_runtime_material
+  verify_dispatch_v3_kubernetes_material
+  for deployment in blindou-backend blindou-ml-affiliate-connector blindou-redirector; do
+    kube -n "$APP_NAMESPACE" rollout status "deployment/${deployment}" --timeout=300s >/dev/null
+  done
+  {
+    printf 'schema=1\nstate=prepared\nstream_incarnation=%s\n' \
+      "$(<"$DISPATCH_V3_STREAM_INCARNATION_FILE")"
+    printf 'prepared_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } >"${DISPATCH_V3_STATE}.tmp"
+  install -o root -g root -m 0600 "${DISPATCH_V3_STATE}.tmp" "$DISPATCH_V3_STATE"
+  rm -f -- "${DISPATCH_V3_STATE}.tmp"
+  pass 'Secrets, TLS, credencial R2 read-only e logical decoding do Dispatch V3 preparados'
+}
+
 create_runtime_kubernetes_material() {
   kube -n "$APP_NAMESPACE" create configmap blindou-runtime-config \
     --from-env-file="$RUNTIME_CONFIG_FILE" --dry-run=client -o yaml \
@@ -2504,6 +2893,8 @@ create_runtime_kubernetes_material() {
     --from-file=CLOUDFLARE_SAAS_API_TOKEN="$CLOUDFLARE_SAAS_TOKEN_FILE"
     --from-file=R2_ACCESS_KEY_ID="$R2_ACCESS_KEY_FILE"
     --from-file=R2_SECRET_ACCESS_KEY="$R2_SECRET_KEY_FILE"
+    --from-file=DISPATCH_V3_R2_ACCESS_KEY_ID="$R2_ACCESS_KEY_FILE"
+    --from-file=DISPATCH_V3_R2_SECRET_ACCESS_KEY="$R2_SECRET_KEY_FILE"
   )
   if [[ -f "${RUNTIME_SECRET_DIR}/UAZAPI_ADMIN_TOKEN" ]]; then
     core_secret_args+=(--from-file=UAZAPI_ADMIN_TOKEN="${RUNTIME_SECRET_DIR}/UAZAPI_ADMIN_TOKEN")
@@ -2545,9 +2936,13 @@ create_runtime_kubernetes_material() {
   kube -n "$APP_NAMESPACE" create secret generic blindou-migration-secrets \
     --from-file=MIGRATION_DATABASE_URL="${RUNTIME_SECRET_DIR}/MIGRATION_DATABASE_URL" \
     --dry-run=client -o yaml | kube apply -f - >/dev/null
-  kube -n "$APP_NAMESPACE" create secret generic blindou-nats-auth \
-    --from-file=backend-password="${RUNTIME_SECRET_DIR}/NATS_PASSWORD" \
-    --dry-run=client -o yaml | kube apply -f - >/dev/null
+  if dispatch_v3_file_is_secure "$DISPATCH_V3_PROVIDER_ENDPOINT_FILE"; then
+    create_dispatch_v3_kubernetes_material
+  else
+    kube -n "$APP_NAMESPACE" create secret generic blindou-nats-auth \
+      --from-file=backend-password="${RUNTIME_SECRET_DIR}/NATS_PASSWORD" \
+      --dry-run=client -o yaml | kube apply -f - >/dev/null
+  fi
   kube -n "$APP_NAMESPACE" create secret generic blindou-redis-auth \
     --from-file=users.acl="${RUNTIME_SECRET_DIR}/users.acl" \
     --dry-run=client -o yaml | kube apply -f - >/dev/null
@@ -2579,7 +2974,8 @@ verify_runtime_material() {
     AUTH_TRUST_HASH_SECRET UAZAPI_WEBHOOK_SECRET \
     UAZAPI_TOKEN_ENCRYPTION_KEY NATS_PASSWORD REDIS_PASSWORD \
     METRICS_BEARER_TOKEN CLOUDFLARE_SAAS_API_TOKEN \
-    R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY
+    R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY \
+    DISPATCH_V3_R2_ACCESS_KEY_ID DISPATCH_V3_R2_SECRET_ACCESS_KEY
   local core_keys
   core_keys="$(kube -n "$APP_NAMESPACE" get secret blindou-core-secrets \
     -o go-template='{{range $key, $value := .data}}{{printf "%s\n" $key}}{{end}}')"
@@ -2658,7 +3054,11 @@ verify_runtime_material() {
     ML_CONNECTOR_DATABASE_URL ML_CONNECTOR_INTERNAL_API_KEY \
     ML_SESSION_ENCRYPTION_KEY ML_SESSION_ENCRYPTION_PEPPER
   secret_has_keys "$APP_NAMESPACE" blindou-migration-secrets MIGRATION_DATABASE_URL
-  secret_has_keys "$APP_NAMESPACE" blindou-nats-auth backend-password
+  if dispatch_v3_file_is_secure "$DISPATCH_V3_PROVIDER_ENDPOINT_FILE"; then
+    verify_dispatch_v3_kubernetes_material
+  else
+    secret_has_keys "$APP_NAMESPACE" blindou-nats-auth backend-password
+  fi
   secret_has_keys "$APP_NAMESPACE" blindou-redis-auth users.acl
   secret_has_keys "$APP_NAMESPACE" blindou-nats-tls ca.crt tls.crt tls.key
   secret_has_keys "$APP_NAMESPACE" blindou-postgres-client ca.crt tls.crt tls.key
@@ -3187,7 +3587,7 @@ activate_release_gates() {
   now_epoch="$(date -u +%s)"
   (( now_epoch - backup_epoch <= 3600 )) || fail 'backup anterior ao deploy tem mais de uma hora'
   /usr/local/sbin/blindou-hostctl verify >/dev/null
-  /usr/local/sbin/apiwpp-deployctl verify >/dev/null
+  verify_secondary_slot_preservation
   kube -n "$EDGE_NAMESPACE" delete resourcequota platform-quarantine --ignore-not-found >/dev/null
   for namespace in "$APP_NAMESPACE" "$EDGE_NAMESPACE"; do
     kube label namespace "$namespace" \
@@ -3376,6 +3776,238 @@ wait_migration_job() {
   return 1
 }
 
+verify_dispatch_v3_database_contract() {
+  dispatch_v3_expand_migration_applied && dispatch_v3_registry_migration_applied \
+    || fail 'migrations 0013/0014 do Dispatch V3 não estão aplicadas'
+  [[ "$(postgres_query -d postgres -Atqc \
+    "SELECT count(*) FROM pg_roles WHERE (rolname='blindou_dispatch_authority_login' AND rolcanlogin AND rolinherit AND NOT rolreplication OR rolname='blindou_debezium_login' AND rolcanlogin AND rolinherit AND rolreplication) AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolbypassrls")" == '2' ]] \
+    || fail 'logins PostgreSQL do Dispatch V3 estão ausentes ou privilegiados'
+  [[ "$(postgres_query -d postgres -Atqc \
+    "SELECT count(*) FROM pg_roles WHERE rolname IN ('blindou_dispatch_writer','blindou_dispatch_api','blindou_credential_reader','blindou_debezium') AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls")" == '4' ]] \
+    || fail 'papéis de grupo do Dispatch V3 estão ausentes ou privilegiados'
+  [[ "$(postgres_query -d postgres -Atqc \
+    "SELECT count(*) FROM pg_auth_members membership JOIN pg_roles parent ON parent.oid=membership.roleid JOIN pg_roles member ON member.oid=membership.member WHERE ((member.rolname='blindou_runtime_login' AND parent.rolname IN ('blindou_dispatch_api','blindou_dispatch_writer')) OR (member.rolname='blindou_dispatch_authority_login' AND parent.rolname IN ('blindou_dispatch_writer','blindou_credential_reader'))) AND NOT membership.inherit_option AND membership.set_option")" == '4' ]] \
+    || fail 'memberships SET-only do Dispatch V3 divergiram'
+  [[ "$(postgres_query -d postgres -Atqc \
+    "SELECT count(*) FROM pg_auth_members membership JOIN pg_roles parent ON parent.oid=membership.roleid JOIN pg_roles member ON member.oid=membership.member WHERE member.rolname='blindou_debezium_login' AND parent.rolname='blindou_debezium' AND membership.inherit_option AND NOT membership.set_option")" == '1' ]] \
+    || fail 'membership Debezium divergiu'
+  [[ "$(postgres_query -d postgres -Atqc \
+    "SELECT count(*) FROM pg_auth_members membership JOIN pg_roles parent ON parent.oid=membership.roleid JOIN pg_roles member ON member.oid=membership.member WHERE member.rolname IN ('blindou_dispatch_authority_login','blindou_debezium_login')")" == '3' ]] \
+    || fail 'logins dedicados do Dispatch V3 receberam membership adicional'
+  [[ "$(postgres_query -d blindou -Atqc \
+    "SELECT count(*) FROM pg_replication_slots WHERE slot_name='blindou_dispatch_v3_outbox_slot' AND slot_type='logical' AND plugin='pgoutput' AND database='blindou' AND invalidation_reason IS NULL")" == '1' ]] \
+    || fail 'replication slot Dispatch V3 inválido'
+  [[ "$(postgres_query -d blindou -Atqc \
+    "SELECT count(*) FROM pg_publication publication WHERE publication.pubname='blindou_dispatch_v3_outbox_pub' AND publication.pubinsert AND NOT publication.pubupdate AND NOT publication.pubdelete AND NOT publication.pubtruncate AND (SELECT count(*) FROM pg_publication_tables table_map WHERE table_map.pubname=publication.pubname)=1 AND EXISTS (SELECT 1 FROM pg_publication_tables table_map WHERE table_map.pubname=publication.pubname AND table_map.schemaname='public' AND table_map.tablename='dispatch_outbox_v3')")" == '1' ]] \
+    || fail 'publication INSERT-only do Dispatch V3 inválida'
+}
+
+activate_dispatch_v3_database() {
+  dispatch_v3_expand_migration_applied \
+    || fail 'migration expand Dispatch V3 não está aplicada'
+  local authority_password debezium_password
+  authority_password="$(<"${DISPATCH_V3_SECRET_DIR}/authority-db-password")"
+  debezium_password="$(<"${DISPATCH_V3_SECRET_DIR}/debezium-db-password")"
+  [[ "$authority_password" =~ ^[0-9a-f]{64}$ && "$debezium_password" =~ ^[0-9a-f]{64}$ ]] \
+    || { unset authority_password debezium_password; fail 'credenciais PostgreSQL V3 inválidas'; }
+  {
+    printf "\\set authority_password '%s'\n" "$authority_password"
+    printf "\\set debezium_password '%s'\n" "$debezium_password"
+    cat <<'SQL'
+SELECT format('CREATE ROLE blindou_dispatch_authority_login LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', :'authority_password')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='blindou_dispatch_authority_login')
+\gexec
+SELECT format('CREATE ROLE blindou_debezium_login LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE REPLICATION NOBYPASSRLS', :'debezium_password')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='blindou_debezium_login')
+\gexec
+ALTER ROLE blindou_dispatch_authority_login LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'authority_password';
+ALTER ROLE blindou_debezium_login LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE REPLICATION NOBYPASSRLS PASSWORD :'debezium_password';
+GRANT blindou_dispatch_writer TO blindou_dispatch_authority_login WITH INHERIT FALSE, SET TRUE;
+GRANT blindou_credential_reader TO blindou_dispatch_authority_login WITH INHERIT FALSE, SET TRUE;
+GRANT blindou_debezium TO blindou_debezium_login WITH INHERIT TRUE, SET FALSE;
+GRANT blindou_dispatch_api TO blindou_runtime_login WITH INHERIT FALSE, SET TRUE;
+GRANT blindou_dispatch_writer TO blindou_runtime_login WITH INHERIT FALSE, SET TRUE;
+GRANT CONNECT ON DATABASE blindou TO blindou_dispatch_authority_login, blindou_debezium_login;
+SQL
+  } | postgres_query -d postgres >/dev/null
+  unset authority_password debezium_password
+  postgres_query -d blindou <<'SQL' >/dev/null
+SELECT 'CREATE PUBLICATION blindou_dispatch_v3_outbox_pub FOR TABLE ONLY public.dispatch_outbox_v3 WITH (publish = ''insert'')'
+WHERE NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname='blindou_dispatch_v3_outbox_pub')
+\gexec
+ALTER PUBLICATION blindou_dispatch_v3_outbox_pub SET (publish = 'insert');
+ALTER PUBLICATION blindou_dispatch_v3_outbox_pub SET TABLE ONLY public.dispatch_outbox_v3;
+SQL
+  if [[ "$(postgres_query -d blindou -Atqc \
+    "SELECT count(*) FROM pg_replication_slots WHERE slot_name='blindou_dispatch_v3_outbox_slot'")" == '0' ]]; then
+    postgres_query -d blindou -Atqc \
+      "SELECT slot_name FROM pg_create_logical_replication_slot('blindou_dispatch_v3_outbox_slot','pgoutput')" \
+      >/dev/null
+  fi
+  verify_dispatch_v3_database_contract
+}
+
+provision_dispatch_v3_jetstream() {
+  local rendered="$1" mode="${2:-reconcile}" port_forward_log port_forward_pid='' provision_status=0
+  [[ "$mode" == 'reconcile' || "$mode" == 'verify' ]] \
+    || fail 'modo JetStream Dispatch V3 inválido'
+  [[ -f "$DISPATCH_V3_JETSTREAM_PROVISIONER" && ! -L "$DISPATCH_V3_JETSTREAM_PROVISIONER" \
+      && "$(stat -c '%U:%G:%a' "$DISPATCH_V3_JETSTREAM_PROVISIONER")" == 'root:root:755' ]] \
+    || fail 'provisionador JetStream V3 ausente ou inseguro'
+  port_forward_log="$(mktemp /var/tmp/blindou-dispatch-v3-port-forward.XXXXXX)"
+  cleanup_paths+=("$port_forward_log")
+  kube -n "$APP_NAMESPACE" port-forward service/blindou-nats 14222:4222 \
+    >"$port_forward_log" 2>&1 &
+  port_forward_pid=$!
+  local deadline=$((SECONDS + 30))
+  until grep -Fq 'Forwarding from 127.0.0.1:14222' "$port_forward_log"; do
+    if ! kill -0 "$port_forward_pid" 2>/dev/null; then
+      wait "$port_forward_pid" || true
+      fail 'port-forward fechado do NATS não iniciou'
+    fi
+    (( SECONDS < deadline )) || { kill "$port_forward_pid" 2>/dev/null || true; fail 'port-forward NATS excedeu 30 segundos'; }
+    sleep 1
+  done
+  local -a provisioner_args=(
+    python3 "$DISPATCH_V3_JETSTREAM_PROVISIONER" \
+    --endpoint 127.0.0.1:14222 --user blindou-core \
+    --password-file "${RUNTIME_SECRET_DIR}/NATS_PASSWORD" \
+    --ca-file "${NATS_PKI_DIR}/ca.crt" \
+    --server-name blindou-nats.blindou-production.svc \
+    --streams "${rendered}/dispatch-v3/streams.json" \
+    --consumers "${rendered}/dispatch-v3/consumers.json" \
+    --incarnation "$(<"$DISPATCH_V3_STREAM_INCARNATION_FILE")"
+  )
+  [[ "$mode" == 'verify' ]] && provisioner_args+=(--verify-only)
+  set +e
+  "${provisioner_args[@]}"
+  provision_status=$?
+  set -e
+  kill "$port_forward_pid" 2>/dev/null || true
+  wait "$port_forward_pid" 2>/dev/null || true
+  rm -f -- "$port_forward_log"
+  (( provision_status == 0 )) || fail 'provisionamento JetStream V3 falhou'
+}
+
+set_runtime_config_value() {
+  local key="$1" value="$2" temporary
+  [[ "$key" =~ ^[A-Z][A-Z0-9_]*$ && "$value" =~ ^[a-z0-9._:/-]+$ ]] \
+    || fail 'alteração de runtime fora do contrato fechado'
+  temporary="$(mktemp "${RUNTIME_CONFIG_FILE}.tmp.XXXXXX")"
+  cleanup_paths+=("$temporary")
+  grep -Ev "^${key}=" "$RUNTIME_CONFIG_FILE" >"$temporary"
+  printf '%s=%s\n' "$key" "$value" >>"$temporary"
+  install -o root -g root -m 0600 "$temporary" "$RUNTIME_CONFIG_FILE"
+  rm -f -- "$temporary"
+}
+
+verify_dispatch_v3_runtime() {
+  require_root_and_host
+  [[ -f "$DISPATCH_V3_STATE" && ! -L "$DISPATCH_V3_STATE" \
+      && "$(stat -c '%U:%G:%a' "$DISPATCH_V3_STATE")" == 'root:root:600' ]] \
+    || fail 'estado do Dispatch V3 ausente ou inseguro'
+  local state release_id rendered backend_image authority_image sender_image
+  state="$(sed -n 's/^state=//p' "$DISPATCH_V3_STATE")"
+  [[ "$state" == 'prepared' || "$state" == 'active' ]] \
+    || fail 'estado do Dispatch V3 inválido'
+  verify_runtime_material
+  verify_dispatch_v3_kubernetes_material
+  verify_data_foundation >/dev/null
+  if ! dispatch_v3_expand_migration_applied; then
+    [[ "$state" == 'prepared' ]] || fail 'Dispatch V3 ativo sem migration expand'
+    if grep -Fxq 'DISPATCH_V3_MODE=active' "$RUNTIME_CONFIG_FILE"; then
+      fail 'admissão Dispatch V3 ativa antes da migration expand'
+    fi
+    for workload in statefulset/blindou-debezium-v3 \
+      deployment/blindou-dispatch-authority-v3 deployment/blindou-dispatch-sender-v3; do
+      ! kube -n "$APP_NAMESPACE" get "$workload" >/dev/null 2>&1 \
+        || fail 'workload Dispatch V3 existe antes da release expand'
+    done
+    pass 'Dispatch V3 preparado, inativo e sem workload antes da migration expand'
+    return
+  fi
+  verify_dispatch_v3_database_contract
+  [[ -f "$CURRENT_RELEASE" && ! -L "$CURRENT_RELEASE" \
+      && "$(stat -c '%U:%G:%a' "$CURRENT_RELEASE")" == 'root:root:600' ]] \
+    || fail 'release corrente do Dispatch V3 ausente ou insegura'
+  release_id="$(<"$CURRENT_RELEASE")"
+  [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release corrente do Dispatch V3 inválida'
+  rendered="${RELEASE_CACHE}/${release_id}/rendered"
+  [[ -f "${rendered}/71-dispatch-v3-workloads.yaml" && ! -L "${rendered}/71-dispatch-v3-workloads.yaml" ]] \
+    || fail 'release corrente não contém workloads Dispatch V3 validados'
+  backend_image="$(kube -n "$APP_NAMESPACE" get deployment blindou-backend \
+    -o 'jsonpath={.spec.template.spec.containers[?(@.name=="backend")].image}')"
+  authority_image="$(kube -n "$APP_NAMESPACE" get deployment blindou-dispatch-authority-v3 \
+    -o 'jsonpath={.spec.template.spec.containers[?(@.name=="authority")].image}')"
+  sender_image="$(kube -n "$APP_NAMESPACE" get deployment blindou-dispatch-sender-v3 \
+    -o 'jsonpath={.spec.template.spec.containers[?(@.name=="sender")].image}')"
+  [[ "$backend_image" =~ @sha256:[0-9a-f]{64}$ \
+      && "$authority_image" == "$backend_image" && "$sender_image" == "$backend_image" ]] \
+    || fail 'sender/authority não usam o digest backend da release corrente'
+  [[ "$(kube -n "$APP_NAMESPACE" get statefulset blindou-debezium-v3 \
+    -o 'jsonpath={.spec.template.spec.containers[?(@.name=="debezium")].image}')" \
+      == "$DISPATCH_V3_EXPECTED_DEBEZIUM_IMAGE" ]] \
+    || fail 'digest Debezium operacional divergiu'
+  local workload observed_release
+  for workload in statefulset/blindou-debezium-v3 \
+    deployment/blindou-dispatch-authority-v3 deployment/blindou-dispatch-sender-v3; do
+    observed_release="$(kube -n "$APP_NAMESPACE" get "$workload" \
+      -o 'jsonpath={.spec.template.metadata.annotations.blindou\.io/release}')"
+    [[ "$observed_release" == "$release_id" ]] \
+      || fail "workload ${workload} não corresponde à release corrente"
+    kube -n "$APP_NAMESPACE" rollout status "$workload" --timeout=120s >/dev/null
+  done
+  provision_dispatch_v3_jetstream "$rendered" verify >/dev/null
+  if [[ "$state" == 'active' ]]; then
+    grep -Fxq 'DISPATCH_V3_MODE=active' "$RUNTIME_CONFIG_FILE" \
+      || fail 'estado ativo sem configuração de admissão ativa'
+    grep -Fxq "release_id=${release_id}" "$DISPATCH_V3_STATE" \
+      || fail 'recibo ativo não corresponde à release corrente'
+  elif grep -Fxq 'DISPATCH_V3_MODE=active' "$RUNTIME_CONFIG_FILE"; then
+    fail 'admissão ativa sem recibo de ativação Dispatch V3'
+  fi
+  pass "Dispatch V3 ${state}, íntegro e aderente à release ${release_id}"
+}
+
+activate_dispatch_v3_runtime() {
+  local release_id="$1" confirmation="$2"
+  [[ "$confirmation" == "$DISPATCH_V3_ACTIVATION_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${DISPATCH_V3_ACTIVATION_CONFIRMATION}"
+  [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release Dispatch V3 inválida'
+  require_platform_preconditions
+  [[ -f "$CURRENT_RELEASE" && "$(<"$CURRENT_RELEASE")" == "$release_id" ]] \
+    || fail 'release Dispatch V3 não é a release corrente'
+  [[ -f "$DISPATCH_V3_STATE" && ! -L "$DISPATCH_V3_STATE" \
+      && "$(stat -c '%U:%G:%a' "$DISPATCH_V3_STATE")" == 'root:root:600' ]] \
+    || fail 'estado preparado do Dispatch V3 ausente'
+  if grep -Fxq 'state=active' "$DISPATCH_V3_STATE"; then
+    verify_dispatch_v3_runtime >/dev/null
+    pass "Dispatch V3 já estava ativo e íntegro na release ${release_id}"
+    return
+  fi
+  grep -Fxq 'state=prepared' "$DISPATCH_V3_STATE" \
+    || fail 'Dispatch V3 não está no estado preparado'
+  activate_dispatch_v3_database
+  for workload in statefulset/blindou-debezium-v3 \
+    deployment/blindou-dispatch-authority-v3 deployment/blindou-dispatch-sender-v3; do
+    kube -n "$APP_NAMESPACE" rollout status "$workload" --timeout=600s >/dev/null
+  done
+  set_runtime_config_value DISPATCH_V3_MODE active
+  create_runtime_kubernetes_material
+  verify_runtime_material
+  kube -n "$APP_NAMESPACE" rollout restart deployment/blindou-backend >/dev/null
+  kube -n "$APP_NAMESPACE" rollout status deployment/blindou-backend --timeout=600s >/dev/null
+  {
+    printf 'schema=1\nstate=active\nrelease_id=%s\nstream_incarnation=%s\n' \
+      "$release_id" "$(<"$DISPATCH_V3_STREAM_INCARNATION_FILE")"
+    printf 'activated_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } >"${DISPATCH_V3_STATE}.tmp"
+  install -o root -g root -m 0600 "${DISPATCH_V3_STATE}.tmp" "$DISPATCH_V3_STATE"
+  rm -f -- "${DISPATCH_V3_STATE}.tmp"
+  verify_dispatch_v3_runtime >/dev/null
+  pass "Dispatch V3 ativo para novas admissões na release ${release_id}"
+}
+
 wait_release() {
   local release_id="$1" rendered="$2" migration_job="blindou-migrate-${release_id:0:12}"
   kube -n "$APP_NAMESPACE" rollout status statefulset/blindou-nats --timeout=300s
@@ -3389,6 +4021,11 @@ wait_release() {
     deployment="blindou-worker-$(basename "$worker_manifest" .yaml)"
     kube -n "$APP_NAMESPACE" rollout status "deployment/${deployment}" --timeout=600s
   done < <(find "$rendered/workers" -maxdepth 1 -type f -name '*.yaml' | sort)
+  if [[ -f "$rendered/71-dispatch-v3-workloads.yaml" ]]; then
+    kube -n "$APP_NAMESPACE" rollout status statefulset/blindou-debezium-v3 --timeout=600s
+    kube -n "$APP_NAMESPACE" rollout status deployment/blindou-dispatch-authority-v3 --timeout=600s
+    kube -n "$APP_NAMESPACE" rollout status deployment/blindou-dispatch-sender-v3 --timeout=600s
+  fi
   kube -n "$EDGE_NAMESPACE" rollout status deployment/blindou-cloudflared --timeout=300s
 }
 
@@ -3402,13 +4039,24 @@ apply_cached_release() {
   kube apply -f "$rendered/10-services.yaml" >/dev/null
   kube apply -f "$rendered/20-nats-config.yaml" >/dev/null
   kube apply -f "$rendered/30-network-policies.yaml" >/dev/null
+  if [[ -f "$rendered/70-dispatch-v3-foundation.yaml" ]]; then
+    kube apply -f "$rendered/70-dispatch-v3-foundation.yaml" >/dev/null
+    kube apply -f "$rendered/72-dispatch-v3-network-policies.yaml" >/dev/null
+  fi
   kube apply -f "$rendered/40-workloads.yaml" -l 'blindou.io/tier=infra' >/dev/null
   kube -n "$APP_NAMESPACE" rollout status statefulset/blindou-nats --timeout=300s
   kube -n "$APP_NAMESPACE" rollout status statefulset/blindou-redis --timeout=300s
   kube apply -f "$rendered/40-workloads.yaml" -l 'blindou.io/tier=migration' >/dev/null
   wait_migration_job "blindou-migrate-${release_id:0:12}"
   reconcile_redirector_database_role
+  if [[ -f "$rendered/71-dispatch-v3-workloads.yaml" ]]; then
+    activate_dispatch_v3_database
+    provision_dispatch_v3_jetstream "$rendered"
+  fi
   verify_data_foundation >/dev/null
+  if [[ -f "$rendered/71-dispatch-v3-workloads.yaml" ]]; then
+    kube apply -f "$rendered/71-dispatch-v3-workloads.yaml" >/dev/null
+  fi
   kube apply -f "$rendered/40-workloads.yaml" -l 'blindou.io/tier=app' >/dev/null
   kube apply -f "$rendered/workers" >/dev/null
   kube apply -f "$rendered/60-cloudflared.yaml" >/dev/null
@@ -3420,9 +4068,11 @@ apply_cached_release() {
 }
 
 rollback_release() {
-  local release_id="$1" confirmation="$2"
+  local release_id="$1" confirmation="$2" origin="${3:-operator}"
   [[ "$confirmation" == "$ROLLBACK_CONFIRMATION" ]] \
     || fail "confirmação exigida: ${ROLLBACK_CONFIRMATION}"
+  [[ "$origin" == 'operator' || "$origin" == 'automatic' ]] \
+    || fail 'origem do rollback inválida'
   [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
   local rendered="${RELEASE_CACHE}/${release_id}/rendered"
   [[ -d "$rendered" && ! -L "$rendered" ]] || fail 'release de rollback ausente do cache'
@@ -3431,11 +4081,35 @@ rollback_release() {
     cached_release_is_marketplaces_compatible "$release_id" \
       || fail 'rollback recusado: Shopee ativa exige release compatível ou desativação reconciliada'
   fi
-  require_release_gates "$release_id"
+  if [[ "$origin" == 'automatic' ]]; then
+    require_platform_preconditions
+    verify_data_foundation >/dev/null
+    ensure_ghcr_pull_secret
+    verify_runtime_material
+  else
+    require_release_gates "$release_id"
+  fi
+  if [[ -f "$DISPATCH_V3_STATE" ]] && grep -Fxq 'state=active' "$DISPATCH_V3_STATE" \
+      && [[ ! -f "$rendered/71-dispatch-v3-workloads.yaml" ]]; then
+    fail 'rollback para release sem Dispatch V3 é proibido depois da ativação'
+  fi
   kube apply -f "$rendered/00-platform.yaml" >/dev/null
   kube apply -f "$rendered/10-services.yaml" >/dev/null
   kube apply -f "$rendered/20-nats-config.yaml" >/dev/null
   kube apply -f "$rendered/30-network-policies.yaml" >/dev/null
+  if [[ -f "$rendered/70-dispatch-v3-foundation.yaml" ]]; then
+    kube apply -f "$rendered/70-dispatch-v3-foundation.yaml" >/dev/null
+    kube apply -f "$rendered/72-dispatch-v3-network-policies.yaml" >/dev/null
+    kube apply -f "$rendered/71-dispatch-v3-workloads.yaml" >/dev/null
+  else
+    [[ "$(postgres_query -d blindou -Atqc \
+      "SELECT CASE WHEN to_regclass('public.dispatch_owner_controls_v3') IS NULL THEN 0 ELSE (SELECT count(*) FROM public.dispatch_owner_controls_v3 WHERE engine_version=3) END")" == '0' ]] \
+      || fail 'rollback V1 recusado: já existem owners V3'
+    kube -n "$APP_NAMESPACE" delete deployment blindou-dispatch-authority-v3 blindou-dispatch-sender-v3 \
+      --ignore-not-found --wait=true >/dev/null
+    kube -n "$APP_NAMESPACE" delete statefulset blindou-debezium-v3 \
+      --ignore-not-found --wait=true >/dev/null
+  fi
   kube apply -f "$rendered/40-workloads.yaml" -l 'blindou.io/tier in (infra,app)' >/dev/null
   kube apply -f "$rendered/workers" >/dev/null
   kube apply -f "$rendered/60-cloudflared.yaml" >/dev/null
@@ -3456,6 +4130,11 @@ apply_release() {
   [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
   prepare_redirector_database_role
   cache_release "$release_id"
+  if [[ -f "${RELEASE_CACHE}/${release_id}/rendered/71-dispatch-v3-workloads.yaml" ]]; then
+    [[ -f "$DISPATCH_V3_STATE" ]] && grep -Fxq 'state=prepared' "$DISPATCH_V3_STATE" \
+      || fail 'release Dispatch V3 exige material preparado pelo controlador'
+    prepare_dispatch_v3_group_roles
+  fi
   [[ -f "$CURRENT_RELEASE" ]] && previous="$(<"$CURRENT_RELEASE")"
   set +e
   (
@@ -3467,7 +4146,7 @@ apply_release() {
   if (( apply_status != 0 )); then
     reconcile_redirector_database_role
     if [[ "$previous" =~ $RELEASE_PATTERN ]]; then
-      rollback_release "$previous" "$ROLLBACK_CONFIRMATION" \
+      rollback_release "$previous" "$ROLLBACK_CONFIRMATION" automatic \
         || fail 'release falhou e rollback automático também falhou'
       fail "release falhou; workloads restaurados para ${previous}"
     fi
@@ -3492,7 +4171,7 @@ apply_release() {
 
 metrics() {
   require_root_and_host
-  local foundation=0 data=0 latest_backup=0 gate_app=0 gate_edge=0 cloudflare_saas_token=0 ghcr_pull_credential=0 ghcr_candidate_pull=0 r2_credential=0 pagarme_credential=0 pagarme_runtime=0 marketplaces_runtime=0
+  local foundation=0 data=0 latest_backup=0 gate_app=0 gate_edge=0 cloudflare_saas_token=0 ghcr_pull_credential=0 ghcr_candidate_pull=0 r2_credential=0 pagarme_credential=0 pagarme_runtime=0 marketplaces_runtime=0 dispatch_v3_prepared=0 dispatch_v3_active=0
   if ( verify_foundation >/dev/null 2>&1 ); then foundation=1; fi
   if ( verify_data_foundation >/dev/null 2>&1 ); then data=1; fi
   if [[ -f "${DATABASE_BACKUP_ROOT}/latest" ]]; then
@@ -3517,6 +4196,15 @@ metrics() {
   if marketplaces_runtime_receipt_is_secure \
       && grep -Fxq 'SHOPEE_OPEN_API_ENABLED=true' "$RUNTIME_CONFIG_FILE"; then
     marketplaces_runtime=1
+  fi
+  if [[ -f "$DISPATCH_V3_STATE" && ! -L "$DISPATCH_V3_STATE" \
+      && "$(stat -c '%U:%G:%a' "$DISPATCH_V3_STATE")" == 'root:root:600' ]]; then
+    if grep -Fxq 'state=prepared' "$DISPATCH_V3_STATE"; then dispatch_v3_prepared=1; fi
+    if grep -Fxq 'state=active' "$DISPATCH_V3_STATE" \
+        && grep -Fxq 'DISPATCH_V3_MODE=active' "$RUNTIME_CONFIG_FILE"; then
+      dispatch_v3_prepared=1
+      dispatch_v3_active=1
+    fi
   fi
   cat <<EOF
 # HELP blindou_platform_foundation_up Fundação Kubernetes bloqueada e íntegra.
@@ -3553,6 +4241,12 @@ blindou_pagarme_runtime_active ${pagarme_runtime}
 # HELP blindou_shopee_open_api_runtime_ready Runtime Shopee está pronto para credenciais cifradas por tenant.
 # TYPE blindou_shopee_open_api_runtime_ready gauge
 blindou_shopee_open_api_runtime_ready ${marketplaces_runtime}
+# HELP blindou_dispatch_v3_prepared Material root-only do Dispatch V3 foi preparado pelo controlador fechado.
+# TYPE blindou_dispatch_v3_prepared gauge
+blindou_dispatch_v3_prepared ${dispatch_v3_prepared}
+# HELP blindou_dispatch_v3_active Admissão do Dispatch V3 está ativa por recibo e configuração coerentes.
+# TYPE blindou_dispatch_v3_active gauge
+blindou_dispatch_v3_active ${dispatch_v3_active}
 EOF
 }
 
@@ -3651,6 +4345,12 @@ show_status() {
   else
     printf 'marketplaces_runtime_state=inactive\n'
   fi
+  if [[ -f "$DISPATCH_V3_STATE" && ! -L "$DISPATCH_V3_STATE" \
+      && "$(stat -c '%U:%G:%a' "$DISPATCH_V3_STATE")" == 'root:root:600' ]]; then
+    printf 'dispatch_v3_state=%s\n' "$(sed -n 's/^state=//p' "$DISPATCH_V3_STATE")"
+  else
+    printf 'dispatch_v3_state=absent_or_insecure\n'
+  fi
   if [[ -f "$RUNTIME_CONFIG_FILE" && ! -L "$RUNTIME_CONFIG_FILE" ]]; then
     printf 'runtime_material=present\n'
   else
@@ -3709,6 +4409,10 @@ case "${1:-}" in
     [[ $# -eq 1 ]] || fail 'uso: blindou-deployctl verify-marketplaces-runtime'
     verify_marketplaces_runtime
     ;;
+  verify-dispatch-v3)
+    [[ $# -eq 1 ]] || fail 'uso: blindou-deployctl verify-dispatch-v3'
+    verify_dispatch_v3_runtime
+    ;;
   verify-ghcr-candidate-pull)
     [[ $# -eq 2 ]] || fail 'usage: blindou-deployctl verify-ghcr-candidate-pull RELEASE_ID'
     verify_ghcr_candidate_pull "$2"
@@ -3720,6 +4424,10 @@ case "${1:-}" in
   provision-r2-runtime-credential)
     [[ $# -eq 2 ]] || fail 'usage: blindou-deployctl provision-r2-runtime-credential CONFIRMATION'
     provision_r2_runtime_credential "$2"
+    ;;
+  provision-dispatch-v3-secrets)
+    [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl provision-dispatch-v3-secrets CONFIRMAÇÃO'
+    provision_dispatch_v3_secrets "$2"
     ;;
   provision-pagarme-credential)
     [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl provision-pagarme-credential CONFIRMAÇÃO'
@@ -3801,6 +4509,10 @@ case "${1:-}" in
     [[ $# -eq 3 ]] || fail 'uso: blindou-deployctl activate-marketplaces-runtime RELEASE_ID CONFIRMAÇÃO'
     activate_marketplaces_runtime "$2" "$3"
     ;;
+  activate-dispatch-v3-runtime)
+    [[ $# -eq 3 ]] || fail 'uso: blindou-deployctl activate-dispatch-v3-runtime RELEASE_ID CONFIRMAÇÃO'
+    activate_dispatch_v3_runtime "$2" "$3"
+    ;;
   confirm-alert-delivery)
     [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl confirm-alert-delivery CONFIRMAÇÃO'
     confirm_alert_delivery "$2"
@@ -3847,6 +4559,6 @@ case "${1:-}" in
     metrics
     ;;
   *)
-    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-r2-runtime-credential|verify-pagarme-credential|verify-pagarme-plans|verify-marketplaces-runtime|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|provision-r2-runtime-credential CONFIRMAÇÃO|provision-pagarme-credential CONFIRMAÇÃO|rotate-pagarme-webhook-secret CONFIRMAÇÃO|provision-pagarme-plans CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|provision-runtime-secrets CONFIRMAÇÃO|provision-ui-review-runtime CONFIRMAÇÃO|activate-pagarme-runtime RELEASE_ID CONFIRMAÇÃO|activate-marketplaces-runtime RELEASE_ID CONFIRMAÇÃO|confirm-alert-delivery CONFIRMAÇÃO|confirm-offsite-backup BACKUP_ID SHA256 CONFIRMAÇÃO|activate-release-gates RELEASE_ID CONFIRMAÇÃO|validate-release RELEASE_ID|apply RELEASE_ID|bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO|bootstrap-additional-superadmin RELEASE_ID IDENTIDADE CONFIRMAÇÃO|reset-additional-superadmin-password RELEASE_ID IDENTIDADE CONFIRMAÇÃO|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
+    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-r2-runtime-credential|verify-pagarme-credential|verify-pagarme-plans|verify-marketplaces-runtime|verify-dispatch-v3|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|provision-r2-runtime-credential CONFIRMAÇÃO|provision-dispatch-v3-secrets CONFIRMAÇÃO|provision-pagarme-credential CONFIRMAÇÃO|rotate-pagarme-webhook-secret CONFIRMAÇÃO|provision-pagarme-plans CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|provision-runtime-secrets CONFIRMAÇÃO|provision-ui-review-runtime CONFIRMAÇÃO|activate-pagarme-runtime RELEASE_ID CONFIRMAÇÃO|activate-marketplaces-runtime RELEASE_ID CONFIRMAÇÃO|activate-dispatch-v3-runtime RELEASE_ID CONFIRMAÇÃO|confirm-alert-delivery CONFIRMAÇÃO|confirm-offsite-backup BACKUP_ID SHA256 CONFIRMAÇÃO|activate-release-gates RELEASE_ID CONFIRMAÇÃO|validate-release RELEASE_ID|apply RELEASE_ID|bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO|bootstrap-additional-superadmin RELEASE_ID IDENTIDADE CONFIRMAÇÃO|reset-additional-superadmin-password RELEASE_ID IDENTIDADE CONFIRMAÇÃO|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
     ;;
 esac

@@ -251,6 +251,28 @@ após migration e deploy separados; UAZAPI e Resend continuam deliberadamente
 ausentes até a última etapa da D020. Nenhuma cobrança real foi criada na
 validação.
 
+Extensão Dispatch V3 em 2026-09-05: a D055 prepara uma revisão versionada do
+controlador para a E5 autorizada. A fonte fecha entrada protegida dos novos
+materiais, logical decoding, papéis e logins mínimos, publication/slot,
+JetStream, workloads, ativação separada, verificação e rollback. Esta anotação
+descreve somente o estado do repositório; até instalação do controlador,
+release assinada, backup, migrations e recibos vivos, a produção continua na
+release e nas 12 migrations observadas anteriormente.
+
+Ordem obrigatória da extensão:
+
+1. validar, publicar e instalar o controlador D055 sem alterar o runtime por
+   efeito do bootstrap;
+2. publicar a release Blindou do SHA exato, assinar o bundle e provar o pull
+   integral dos digests;
+3. criar backup offsite imediatamente anterior;
+4. fornecer por entrada protegida endpoint UAZAPI e credencial R2 read-only,
+   mantendo o estado `prepared`;
+5. aplicar `0013`/`0014` e os workloads assinados, verificar banco, JetStream e
+   readiness;
+6. ativar novas admissões V3 por confirmação literal e conferir saúde pública,
+   métricas e ausência de regressão nos projetos protegidos.
+
 Objetivos:
 
 - executar migration, primeira release do núcleo e smoke público pela borda

@@ -15,6 +15,8 @@ readonly PAGARME_ACTIVATION_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-Blindou
 readonly PAGARME_PLANS_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouPagarmePlans.ps1"
 readonly MARKETPLACES_ACTIVATION_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouMarketplacesActivation.ps1"
 readonly PAGARME_PLAN_PROVISIONER="${REMOTE_DIR}/blindou-pagarme-plans.py"
+readonly DISPATCH_V3_JETSTREAM_PROVISIONER="${REMOTE_DIR}/blindou-dispatch-v3-jetstream.py"
+readonly DISPATCH_V3_JETSTREAM_TEST="${REMOTE_DIR}/test-blindou-dispatch-v3-jetstream.py"
 readonly EMERGENCY_CONTROLLER="${REMOTE_DIR}/blindou-release-emergencyctl"
 
 fail() {
@@ -55,6 +57,15 @@ grep -Fq 'path="${RECEIPT_ROOT}/${name}.state"' "${REMOTE_DIR}/blindou-datactl" 
 [[ -f "$PAGARME_PLAN_PROVISIONER" && ! -L "$PAGARME_PLAN_PROVISIONER" ]] \
   || fail 'provisionador root-only dos planos Pagar.me ausente ou simbólico'
 python3 "$PAGARME_PLAN_PROVISIONER" --mode self-test >/dev/null
+[[ -f "$DISPATCH_V3_JETSTREAM_PROVISIONER" && ! -L "$DISPATCH_V3_JETSTREAM_PROVISIONER" ]] \
+  || fail 'provisionador JetStream do Dispatch V3 ausente ou simbólico'
+python3 - "$DISPATCH_V3_JETSTREAM_PROVISIONER" <<'PY'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+compile(source, sys.argv[1], "exec")
+PY
+python3 "$DISPATCH_V3_JETSTREAM_TEST"
 [[ -f "$EMERGENCY_CONTROLLER" && ! -L "$EMERGENCY_CONTROLLER" ]] \
   || fail 'controlador fechado de contenção emergencial ausente ou simbólico'
 bash -n "$EMERGENCY_CONTROLLER"
@@ -790,6 +801,26 @@ grep -Fq 'activate-marketplaces-runtime * blindou-marketplaces-runtime' \
   && grep -Fq 'verify-marketplaces-runtime' \
     "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   || fail 'sudoers não limita Marketplaces ao contrato fechado'
+grep -Fq 'provision-dispatch-v3-secrets)' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'verify-dispatch-v3)' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'activate-dispatch-v3-runtime)' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'operações fechadas do Dispatch V3 ausentes'
+grep -Fq 'provision-dispatch-v3-secrets blindou-dispatch-v3-secrets' \
+  "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  && grep -Fq 'verify-dispatch-v3' "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  && grep -Fq 'activate-dispatch-v3-runtime * blindou-dispatch-v3-active' \
+    "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  || fail 'sudoers não limita as operações Dispatch V3'
+grep -Fq 'DISPATCH_V3_JETSTREAM_SOURCE' \
+  "${REMOTE_DIR}/bootstrap-blindou-deployctl.sh" \
+  || fail 'bootstrap não instala o provisionador JetStream do Dispatch V3'
+grep -Fq '"sources"' "$DISPATCH_V3_JETSTREAM_PROVISIONER" \
+  && grep -Fq '"allow_msg_schedules"' "$DISPATCH_V3_JETSTREAM_PROVISIONER" \
+  && grep -Fq '"--verify-only"' "$DISPATCH_V3_JETSTREAM_PROVISIONER" \
+  || fail 'provisionador JetStream não verifica sources, scheduling e modo read-only'
+grep -Fq 'DISPATCH_V3_EXPECTED_DEBEZIUM_IMAGE' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'EXPECTED_DEBEZIUM_IMAGE' "${REMOTE_DIR}/blindou-release-verify.py" \
+  || fail 'digest aprovado do Debezium não está fechado nas duas fronteiras'
 grep -Fq 'controlador permaneceu ocupado por um minuto após o bootstrap' \
   "${REMOTE_DIR}/bootstrap-blindou-deployctl.sh" \
   || fail 'bootstrap do controlador não trata contenção do coletor de métricas'
@@ -850,11 +881,56 @@ if grep -F "printf \"%s\\n\" \"include_if_exists 'pg_hba_blindou.conf'\"" \
 fi
 grep -Fq 'cms -encrypt -binary -stream -aes-256-gcm' \
   "${REMOTE_DIR}/blindou-deployctl" || fail 'backup criptografado forte ausente'
-if grep -RInE --exclude-dir=__pycache__ \
-    '(BEGIN (RSA |OPENSSH )?PRIVATE KEY|(password|token|secret)[[:space:]]*[:=][[:space:]]*["'\'']?[[:alnum:]/+_.-]{12,})' \
-    "${REPOSITORY_ROOT}/platform/blindou" "$REMOTE_DIR" >/dev/null; then
-  fail 'possível segredo encontrado nos artefatos'
-fi
+"$python_command" - "${REPOSITORY_ROOT}/platform/blindou" "$REMOTE_DIR" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+roots = [Path(value) for value in sys.argv[1:]]
+assignment = re.compile(
+    r"(?i)([A-Za-z0-9_]*(?:password|token|secret)[A-Za-z0-9_]*)"
+    r"\s*[:=]\s*(['\"])([A-Za-z0-9/+_.-]{12,})\2"
+)
+private_key = re.compile(r"BEGIN (?:RSA |OPENSSH )?PRIVATE KEY")
+safe_resource_name = re.compile(r"[a-z][a-z0-9-]+")
+safe_psql_placeholder = re.compile(r"[a-z][a-z0-9_]*_password")
+
+for root in roots:
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or "__pycache__" in path.parts:
+            continue
+        try:
+            source = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        is_test = path.name.startswith("test-") or path.name.startswith("test_")
+        if private_key.search(source) and not is_test:
+            raise SystemExit(f"marcador de chave privada em {path}")
+        if path.name == "verify-blindou-platform-artifacts.sh":
+            continue
+        for match in assignment.finditer(source):
+            name, value = match.group(1), match.group(3)
+            upper_name = name.upper()
+            compact_name = upper_name.replace("_", "")
+            if value.startswith("/"):
+                continue
+            if (upper_name.endswith(("_SECRET", "_SECRETS", "_SECRET_NAME", "_CONFIRMATION")) \
+                    or compact_name.endswith("SECRETNAME")) \
+                    and safe_resource_name.fullmatch(value):
+                continue
+            if upper_name.endswith("_SOURCE") and safe_resource_name.fullmatch(value):
+                continue
+            if value.startswith("/") and upper_name.endswith(
+                ("_FILE", "_PATH", "_DIR", "_ROOT", "_SOURCE", "_TARGET", "_VERIFIER")
+            ):
+                continue
+            if name.upper() == "PASSWORD" and safe_psql_placeholder.fullmatch(value):
+                continue
+            if is_test and any(marker in value.lower() for marker in ("synthetic", "example", "fixture")):
+                continue
+            raise SystemExit(f"literal sensível possível em {path}")
+PY
+[[ "$?" -eq 0 ]] || fail 'possível segredo encontrado nos artefatos'
 
 for data_script in blindou-datactl bootstrap-blindou-datactl.sh; do
   [[ -f "${REMOTE_DIR}/${data_script}" && ! -L "${REMOTE_DIR}/${data_script}" ]] \
