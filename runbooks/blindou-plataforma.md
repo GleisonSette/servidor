@@ -471,6 +471,24 @@ root-owned.
 dois gates estarem `passed`, a quarentena ter sido removida e todos os Secrets
 obrigatórios existirem. Nesta fase não passar gates nem aplicar release.
 
+### Material protegido do Dispatch V3
+
+Antes da release expand do Dispatch V3, criar na Cloudflare uma credencial R2
+com leitura de objetos limitada ao bucket do Blindou e executar:
+
+```powershell
+.\operations\Invoke-BlindouDispatchV3Secrets.ps1
+```
+
+O orquestrador pede em campos ocultos o endpoint HTTPS base da UAZAPI e o par
+R2 somente leitura. Os valores seguem apenas por `stdin` ao comando fechado
+`provision-dispatch-v3-secrets`; não entram em argumento, ambiente, arquivo
+local ou log. O controlador usa a credencial de escrita já custodiada para
+criar um objeto sentinela, exige que a nova credencial consiga lê-lo e que
+PUT/DELETE sejam recusados. Depois gera o material interno, publica os Secrets
+Kubernetes segregados e termina em `state=prepared`, sem habilitar novas
+admissões. `verify-dispatch-v3` deve provar esse estado antes do deploy.
+
 ### Primeira revisão da interface sem provedores
 
 Por D019, o primeiro login não espera UAZAPI, Resend ou Pagar.me. A candidata

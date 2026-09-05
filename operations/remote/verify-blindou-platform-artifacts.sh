@@ -10,6 +10,7 @@ readonly DATA_PULL_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouDataPullP
 readonly FIRST_RELEASE_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouFirstRelease.ps1"
 readonly ADDITIONAL_SUPERADMIN_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouAdditionalSuperadmin.ps1"
 readonly R2_RUNTIME_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouR2RuntimeCredential.ps1"
+readonly DISPATCH_V3_SECRETS_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouDispatchV3Secrets.ps1"
 readonly PAGARME_CREDENTIAL_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouPagarmeCredential.ps1"
 readonly PAGARME_ACTIVATION_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouPagarmeActivation.ps1"
 readonly PAGARME_PLANS_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouPagarmePlans.ps1"
@@ -174,6 +175,21 @@ grep -Fq "Read-Host 'Cole a chave de acesso secreta' -AsSecureString" "$R2_RUNTI
   || fail 'orquestrador R2 não protege a secret key no terminal'
 grep -Fq 'provision-r2-runtime-credential blindou-r2-runtime-credential' "$R2_RUNTIME_SCRIPT" \
   || fail 'orquestrador R2 não usa a interface fechada aprovada'
+for required in \
+  "Read-Host 'Endpoint HTTPS da UAZAPI' -AsSecureString" \
+  "Read-Host 'ID da chave R2 somente leitura' -AsSecureString" \
+  "Read-Host 'Chave secreta R2 somente leitura' -AsSecureString" \
+  'provision-dispatch-v3-secrets blindou-dispatch-v3-secrets' \
+  'sudo -n /usr/local/sbin/blindou-deployctl verify-dispatch-v3'; do
+  grep -Fq "$required" "$DISPATCH_V3_SECRETS_SCRIPT" \
+    || fail "orquestrador Dispatch V3 não contém contrato protegido: ${required}"
+done
+if grep -Eq 'ssh\.exe.*(endpoint|accessKey|secretKey)' "$DISPATCH_V3_SECRETS_SCRIPT"; then
+  fail 'orquestrador Dispatch V3 pode expor material protegido em argumento SSH'
+fi
+if grep -Fq "Join-Path \$repositoryRoot '.env'" "$DISPATCH_V3_SECRETS_SCRIPT"; then
+  fail 'orquestrador Dispatch V3 não pode ler o arquivo administrativo temporário'
+fi
 grep -Fq '& scp.exe @sshArgs $archive' "$R2_RUNTIME_SCRIPT" \
   || fail 'orquestrador R2 não transporta o controlador em uma única conexão SCP'
 grep -Fq 'chmod 0755 $remoteRoot/operations/remote/bootstrap-blindou-deployctl.sh' \
