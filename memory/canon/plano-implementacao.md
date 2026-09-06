@@ -265,6 +265,11 @@ scans e identidades. O orquestrador de prova foi alinhado ao estado D033 para
 usar o gate do slot `none`; release assinada, prova viva, backup, Secrets,
 migrations, workloads e ativação continuam pendentes nesta fotografia.
 
+Em 2026-09-06, a primeira entrada protegida foi recusada antes de persistir o
+material: `nounset` expandia o nome do arquivo na mesma declaração local que o
+atribuía. A correção separa atribuição e composição do path e adiciona uma
+regressão ao gate; o passo 4 continua pendente até reinstalação e nova entrada.
+
 Ordem obrigatória da extensão:
 
 1. validar, publicar e instalar o controlador D055 sem alterar o runtime por

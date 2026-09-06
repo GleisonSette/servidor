@@ -2145,3 +2145,21 @@ migration, Secret ou alteração de workload ocorreu neste registro.
   final e a validação estática recusa reintroduzir a chamada legada;
 - release assinada, prova integral de pull, backup, Secrets, migrations,
   workloads e ativação permaneceram pendentes ao final deste registro.
+
+## 2026-09-06 - Primeira entrada protegida Dispatch V3 recusada sem persistência
+
+Resultado: a tentativa falhou antes de criar Secrets ou ativar workloads; a
+correção do controlador e sua regressão foram preparadas para reinstalação.
+
+- o endpoint próprio confirmado para o Blindou é
+  `https://blindou.uazapi.com`; o endpoint histórico de outro projeto foi
+  recusado antes da entrada;
+- a credencial Cloudflare criada possui somente leitura de objetos e escopo
+  exclusivo no bucket `blindou-media-prod`;
+- `write_dispatch_v3_value` expandia `name` na mesma declaração `local` sob
+  `set -u`, causando `name: unbound variable` antes da instalação atômica;
+- a correção separa a atribuição do nome da composição do path, e o gate
+  estático passa a impedir a regressão;
+- o status posterior permaneceu com 12 migrations, release
+  `ee4a335236b0e99e5fac4ee3e30a986f0ddc8bb2` e
+  `dispatch_v3_state=absent_or_insecure`.

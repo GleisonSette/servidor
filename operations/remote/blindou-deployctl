@@ -2584,7 +2584,8 @@ write_marketplaces_runtime_config() {
 }
 
 write_dispatch_v3_value() {
-  local name="$1" value="$2" path="${DISPATCH_V3_SECRET_DIR}/${name}"
+  local name="$1" value="$2" path
+  path="${DISPATCH_V3_SECRET_DIR}/${name}"
   [[ "$name" =~ ^[a-z0-9][a-z0-9.-]*$ ]] || fail 'nome de material Dispatch V3 inválido'
   printf '%s' "$value" >"${path}.tmp"
   cleanup_paths+=("${path}.tmp")

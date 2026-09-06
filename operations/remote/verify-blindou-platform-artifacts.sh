@@ -826,6 +826,14 @@ grep -Fq 'provision-dispatch-v3-secrets)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'verify-dispatch-v3)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'activate-dispatch-v3-runtime)' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'operações fechadas do Dispatch V3 ausentes'
+if grep -Fq 'local name="$1" value="$2" path="${DISPATCH_V3_SECRET_DIR}/${name}"' \
+  "${REMOTE_DIR}/blindou-deployctl"; then
+  fail 'controlador expande nome do material Dispatch V3 antes da atribuição sob nounset'
+fi
+grep -Fq 'local name="$1" value="$2" path' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'path="${DISPATCH_V3_SECRET_DIR}/${name}"' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'escrita protegida do Dispatch V3 expande o nome antes da atribuição'
 grep -Fq 'provision-dispatch-v3-secrets blindou-dispatch-v3-secrets' \
   "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   && grep -Fq 'verify-dispatch-v3' "${REMOTE_DIR}/blindou-deployctl.sudoers" \

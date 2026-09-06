@@ -492,6 +492,12 @@ PUT/DELETE sejam recusados. Depois gera o material interno, publica os Secrets
 Kubernetes segregados e termina em `state=prepared`, sem habilitar novas
 admissões. `verify-dispatch-v3` deve provar esse estado antes do deploy.
 
+O controlador executa com `nounset`; por isso, o nome validado de cada arquivo
+protegido é atribuído antes de compor seu path. O gate de artefatos fixa essa
+ordem. Se a entrada protegida falhar antes da instalação atômica, os valores
+não são retidos pela estação e o operador deve repetir os três campos no mesmo
+orquestrador depois da correção do controlador.
+
 ### Primeira revisão da interface sem provedores
 
 Por D019, o primeiro login não espera UAZAPI, Resend ou Pagar.me. A candidata
