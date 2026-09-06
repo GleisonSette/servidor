@@ -351,6 +351,7 @@ for invariant in (
     'startswith("-----BEGIN CERTIFICATE-----")',
     '((.binaryData // {}) | length) == 0',
     "edge contém ConfigMap diferente da CA sistêmica do Kubernetes",
+    "token%?",
     "^[A-Za-z0-9._~+/=_-]+$",
     "--from-file=token=/dev/stdin",
     "token_persisted_only_in_kubernetes:true",
