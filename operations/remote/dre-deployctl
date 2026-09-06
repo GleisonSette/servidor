@@ -2233,6 +2233,208 @@ SQL
   printf '%s\n' "$combined"
 }
 
+reconcile_accounts() {
+  [[ "$#" -eq 5 ]] \
+    || fail 'uso: reconcile-accounts RELEASE_ID OPERATION_ID HOUSEHOLD_ID PRIMARY_USER_ID SECONDARY_USER_ID'
+  local release_id="$1" operation_id="$2" household_id="$3"
+  local primary_user_id="$4" secondary_user_id="$5" protected_before secrets_before
+  local receipt postgres_pod raw_output exit_code account_state
+  require_cached_release "$release_id"
+  require_schema_two_release "$release_id"
+  require_operation_id "$operation_id"
+  for identifier in "$household_id" "$primary_user_id" "$secondary_user_id"; do
+    [[ "$identifier" =~ $UUID_PATTERN ]] || fail 'UUID operacional inválido'
+  done
+  [[ "$household_id" != "$primary_user_id" \
+    && "$household_id" != "$secondary_user_id" \
+    && "$primary_user_id" != "$secondary_user_id" ]] \
+    || fail 'UUIDs operacionais devem ser distintos'
+  require_new_receipt accounts "$operation_id"
+  verify_cached_release_again "$release_id"
+  verify_foundation
+  verify_release_secret_inventory "$release_id"
+  [[ "$(current_release_id)" == "$release_id" ]] \
+    || fail 'release solicitada não é a corrente'
+  verify_runtime_core "$release_id"
+  verify_protected_projects
+  acquire_controller_lock
+  acquire_shared_maintenance_locks
+  protected_before="$(protected_fingerprint)"
+  secrets_before="$(secret_inventory_fingerprint)"
+  receipt="${RECEIPT_ROOT}/accounts-${operation_id}.json"
+  jq -cn \
+    --arg release_id "$release_id" \
+    --arg operation_id "$operation_id" \
+    --arg started_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{schema:1,status:"started",release_id:$release_id,operation_id:$operation_id,mode:"reconcile-existing",started_at_utc:$started_at_utc}' \
+    | atomic_write "$receipt" 0600
+  reconcile_accounts_failed() {
+    local code="$1" release_id="$2" operation_id="$3" receipt="$4"
+    set +e
+    jq -cn \
+      --arg release_id "$release_id" \
+      --arg operation_id "$operation_id" \
+      --arg failed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{schema:1,status:"failed",release_id:$release_id,operation_id:$operation_id,mode:"reconcile-existing",database_mutated:false,failed_at_utc:$failed_at_utc}' \
+      | atomic_write "$receipt" 0600 || true
+    audit_event reconcile-accounts failed "$release_id" "$operation_id"
+    exit "$code"
+  }
+  register_exit_trap reconcile_accounts_failed \
+    "$release_id" "$operation_id" "$receipt"
+  postgres_pod="$(kube -n "$NAMESPACE" get pods \
+    -l app.kubernetes.io/name=dre-postgres,app.kubernetes.io/component=database \
+    -o json | jq -er 'if (.items | length) == 1 then .items[0].metadata.name else error("pod count") end')" \
+    || fail 'reconciliação exige exatamente um Pod PostgreSQL'
+  set +e
+  raw_output="$(kube --request-timeout=120s -n "$NAMESPACE" exec -i "$postgres_pod" \
+    --container postgres -- \
+    psql --no-psqlrc --tuples-only --no-align --quiet \
+    -h /var/run/postgresql -U dre_postgres_admin -d dre \
+    --set=ON_ERROR_STOP=1 \
+    --set=VERBOSITY=terse \
+    --set=release_id="$release_id" \
+    --set=household_id="$household_id" \
+    --set=primary_user_id="$primary_user_id" \
+    --set=secondary_user_id="$secondary_user_id" <<'SQL' 2>&1
+BEGIN;
+SET LOCAL ROLE dre_migrator;
+SELECT json_build_object(
+  'schema', 1,
+  'release_id', :'release_id',
+  'session_user', session_user,
+  'current_role', current_role,
+  'household_rows', (
+    SELECT count(*)::int FROM households
+    WHERE id = :'household_id'::uuid
+  ),
+  'exact_household', (
+    SELECT count(*)::int FROM households
+    WHERE id = :'household_id'::uuid
+      AND name = 'Família'
+      AND timezone = 'America/Sao_Paulo'
+  ),
+  'user_id_rows', (
+    SELECT count(*)::int FROM users
+    WHERE id IN (:'primary_user_id'::uuid, :'secondary_user_id'::uuid)
+  ),
+  'login_rows', (
+    SELECT count(*)::int FROM users
+    WHERE login IN ('gleison', 'aline')
+  ),
+  'family_user_rows', (
+    SELECT count(*)::int FROM users
+    WHERE household_id = :'household_id'::uuid
+  ),
+  'exact_users', (
+    SELECT count(*)::int FROM users
+    WHERE (
+      id = :'primary_user_id'::uuid
+      AND household_id = :'household_id'::uuid
+      AND login = 'gleison'
+      AND display_name = 'Gleison'
+      AND active
+      AND version = 1
+      AND password_hash LIKE '$argon2id$%'
+    ) OR (
+      id = :'secondary_user_id'::uuid
+      AND household_id = :'household_id'::uuid
+      AND login = 'aline'
+      AND display_name = 'Aline'
+      AND active
+      AND version = 1
+      AND password_hash LIKE '$argon2id$%'
+    )
+  ),
+  'foreign_login_conflicts', (
+    SELECT count(*)::int FROM users
+    WHERE login IN ('gleison', 'aline')
+      AND NOT (
+        (id = :'primary_user_id'::uuid
+         AND household_id = :'household_id'::uuid
+         AND login = 'gleison')
+        OR
+        (id = :'secondary_user_id'::uuid
+         AND household_id = :'household_id'::uuid
+         AND login = 'aline')
+      )
+  ),
+  'foreign_family_users', (
+    SELECT count(*)::int FROM users
+    WHERE household_id = :'household_id'::uuid
+      AND id NOT IN (:'primary_user_id'::uuid, :'secondary_user_id'::uuid)
+  ),
+  'audit_user_creates', (
+    SELECT count(*)::int FROM audit_log
+    WHERE household_id = :'household_id'::uuid
+      AND actor_kind = 'SYSTEM'
+      AND actor_user_id IS NULL
+      AND action = 'CREATED'
+      AND resource_type = 'USER'
+      AND resource_id IN (:'primary_user_id'::uuid, :'secondary_user_id'::uuid)
+      AND resource_version = 1
+      AND changed_fields = ARRAY['identity']::text[]
+  ),
+  'financial_rows', (
+    SELECT (
+      (SELECT count(*) FROM balance_anchors WHERE household_id = :'household_id'::uuid)
+      + (SELECT count(*) FROM transactions WHERE household_id = :'household_id'::uuid)
+      + (SELECT count(*) FROM invoice_payments WHERE household_id = :'household_id'::uuid)
+    )::int
+  ),
+  'privileges', json_build_object(
+    'households_select', has_table_privilege(current_role, 'public.households', 'SELECT'),
+    'users_select', has_table_privilege(current_role, 'public.users', 'SELECT'),
+    'audit_log_select', has_table_privilege(current_role, 'public.audit_log', 'SELECT')
+  )
+)::text;
+ROLLBACK;
+SQL
+  )"
+  exit_code="$?"
+  set -e
+  account_state="$(printf '%s' "$raw_output" | sanitize_diagnostic_output | tail -c 16384)"
+  [[ "$exit_code" -eq 0 ]] || fail 'não foi possível inspecionar as contas DRE existentes'
+  printf '%s\n' "$account_state" | jq -e '
+    .schema == 1
+    and .release_id == "'"$release_id"'"
+    and .session_user == "dre_postgres_admin"
+    and .current_role == "dre_migrator"
+    and .household_rows == 1
+    and .exact_household == 1
+    and .user_id_rows == 2
+    and .login_rows == 2
+    and .family_user_rows == 2
+    and .exact_users == 2
+    and .foreign_login_conflicts == 0
+    and .foreign_family_users == 0
+    and .audit_user_creates == 2
+    and .financial_rows == 0
+    and .privileges.households_select == true
+    and .privileges.users_select == true
+    and .privileges.audit_log_select == true
+  ' >/dev/null || fail 'estado existente das contas DRE diverge do contrato fechado'
+  verify_runtime_core "$release_id"
+  [[ "$(secret_inventory_fingerprint)" == "$secrets_before" ]] \
+    || fail 'Secrets mudaram durante a reconciliação das contas DRE'
+  [[ "$(protected_fingerprint)" == "$protected_before" ]] \
+    || fail 'recurso protegido mudou durante a reconciliação das contas DRE'
+  release_shared_maintenance_locks
+  verify_protected_projects
+  jq -cn \
+    --arg release_id "$release_id" \
+    --arg operation_id "$operation_id" \
+    --arg household_id "$household_id" \
+    --arg primary_user_id "$primary_user_id" \
+    --arg secondary_user_id "$secondary_user_id" \
+    --arg completed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{schema:1,status:"passed",release_id:$release_id,operation_id:$operation_id,household_id:$household_id,user_ids:[$primary_user_id,$secondary_user_id],accounts:["gleison","aline"],atomic:true,reconciled:true,source:"existing-state",database_mutated:false,financial_rows:0,completed_at_utc:$completed_at_utc}' \
+    | atomic_write "$receipt" 0600
+  trap - EXIT
+  audit_event reconcile-accounts passed "$release_id" "$operation_id"
+  pass 'núcleo privado e contas Gleison/Aline reconciliados a partir do estado existente'
+}
+
 backup_database() {
   [[ "$#" -eq 2 ]] || fail 'uso: backup {full|diff} OPERATION_ID'
   local backup_type="$1" operation_id="$2" release_id info stop
@@ -2969,7 +3171,7 @@ status() {
 
 contract() {
   [[ "$#" -eq 0 ]] || fail 'uso: contract'
-  jq -cn '{schema:2,controller:"dre-deployctl",namespace:"dre-production",edge_namespace:"dre-edge",validation_namespace:"dre-validation",restore_namespace:"dre-restore-drill",lifecycle:"always-active",secondary_slot_member:false,permanent_containers:["api","worker","postgres"],edge_connector:"cloudflared-isolated",images:"digest-only",release_signature:"ed25519",release_schemas:{import:[1,2],deploy:[2],rollback:[1,2]},migration_count:9,validation:{required_before_plan:true,disposable:true,preserve_on_failure:true,cleanup_on_success:true,restarts:["api","worker","postgres"]},postgres_upgrade:{requires_current_backup_after_plan:true,only_postgres_digest_change:true,rollback:true},first_deploy_recovery:{requires_failed_receipt:true,requires_validation:true,preserves_pvc:true,applies_migrations:false},secret_input_schema:1,bridge_token_source:"orchestrator-stdin",edge_token_source:"orchestrator-stdin",read_only:["contract","status","diagnose-validation","diagnose-production","diagnose-accounts"],mutations:["import-release","initialize-secrets","validate-release","cleanup-validation","recover-first-deploy","plan","deploy","upgrade-postgres","configure-edge","provision-accounts","backup","restore-drill","cleanup-restore"],generic_shell:false,generic_kubectl:false}'
+  jq -cn '{schema:2,controller:"dre-deployctl",namespace:"dre-production",edge_namespace:"dre-edge",validation_namespace:"dre-validation",restore_namespace:"dre-restore-drill",lifecycle:"always-active",secondary_slot_member:false,permanent_containers:["api","worker","postgres"],edge_connector:"cloudflared-isolated",images:"digest-only",release_signature:"ed25519",release_schemas:{import:[1,2],deploy:[2],rollback:[1,2]},migration_count:9,validation:{required_before_plan:true,disposable:true,preserve_on_failure:true,cleanup_on_success:true,restarts:["api","worker","postgres"]},postgres_upgrade:{requires_current_backup_after_plan:true,only_postgres_digest_change:true,rollback:true},first_deploy_recovery:{requires_failed_receipt:true,requires_validation:true,preserves_pvc:true,applies_migrations:false},secret_input_schema:1,bridge_token_source:"orchestrator-stdin",edge_token_source:"orchestrator-stdin",read_only:["contract","status","diagnose-validation","diagnose-production","diagnose-accounts"],mutations:["import-release","initialize-secrets","validate-release","cleanup-validation","recover-first-deploy","plan","deploy","upgrade-postgres","configure-edge","provision-accounts","reconcile-accounts","backup","restore-drill","cleanup-restore"],generic_shell:false,generic_kubectl:false}'
 }
 
 main() {
@@ -2997,6 +3199,7 @@ main() {
     verify) verify_release "$@" ;;
     configure-edge) configure_edge "$@" ;;
     provision-accounts) provision_accounts "$@" ;;
+    reconcile-accounts) reconcile_accounts "$@" ;;
     backup) backup_database "$@" ;;
     restore-drill) restore_drill "$@" ;;
     cleanup-restore) cleanup_restore "$@" ;;
