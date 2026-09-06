@@ -2254,3 +2254,6 @@ diagnóstico e restauração fechados antes de uma nova candidata.
 - o diagnóstico fechado passa a incluir somente Deployment, Pods, eventos e
   últimas 100 linhas sanitizadas do backend da candidata, além do NATS já
   coberto, sem acesso genérico ao cluster.
+- como o Deployment falho não criou Pod, o diagnóstico inclui também somente
+  seus ReplicaSets e eventos associados, permitindo distinguir recusa de
+  admissão de falha do processo sem expor acesso Kubernetes genérico.

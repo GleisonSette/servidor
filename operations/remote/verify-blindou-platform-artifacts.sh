@@ -866,6 +866,8 @@ grep -Fq 'diagnose-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'diagnóstico ou recuperação fechada de atualização ausente'
 grep -Fq "get deployment blindou-backend" "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq "pod/blindou-backend-[a-z0-9-]+" "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq "replicaset.apps/blindou-backend-[a-z0-9-]+" \
+    "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'logs "$pod" -c backend --tail=100' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'diagnóstico da atualização não cobre o backend sem selecionar outro workload'
 grep -Fq 'automatic|failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
