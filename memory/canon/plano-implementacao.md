@@ -292,6 +292,12 @@ recebeu CRLF da worktree Windows e o helper procurou `.env` fora do caminho
 canônico. O orquestrador deve normalizar o payload para LF e manter a leitura
 somente em `C:\github\servidor\.env` antes de repetir a instalação.
 
+Com NATS saudável, a aplicação executou o expand e parou na reconciliação do
+stream SCHEDULE: o servidor acrescenta metadata reservada `_nats.*`, que a
+comparação tratava como drift da aplicação. O provisionador deve ignorar apenas
+esse namespace reservado, continuar exigindo o `stream_incarnation` e recusar
+qualquer outra metadata antes de reaplicar a mesma candidata assinada.
+
 Ordem obrigatória da extensão:
 
 1. validar, publicar e instalar o controlador D055 sem alterar o runtime por

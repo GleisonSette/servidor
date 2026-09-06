@@ -2205,3 +2205,13 @@ diagnóstico e restauração fechados antes de uma nova candidata.
   host: o script Bash continha CRLF e o helper buscava `.env` na worktree. A
   correção normaliza o payload para LF e fixa a única origem autorizada em
   `C:\github\servidor\.env`, sem ler ou mostrar seu conteúdo.
+- o bootstrap do slot foi instalado e a coleta no segundo 30 passou; a releitura
+  posterior sofreu somente timeout SSH transitório, e a repetição confirmou
+  timer, serviço, slot e host saudáveis;
+- a aplicação seguinte iniciou o NATS com as credenciais novas e aplicou o
+  expand, mas o provisionador recusou metadata `_nats.*` acrescentada pelo
+  próprio JetStream no stream SCHEDULE. Os workloads anteriores foram
+  restaurados; migrations não foram revertidas;
+- a correção preparada normaliza somente metadata reservada `_nats.*` e mantém
+  a comparação estrita do `blindou.stream_incarnation` e de qualquer chave da
+  aplicação.

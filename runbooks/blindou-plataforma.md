@@ -759,6 +759,12 @@ Secrets correspondentes, compara cofre e Kubernetes sem exibir valores e grava
 recibo root-only. Ela falha fechada depois da migration expand ou diante de
 qualquer workload V3 existente.
 
+Na reconciliação JetStream, as chaves de metadata reservadas com prefixo
+`_nats.` são acrescentadas pelo próprio servidor e não pertencem ao contrato da
+aplicação. O controlador as remove somente para a comparação; continua exigindo
+exatamente `blindou.stream_incarnation` e recusa qualquer outra metadata,
+diferença de stream ou diferença de consumer.
+
 O Job de migration é observado por estado terminal, não somente por
 `Complete`. `Failed` encerra a espera imediatamente; ausência de estado
 terminal continua limitada a 600 segundos. Antes do rollback, o controlador

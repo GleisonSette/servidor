@@ -372,6 +372,7 @@ for invariant in (
     "IdentitiesOnly=yes",
     "BatchMode=yes",
     "StrictHostKeyChecking=yes",
+    '$remotePreflight.Replace("`r`n", "`n").Replace("`r", "`n")',
     "secondary-slotctl verify",
     "blindou-deployctl status",
     "blindou-hostctl verify",

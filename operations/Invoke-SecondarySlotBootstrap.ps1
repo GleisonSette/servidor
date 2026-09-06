@@ -105,10 +105,11 @@ try {
     $remoteDirectory = "/home/apiadmin/saferwpp-secondary-slot-bootstrap-$shortCommit"
     $remoteArchive = "$remoteDirectory/servidor-secondary-slot-$shortCommit.tar.gz"
     $remoteTemporaryArchive = "$remoteArchive.uploading"
-    $remotePreflight = @'
+$remotePreflight = @'
 set -eu
 test "$(hostname)" = apiwpp
 '@
+    $remotePreflight = $remotePreflight.Replace("`r`n", "`n").Replace("`r", "`n")
     Invoke-CheckedProcess -FilePath 'ssh.exe' `
         -ArgumentList ($sshArguments + @($server, $remotePreflight)) `
         -FailureMessage 'O preflight da identidade do host falhou.'

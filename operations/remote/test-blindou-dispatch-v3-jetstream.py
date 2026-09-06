@@ -68,10 +68,35 @@ def fixtures() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
 
 
 class FakeConnection:
-    def __init__(self, *, existing: bool, drift_sources: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        existing: bool,
+        drift_sources: bool = False,
+        add_server_metadata: bool = False,
+        drift_metadata: bool = False,
+    ) -> None:
         self.existing = existing
         self.drift_sources = drift_sources
+        self.add_server_metadata = add_server_metadata
+        self.drift_metadata = drift_metadata
         self.configs: dict[str, dict[str, Any]] = {}
+
+    def response_config(self, key: str) -> dict[str, Any]:
+        config = json.loads(json.dumps(self.configs[key]))
+        if self.drift_sources and key == MODULE.EXPECTED_STREAM_ORDER[1]:
+            config.pop("sources", None)
+        if self.add_server_metadata and key in MODULE.EXPECTED_STREAM_ORDER:
+            config.setdefault("metadata", {}).update(
+                {
+                    "_nats.level": "2",
+                    "_nats.req.level": "2",
+                    "_nats.ver": "2.12.2",
+                }
+            )
+        if self.drift_metadata and key == MODULE.EXPECTED_STREAM_ORDER[0]:
+            config.setdefault("metadata", {})["blindou.unexpected"] = "drift"
+        return config
 
     def request(
         self, subject: str, body: dict[str, Any] | None = None
@@ -81,17 +106,14 @@ class FakeConnection:
             key = suffix.rsplit(".", 1)[-1] if ".CONSUMER.INFO." in subject else suffix
             if not self.existing and key not in self.configs:
                 return {"error": {"code": 404, "description": "not found"}}
-            config = json.loads(json.dumps(self.configs[key]))
-            if self.drift_sources and key == MODULE.EXPECTED_STREAM_ORDER[1]:
-                config.pop("sources", None)
-            return {"config": config}
+            return {"config": self.response_config(key)}
         if body is None:
             raise AssertionError(f"payload ausente em {subject}")
         key = body.get("name") or body.get("durable_name")
         if not isinstance(key, str):
             raise AssertionError(f"identidade ausente em {subject}")
         self.configs[key] = json.loads(json.dumps(body))
-        return {"config": json.loads(json.dumps(body))}
+        return {"config": self.response_config(key)}
 
 
 def run() -> None:
@@ -99,7 +121,7 @@ def run() -> None:
     original_load_json = MODULE.load_json
     MODULE.load_json = lambda path: streams if path.name == "streams.json" else consumers
     try:
-        connection = FakeConnection(existing=False)
+        connection = FakeConnection(existing=False, add_server_metadata=True)
         MODULE.provision(
             connection,
             Path("streams.json"),
@@ -131,6 +153,23 @@ def run() -> None:
                 raise AssertionError("drift de source falhou sem diagnóstico fechado") from error
         else:
             raise AssertionError("modo somente leitura aceitou drift de source")
+        connection.drift_sources = False
+        connection.drift_metadata = True
+        try:
+            MODULE.provision(
+                connection,
+                Path("streams.json"),
+                Path("consumers.json"),
+                INCARNATION,
+                True,
+            )
+        except SystemExit as error:
+            if "metadata" not in str(error):
+                raise AssertionError(
+                    "drift de metadata falhou sem diagnóstico fechado"
+                ) from error
+        else:
+            raise AssertionError("modo somente leitura aceitou metadata não reservada")
     finally:
         MODULE.load_json = original_load_json
     print("blindou_dispatch_v3_jetstream_tests=passed")

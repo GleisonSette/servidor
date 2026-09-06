@@ -190,6 +190,15 @@ def normalized_field(document: dict[str, Any], field: str) -> Any:
         return document.get(field) or []
     if field == "allow_msg_schedules":
         return bool(document.get(field, False))
+    if field == "metadata":
+        metadata = document.get(field) or {}
+        if not isinstance(metadata, dict):
+            return metadata
+        return {
+            key: value
+            for key, value in metadata.items()
+            if not str(key).startswith("_nats.")
+        }
     return document.get(field)
 
 
