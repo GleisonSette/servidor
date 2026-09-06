@@ -103,6 +103,20 @@ if grep -Eq 'Write-(Host|Output|Verbose|Debug).*(password|KEY_SERVIDOR)' \
     "$SUDO_BOOTSTRAP_MODULE"; then
   fail 'bootstrap sudo pode revelar a senha'
 fi
+grep -Fq 'require_apiwpp_preserved()' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'apiwpp_preserved_by_secondary_slot()' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq '/usr/local/sbin/apiwpp-deployctl verify >/dev/null 2>&1' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq '/usr/local/sbin/secondary-slotctl status' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq "grep -Fxq 'pending_transition=absent'" \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq "grep -Eq '^active_occupant=(none|saferwpp)$'" \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq "grep -Fxq 'observed_apiwpp_state=suspended'" \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'gate de preservação do APIWPP não aceita o atestado suspenso do secondary-slot'
 grep -Fq '[string]$BundleDirectory' "$PULL_PROOF_SCRIPT" \
   || fail 'orquestrador não exige o diretório do bundle assinado'
 grep -Fq 'sudo -n /usr/local/sbin/blindou-deployctl validate-release $ReleaseId' \

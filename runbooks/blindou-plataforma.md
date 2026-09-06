@@ -187,7 +187,10 @@ O aceite exige:
 - ServiceAccount padrão sem token, Pod Security `restricted` e default deny;
 - admissão recusando Pod enquanto bloqueado e recusando NodePort;
 - nenhum processo ou workload `cloudflared`;
-- `blindou-hostctl verify` e `apiwpp-deployctl verify` aprovados.
+- `blindou-hostctl verify` aprovado e APIWPP preservado. A preservação aceita
+  `apiwpp-deployctl verify` quando o APIWPP estiver ativo, ou
+  `secondary-slotctl status` com APIWPP suspenso, `active_occupant` em `none`
+  ou `saferwpp`, zero workload APIWPP e nenhuma transição pendente.
 
 Rollback humano, somente enquanto os namespaces estiverem vazios:
 
@@ -246,6 +249,8 @@ Verificação:
 sudo -n /usr/local/sbin/blindou-deployctl verify-edge-connector
 sudo -n /usr/local/sbin/blindou-deployctl verify-foundation
 sudo -n /usr/local/sbin/apiwpp-deployctl verify
+# Se o APIWPP estiver propositalmente suspenso pelo slot:
+sudo -n /usr/local/sbin/secondary-slotctl status
 sudo -n /usr/local/sbin/blindou-hostctl verify
 ```
 
@@ -755,6 +760,8 @@ sudo -n /usr/local/sbin/blindou-deployctl verify-cloudflare-saas-token
 sudo -n /usr/local/sbin/blindou-deployctl verify-data
 sudo -n /usr/local/sbin/blindou-deployctl verify-backup
 sudo -n /usr/local/sbin/apiwpp-deployctl verify
+# Se o APIWPP estiver propositalmente suspenso pelo slot:
+sudo -n /usr/local/sbin/secondary-slotctl status
 sudo -n /usr/local/sbin/blindou-hostctl verify
 ```
 

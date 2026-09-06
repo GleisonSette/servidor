@@ -183,12 +183,38 @@ require_root_and_host() {
     || fail 'PostgreSQL 18/main não está ativo'
 }
 
+apiwpp_preserved_by_secondary_slot() {
+  local attempt output code
+  for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    output="$(/usr/local/sbin/secondary-slotctl status 2>&1)" && code=0 || code="$?"
+    if (( code == 0 )); then
+      grep -Fxq 'state=valid' <<<"$output" \
+        && grep -Fxq 'pending_transition=absent' <<<"$output" \
+        && grep -Eq '^active_occupant=(none|saferwpp)$' <<<"$output" \
+        && grep -Fxq 'apiwpp_workloads=0' <<<"$output" \
+        && grep -Fxq 'observed_apiwpp_state=suspended' <<<"$output" \
+        && grep -Fxq 'observed_apiwpp_workloads=0' <<<"$output"
+      return "$?"
+    fi
+    [[ "$output" == *'outra operação do slot está em andamento'* ]] || return 1
+    sleep 5
+  done
+  return 1
+}
+
+require_apiwpp_preserved() {
+  if /usr/local/sbin/apiwpp-deployctl verify >/dev/null 2>&1; then
+    return 0
+  fi
+  apiwpp_preserved_by_secondary_slot \
+    || fail 'apiwpp não está ativo nem suspenso por atestado válido do secondary-slot'
+}
+
 require_platform_preconditions() {
   require_root_and_host
   /usr/local/sbin/blindou-hostctl verify >/dev/null \
     || fail 'contenção temporária do host não passou'
-  /usr/local/sbin/apiwpp-deployctl verify >/dev/null \
-    || fail 'apiwpp não passou no gate de preservação'
+  require_apiwpp_preserved
   [[ -d "$FOUNDATION_DIR" && ! -L "$FOUNDATION_DIR" ]] \
     || fail 'bundle root-owned da fundação está ausente'
 }
@@ -1762,8 +1788,7 @@ verify_data_foundation() {
         WHERE file_name='${POSTGRES_HBA_FILE}' OR database @> ARRAY['blindou']::text[]")"
     fail "HBA não exige TLS, certificado e SCRAM para os quatro logins (regras válidas=${hba_rule_count}; observadas=${hba_diagnostic})"
   fi
-  /usr/local/sbin/apiwpp-deployctl verify >/dev/null \
-    || fail 'apiwpp regrediu depois do provisionamento do banco'
+  require_apiwpp_preserved
   pass "database, quatro logins, TLS cliente e papéis isolados verificados (redirector=${redirector_contract})"
 }
 
@@ -3187,7 +3212,7 @@ activate_release_gates() {
   now_epoch="$(date -u +%s)"
   (( now_epoch - backup_epoch <= 3600 )) || fail 'backup anterior ao deploy tem mais de uma hora'
   /usr/local/sbin/blindou-hostctl verify >/dev/null
-  /usr/local/sbin/apiwpp-deployctl verify >/dev/null
+  require_apiwpp_preserved
   kube -n "$EDGE_NAMESPACE" delete resourcequota platform-quarantine --ignore-not-found >/dev/null
   for namespace in "$APP_NAMESPACE" "$EDGE_NAMESPACE"; do
     kube label namespace "$namespace" \
