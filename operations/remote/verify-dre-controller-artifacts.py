@@ -616,7 +616,7 @@ for invariant in (
     '.migration_count == 9',
     '.ready == {api:1,worker:1,postgres:1}',
     '.edge.gate == "connector-only" and .edge.ready == 1',
-    '"$CONTROLLER_SOURCE" verify "$release_id"',
+    '/bin/bash "$CONTROLLER_SOURCE" verify "$release_id"',
     "Pod administrativo efêmero existe durante a atualização do controlador",
     "require_restore_bootstrap_state",
     "restore_configuration_fingerprint",
@@ -676,7 +676,7 @@ active_state = active_state_match.group(0)
 for invariant in (
     "root:root:600:1",
     'dre-deployctl status',
-    '"$CONTROLLER_SOURCE" verify "$release_id"',
+    '/bin/bash "$CONTROLLER_SOURCE" verify "$release_id"',
     "dre-account-provisioner",
     '.validation.gate == "absent"',
 ):
@@ -702,7 +702,7 @@ if "/usr/local/sbin/secondary-slotctl verify" in bootstrap:
     fail("bootstrap DRE depende do verify do slot, que inclui Ready do Blindou")
 if 'sudo -u apiadmin sudo -n /usr/local/sbin/dre-deployctl verify "$release_id"' in bootstrap:
     fail("bootstrap DRE valida release ativa com controlador instalado antigo")
-if '"$CONTROLLER_SOURCE" verify "$release_id"' not in bootstrap:
+if '/bin/bash "$CONTROLLER_SOURCE" verify "$release_id"' not in bootstrap:
     fail("bootstrap DRE deve validar release ativa com a fonte nova extraída")
 
 sudo_helper = read("operations/Dre.SudoBootstrap.psm1")
