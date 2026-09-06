@@ -133,6 +133,19 @@ reconciliação pode recuperar apenas o estado do slot quando o Blindou continua
 saudável, preservando um alerta crítico sobre a divergência. O controlador não
 aplica, remove, escala, rotula nem anota nenhum recurso Blindou.
 
+Quando `secondary-slotctl verify` recusar `Blindou não está Ready`, o diagnóstico
+somente leitura permitido é:
+
+```text
+sudo -n /usr/local/sbin/secondary-slotctl diagnose-blindou-readiness
+```
+
+A saída é JSON e contém apenas resumo de workloads ativos, contagens de réplicas,
+condições e containers não prontos em `blindou-production` e `blindou-edge`. Ela
+não lê Secret, ConfigMap, log ou manifesto completo e não executa correção por
+efeito colateral. Correção do runtime Blindou continua pertencendo ao
+controlador ou à autorização operacional específica do Blindou.
+
 ## Revisão de coesão
 
 Os dois arquivos operacionais escritos manualmente que ultrapassam 600 linhas

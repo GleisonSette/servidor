@@ -281,6 +281,10 @@ for invariant in (
     "complete-activation",
     "abort-transition",
     "reconcile",
+    "diagnose-blindou-readiness",
+    "diagnose_blindou_readiness",
+    "unhealthy_active_workloads",
+    "active_workloads",
     "require_blindou_healthy_and_fingerprint",
     "transition-needs-reconciliation",
 ):
@@ -302,6 +306,8 @@ for invariant in (
         fail(f"invariante ausente na biblioteca: {invariant}")
 if "apiadmin ALL=(root) NOPASSWD" not in sudoers:
     fail("sudoers não limita a identidade operacional")
+if "/usr/local/sbin/secondary-slotctl diagnose-blindou-readiness" not in sudoers:
+    fail("sudoers não libera o diagnóstico fechado de Ready do Blindou")
 if re.search(r"secondary-slotctl\s+\*\s*(?:,|$)", sudoers, re.MULTILINE):
     fail("sudoers contém execução totalmente aberta")
 if "python3 \"$VERIFIER_SOURCE\"" not in bootstrap:

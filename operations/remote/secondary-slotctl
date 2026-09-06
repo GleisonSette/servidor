@@ -65,6 +65,9 @@ from secondary_slot import (  # noqa: E402
     utc_now,
     validate_fingerprint,
     validate_operation_id,
+    workload_is_active,
+    workload_is_healthy,
+    long_running_workload_is_active,
 )
 
 
@@ -679,6 +682,166 @@ def verify() -> None:
     )
 
 
+def _as_nonnegative_int(value: Any) -> int:
+    return value if isinstance(value, int) and value >= 0 else 0
+
+
+def _ready_condition(item: dict[str, Any]) -> str:
+    conditions = item.get("status", {}).get("conditions", [])
+    if not isinstance(conditions, list):
+        return "absent"
+    for condition in conditions:
+        if not isinstance(condition, dict):
+            continue
+        if condition.get("type") == "Ready":
+            return str(condition.get("status", "unknown"))
+    return "absent"
+
+
+def _condition_reasons(item: dict[str, Any]) -> list[dict[str, str]]:
+    reasons: list[dict[str, str]] = []
+    conditions = item.get("status", {}).get("conditions", [])
+    if not isinstance(conditions, list):
+        return reasons
+    for condition in conditions:
+        if not isinstance(condition, dict):
+            continue
+        status = condition.get("status")
+        if status == "True":
+            continue
+        reason = condition.get("reason")
+        entry = {
+            "type": str(condition.get("type", "unknown"))[:80],
+            "status": str(status or "unknown")[:32],
+        }
+        if reason:
+            entry["reason"] = str(reason)[:120]
+        reasons.append(entry)
+    return reasons[:8]
+
+
+def _container_statuses(item: dict[str, Any]) -> list[dict[str, Any]]:
+    statuses = item.get("status", {}).get("containerStatuses", [])
+    if not isinstance(statuses, list):
+        return []
+    result: list[dict[str, Any]] = []
+    for status in statuses:
+        if not isinstance(status, dict):
+            continue
+        state = status.get("state", {})
+        state_name = "unknown"
+        if isinstance(state, dict) and state:
+            state_name = sorted(str(key) for key in state)[:1][0]
+        result.append(
+            {
+                "name": str(status.get("name", "unknown"))[:120],
+                "ready": bool(status.get("ready", False)),
+                "restart_count": _as_nonnegative_int(status.get("restartCount")),
+                "state": state_name,
+            }
+        )
+    return result[:16]
+
+
+def _workload_summary(namespace: str, item: dict[str, Any]) -> dict[str, Any]:
+    kind = str(item.get("kind", "unknown"))
+    metadata = item.get("metadata", {})
+    spec = item.get("spec", {})
+    status = item.get("status", {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+    if not isinstance(spec, dict):
+        spec = {}
+    if not isinstance(status, dict):
+        status = {}
+    summary: dict[str, Any] = {
+        "namespace": namespace,
+        "kind": kind,
+        "name": str(metadata.get("name", "unknown"))[:160],
+        "active": workload_is_active(item),
+        "healthy": workload_is_healthy(item),
+        "long_running": long_running_workload_is_active(item),
+    }
+    if kind in {"Deployment", "StatefulSet", "ReplicaSet", "ReplicationController"}:
+        summary["replicas"] = {
+            "desired": _as_nonnegative_int(spec.get("replicas", 1)),
+            "observed_generation": _as_nonnegative_int(status.get("observedGeneration")),
+            "updated": _as_nonnegative_int(status.get("updatedReplicas")),
+            "ready": _as_nonnegative_int(status.get("readyReplicas")),
+            "available": _as_nonnegative_int(status.get("availableReplicas")),
+            "current": _as_nonnegative_int(status.get("currentReplicas")),
+            "unavailable": _as_nonnegative_int(status.get("unavailableReplicas")),
+        }
+    elif kind == "DaemonSet":
+        summary["replicas"] = {
+            "desired": _as_nonnegative_int(status.get("desiredNumberScheduled")),
+            "updated": _as_nonnegative_int(status.get("updatedNumberScheduled")),
+            "ready": _as_nonnegative_int(status.get("numberReady")),
+            "unavailable": _as_nonnegative_int(status.get("numberUnavailable")),
+        }
+    elif kind == "Pod":
+        summary["phase"] = str(status.get("phase", "unknown"))[:80]
+        summary["ready_condition"] = _ready_condition(item)
+        summary["containers"] = _container_statuses(item)
+    elif kind == "Job":
+        summary["suspend"] = bool(spec.get("suspend", False))
+        summary["active_pods"] = _as_nonnegative_int(status.get("active"))
+        summary["succeeded_pods"] = _as_nonnegative_int(status.get("succeeded"))
+        summary["failed_pods"] = _as_nonnegative_int(status.get("failed"))
+    elif kind == "CronJob":
+        summary["suspend"] = bool(spec.get("suspend", False))
+    reasons = _condition_reasons(item)
+    if reasons:
+        summary["condition_reasons"] = reasons
+    return summary
+
+
+def diagnose_blindou_readiness() -> None:
+    namespaces: list[dict[str, Any]] = []
+    overall_ready = True
+    for namespace in ("blindou-production", "blindou-edge"):
+        exists = kubernetes.namespace_exists(namespace)
+        namespace_state: dict[str, Any] = {
+            "namespace": namespace,
+            "exists": exists,
+            "active_workload_count": 0,
+            "long_running_active": False,
+            "ready": False,
+            "active_workloads": [],
+            "unhealthy_active_workloads": [],
+        }
+        if exists:
+            workloads = kubernetes.namespace_workloads(namespace)
+            active = [_workload_summary(namespace, item) for item in workloads if workload_is_active(item)]
+            unhealthy = [entry for entry in active if not entry["healthy"]]
+            long_running = any(
+                long_running_workload_is_active(item) for item in workloads
+            )
+            namespace_state.update(
+                {
+                    "active_workload_count": len(active),
+                    "long_running_active": long_running,
+                    "ready": bool(active) and long_running and not unhealthy,
+                    "active_workloads": active,
+                    "unhealthy_active_workloads": unhealthy,
+                }
+            )
+        overall_ready = overall_ready and bool(namespace_state["ready"])
+        namespaces.append(namespace_state)
+    print(
+        json.dumps(
+            {
+                "schema": 1,
+                "status": "observed",
+                "ready": overall_ready,
+                "namespaces": namespaces,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+
+
 def show_status() -> None:
     runtime = observe_runtime(kubernetes)
     state_status = "absent"
@@ -831,12 +994,17 @@ def collect_metrics() -> None:
 
 def dispatch(arguments: list[str]) -> None:
     if not arguments:
-        fail("uso: secondary-slotctl {status|verify|metrics|transição fechada}")
+        fail("uso: secondary-slotctl {status|verify|metrics|diagnose-blindou-readiness|transição fechada}")
     action = arguments[0]
-    if action in {"status", "verify", "metrics"}:
+    if action in {"status", "verify", "metrics", "diagnose-blindou-readiness"}:
         if len(arguments) != 1:
             fail(f"uso: secondary-slotctl {action}")
-        {"status": show_status, "verify": verify, "metrics": collect_metrics}[action]()
+        {
+            "status": show_status,
+            "verify": verify,
+            "metrics": collect_metrics,
+            "diagnose-blindou-readiness": diagnose_blindou_readiness,
+        }[action]()
         return
     if action == "initialize-apiwpp-active":
         if len(arguments) != 3:
@@ -874,7 +1042,7 @@ def execute_locked(action: str, operation_id: str) -> int:
         dispatch(sys.argv[1:])
         return 0
     except ContractError as error:
-        if action not in {"unknown", "status", "verify", "metrics"}:
+        if action not in {"unknown", "status", "verify", "metrics", "diagnose-blindou-readiness"}:
             try:
                 audit(action, operation_id, "failed", str(error))
                 alert(
@@ -889,7 +1057,7 @@ def execute_locked(action: str, operation_id: str) -> int:
         return 1
     except Exception as error:  # noqa: BLE001 - fronteira operacional não vaza traceback
         detail = f"internal-error:{type(error).__name__}"
-        if action not in {"unknown", "status", "verify", "metrics"}:
+        if action not in {"unknown", "status", "verify", "metrics", "diagnose-blindou-readiness"}:
             try:
                 audit(action, operation_id, "failed", detail)
                 alert(
