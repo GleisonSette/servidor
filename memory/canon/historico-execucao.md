@@ -2201,3 +2201,7 @@ diagnóstico e restauração fechados antes de uma nova candidata.
   sincronizados e disputavam o lock do slot em todos os ciclos observados. A
   correção preparada fixa o coletor do slot no segundo 30 e substitui o gate
   legado do APIWPP pelo atestado D033 do próprio slot no bootstrap.
+- a primeira instalação corretiva parou antes da autenticação e sem tocar o
+  host: o script Bash continha CRLF e o helper buscava `.env` na worktree. A
+  correção normaliza o payload para LF e fixa a única origem autorizada em
+  `C:\github\servidor\.env`, sem ler ou mostrar seu conteúdo.

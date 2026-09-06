@@ -307,6 +307,7 @@ function Invoke-SecondarySlotSudoBootstrap {
         -RemoteArchive $RemoteArchive `
         -ExpectedSha256 $ExpectedSha256 `
         -GitCommit $GitCommit
+    $rootScript = $rootScript.Replace("`r`n", "`n").Replace("`r", "`n")
     $encodedScript = [Convert]::ToBase64String(
         [Text.Encoding]::UTF8.GetBytes($rootScript)
     )
@@ -314,8 +315,7 @@ function Invoke-SecondarySlotSudoBootstrap {
         "sudo -S -p '' -- /bin/bash -c `"printf '%s' '$encodedScript' | " +
         "base64 --decode | /bin/bash`""
 
-    $repositoryRoot = Split-Path -Parent $PSScriptRoot
-    $envFile = Join-Path $repositoryRoot '.env'
+    $envFile = 'C:\github\servidor\.env'
     $password = Read-SecondarySlotSudoPassword -EnvFile $envFile
     try {
         $password | & ssh.exe @SshArguments $Server $remoteCommand

@@ -287,6 +287,10 @@ O gate seguinte também revelou que os timers do slot e da plataforma disparavam
 no mesmo instante e mantinham `secondary-slot-metrics.service` em falha por
 disputa de lock. O bootstrap do slot deve instalar o offset fixo no segundo 30,
 validar o estado D033 pelo controlador compartilhado e só então renovar o gate.
+A primeira execução desse bootstrap parou antes da autenticação: o payload Bash
+recebeu CRLF da worktree Windows e o helper procurou `.env` fora do caminho
+canônico. O orquestrador deve normalizar o payload para LF e manter a leitura
+somente em `C:\github\servidor\.env` antes de repetir a instalação.
 
 Ordem obrigatória da extensão:
 

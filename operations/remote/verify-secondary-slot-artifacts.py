@@ -350,6 +350,8 @@ for invariant in (
     "/usr/local/sbin/blindou-hostctl verify",
     "/usr/local/sbin/blindou-deployctl status",
     "systemctl reset-failed secondary-slot-metrics.service",
+    '$rootScript.Replace("`r`n", "`n").Replace("`r", "`n")',
+    "C:\\github\\servidor\\.env",
     "verify-secondary-slot-artifacts.py",
     "bootstrap-secondary-slotctl.sh",
     "Export-ModuleMember -Function Invoke-SecondarySlotSudoBootstrap",
