@@ -298,6 +298,16 @@ comparação tratava como drift da aplicação. O provisionador deve ignorar ape
 esse namespace reservado, continuar exigindo o `stream_incarnation` e recusar
 qualquer outra metadata antes de reaplicar a mesma candidata assinada.
 
+As correções seguintes reconciliaram os cinco streams e quatro consumers e
+isolaram a corrida transitória do timer do slot. A aplicação posterior chegou
+ao backend, mas a quota histórica de 10 CPU recusou o Pod: o estado estável com
+V3 declara 10,35 CPU de limites. Por D056, o controlador foi preparado para
+reconciliar somente esse teto para 12 e retomar a mesma release assinada por
+uma operação fechada sem rollback automático. A API anterior voltou a responder
+durante a recuperação parcial; o próximo passo continua sendo instalar esse
+controlador, renovar backup/gate se necessário, retomar `cd605c83...` ainda em
+`prepared` e somente então executar a ativação separada.
+
 Ordem obrigatória da extensão:
 
 1. validar, publicar e instalar o controlador D055 sem alterar o runtime por

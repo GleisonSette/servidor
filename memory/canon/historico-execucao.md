@@ -2257,3 +2257,22 @@ diagnóstico e restauração fechados antes de uma nova candidata.
 - como o Deployment falho não criou Pod, o diagnóstico inclui também somente
   seus ReplicaSets e eventos associados, permitindo distinguir recusa de
   admissão de falha do processo sem expor acesso Kubernetes genérico.
+
+## 2026-09-06 - Retomada E5 sem rollback preparada
+
+Resultado: a causa de capacidade foi fechada no controlador e o caminho de
+retomada passou no gate offline; nenhuma nova mutação no host ocorreu por este
+registro.
+
+- o diagnóstico provou recusa de admissão por `limits.cpu`: 9.350m já usados,
+  novo backend de 1 CPU e quota histórica de 10 CPU;
+- o inventário completo fecha 10,35 CPU de limites estáveis com Dispatch V3,
+  enquanto requests permanecem abaixo de 2 CPU; a correção eleva somente o teto
+  de limites para 12 e compara integralmente todos os outros campos da quota;
+- `resume-failed-update` exige confirmação literal, release no cache, recibo do
+  gate, ponteiro anterior seguro e estado V3 `prepared`;
+- uma nova falha grava recibo root-only, preserva o estado parcial e não chama
+  rollback; sucesso ainda deixa novas admissões inativas até a ação separada;
+- `bash -n`, a suíte JetStream, os testes de pull e o gate integral
+  `blindou_platform_artifacts=passed` concluíram sem Docker, WSL, banco ou
+  segredo operacional.

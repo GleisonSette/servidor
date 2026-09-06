@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-arquitetura-plataforma
   source_path: memory/canon/arquitetura-plataforma.md
   generated_from: decisão do usuário, auditoria e requisitos de apiwpp/Blindou/SaferWPP
-  updated_at: 2026-08-31
+  updated_at: 2026-09-06
   status: canonical
 
 ## Objetivo e limite
@@ -429,6 +429,15 @@ medir Blindou, APIWPP e serviços compartilhados, reservar margem para host,
 K3s, PostgreSQL, backups e picos e recalibrar a quota `saferwpp-lab`. Quotas
 iniciais não substituem essa medição. HDD, quatro núcleos, Fast Ethernet e um
 único domínio de falha impedem afirmar alta disponibilidade.
+
+Para a E5 do Dispatch V3, a soma estável dos limites por container é 10,35 CPU
+e não cabe na quota histórica de 10, embora os requests permaneçam abaixo de 2
+CPU. Por D056, o controlador do host reconcilia somente o teto
+`limits.cpu` do namespace Blindou para 12, depois de aplicar cada release
+assinada. Os demais campos da quota são comparados integralmente e não podem
+mudar por essa operação. O valor de 12 permite admissão com margem declarativa;
+não reserva doze CPUs em um host de quatro núcleos e exige observar saturação,
+backlog e latência. Nenhuma parcela adicional é oferecida a outro projeto.
 
 A auditoria viva de 2026-08-26 encontrou folga observada de CPU, memória, disco
 e rede para continuar o planejamento do laboratório, mas reprovou o plano de

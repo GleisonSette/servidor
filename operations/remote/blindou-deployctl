@@ -80,7 +80,9 @@ readonly DISPATCH_V3_PROVIDER_ENDPOINT_FILE="${DISPATCH_V3_SECRET_DIR}/provider-
 readonly DISPATCH_V3_STREAM_INCARNATION_FILE="${DISPATCH_V3_SECRET_DIR}/stream-incarnation"
 readonly DISPATCH_V3_STATE="${STATE_ROOT}/dispatch-v3.state"
 readonly DISPATCH_V3_NATS_REPAIR_RECEIPT="${STATE_ROOT}/dispatch-v3-nats-repair.state"
+readonly FAILED_UPDATE_RESUME_RECEIPT="${STATE_ROOT}/failed-update-resume.state"
 readonly DISPATCH_V3_EXPECTED_DEBEZIUM_IMAGE='ghcr.io/gleisonsette/blindou-debezium@sha256:04da6c9bfe2276985d8c30e5444b395a63467111225750c06d15d908c8595e08'
+readonly PRODUCTION_CPU_LIMIT_BUDGET='12'
 readonly ALERT_RECEIPT="${STATE_ROOT}/alert-receiver.state"
 readonly UI_REVIEW_RECEIPT="${STATE_ROOT}/ui-review-mode.state"
 readonly OFFSITE_BACKUP_RECEIPT="${STATE_ROOT}/offsite-backup.state"
@@ -111,6 +113,7 @@ readonly DISPATCH_V3_SECRETS_CONFIRMATION='blindou-dispatch-v3-secrets'
 readonly DISPATCH_V3_NATS_REPAIR_CONFIRMATION='blindou-dispatch-v3-nats-credentials'
 readonly DISPATCH_V3_ACTIVATION_CONFIRMATION='blindou-dispatch-v3-active'
 readonly FAILED_UPDATE_RECOVERY_CONFIRMATION='blindou-failed-update-recovery'
+readonly FAILED_UPDATE_RESUME_CONFIRMATION='blindou-failed-update-resume'
 readonly SUPERADMIN_CONFIRMATION='blindou-bootstrap-superadmin'
 readonly SUPERADMIN_EMAIL='gleisonsette@gmail.com'
 readonly SUPERADMIN_NAME='Gleison Sette'
@@ -189,6 +192,7 @@ cleanup() {
       "${DISPATCH_V3_STATE}.tmp"|/var/tmp/blindou-dispatch-v3-*|\
       "${DISPATCH_V3_NATS_REPAIR_RECEIPT}.tmp"|\
       "${FAILED_UPDATE_RECOVERY_RECEIPT}.tmp"|\
+      "${FAILED_UPDATE_RESUME_RECEIPT}.tmp"|\
       "${UI_REVIEW_RECEIPT}.tmp"|\
       "${NATS_PKI_DIR}"/*.tmp|"${NATS_PKI_DIR}"/server-ext.*|\
       "${POSTGRES_CONFIG_FILE}.tmp"|"${POSTGRES_HBA_FILE}.tmp")
@@ -4243,6 +4247,28 @@ diagnose_failed_update() {
     -l 'app.kubernetes.io/name=blindou-backend' -o name)
 }
 
+reconcile_production_capacity_budget() {
+  local patch observed
+  patch="{\"spec\":{\"hard\":{\"limits.cpu\":\"${PRODUCTION_CPU_LIMIT_BUDGET}\"}}}"
+  kube -n "$APP_NAMESPACE" patch resourcequota blindou-production-budget \
+    --type=merge -p "$patch" >/dev/null
+  observed="$(kube -n "$APP_NAMESPACE" get resourcequota blindou-production-budget \
+    -o json)"
+  jq -e --arg cpu "$PRODUCTION_CPU_LIMIT_BUDGET" '
+    .spec.hard == {
+      "limits.cpu": $cpu,
+      "limits.memory": "12Gi",
+      "persistentvolumeclaims": "3",
+      "pods": "32",
+      "requests.cpu": "2",
+      "requests.memory": "4Gi",
+      "requests.storage": "40Gi",
+      "services": "12"
+    }
+  ' <<<"$observed" >/dev/null \
+    || fail 'orçamento vivo do Blindou divergiu do perfil físico aprovado'
+}
+
 apply_cached_release() {
   local release_id="$1" rendered="${RELEASE_CACHE}/${release_id}/rendered"
   [[ -d "$rendered" && ! -L "$rendered" ]] || fail 'release não está validada no cache root-owned'
@@ -4250,6 +4276,7 @@ apply_cached_release() {
   kube -n "$APP_NAMESPACE" annotate configmap blindou-runtime-config \
     "blindou.io/release=${release_id}" --overwrite >/dev/null
   kube apply -f "$rendered/00-platform.yaml" >/dev/null
+  reconcile_production_capacity_budget
   kube apply -f "$rendered/10-services.yaml" >/dev/null
   kube apply -f "$rendered/20-nats-config.yaml" >/dev/null
   kube apply -f "$rendered/30-network-policies.yaml" >/dev/null
@@ -4312,6 +4339,7 @@ rollback_release() {
     fail 'rollback para release sem Dispatch V3 é proibido depois da ativação'
   fi
   kube apply -f "$rendered/00-platform.yaml" >/dev/null
+  reconcile_production_capacity_budget
   kube apply -f "$rendered/10-services.yaml" >/dev/null
   kube apply -f "$rendered/20-nats-config.yaml" >/dev/null
   kube apply -f "$rendered/30-network-policies.yaml" >/dev/null
@@ -4384,6 +4412,69 @@ recover_failed_update() {
     "${FAILED_UPDATE_RECOVERY_RECEIPT}.tmp" "$FAILED_UPDATE_RECOVERY_RECEIPT"
   rm -f -- "${FAILED_UPDATE_RECOVERY_RECEIPT}.tmp"
   pass "atualização ${failed_release} recuperada para ${previous_release}"
+}
+
+resume_failed_update() {
+  local release_id="$1" confirmation="$2" previous_release apply_status=0
+  [[ "$confirmation" == "$FAILED_UPDATE_RESUME_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${FAILED_UPDATE_RESUME_CONFIRMATION}"
+  [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
+  require_root_and_host
+  [[ -f "$CURRENT_RELEASE" && ! -L "$CURRENT_RELEASE" \
+      && "$(stat -c '%U:%G:%a' "$CURRENT_RELEASE")" == 'root:root:600' ]] \
+    || fail 'release corrente anterior está ausente ou insegura'
+  previous_release="$(<"$CURRENT_RELEASE")"
+  [[ "$previous_release" =~ $RELEASE_PATTERN ]] \
+    || fail 'identidade da release corrente anterior é inválida'
+  [[ -f "$RELEASE_GATE_RECEIPT" && ! -L "$RELEASE_GATE_RECEIPT" \
+      && "$(stat -c '%U:%G:%a' "$RELEASE_GATE_RECEIPT")" == 'root:root:600' ]] \
+    || fail 'recibo do gate da tentativa falha está ausente ou inseguro'
+  grep -Fxq "release_id=${release_id}" "$RELEASE_GATE_RECEIPT" \
+    || fail 'recibo do gate não corresponde à release a retomar'
+  [[ -d "${RELEASE_CACHE}/${release_id}/rendered" \
+      && ! -L "${RELEASE_CACHE}/${release_id}/rendered" ]] \
+    || fail 'release a retomar não está no cache fechado'
+  [[ -f "$DISPATCH_V3_STATE" && ! -L "$DISPATCH_V3_STATE" \
+      && "$(stat -c '%U:%G:%a' "$DISPATCH_V3_STATE")" == 'root:root:600' \
+      && "$(sed -n 's/^state=//p' "$DISPATCH_V3_STATE")" == 'prepared' ]] \
+    || fail 'retomada exige Dispatch V3 preparado e ainda inativo'
+  [[ "$previous_release" != "$release_id" ]] \
+    || { verify_dispatch_v3_runtime >/dev/null; pass "release ${release_id} já estava aplicada"; return; }
+  prepare_redirector_database_role
+  prepare_dispatch_v3_group_roles
+  set +e
+  (
+    set -Eeuo pipefail
+    apply_cached_release "$release_id"
+  )
+  apply_status=$?
+  set -e
+  if (( apply_status != 0 )); then
+    reconcile_redirector_database_role
+    {
+      printf 'schema=1\nstatus=failed\nrelease_id=%s\nprevious_release=%s\n' \
+        "$release_id" "$previous_release"
+      printf 'cpu_limit_budget=%s\nfailed_at_utc=%s\n' \
+        "$PRODUCTION_CPU_LIMIT_BUDGET" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    } >"${FAILED_UPDATE_RESUME_RECEIPT}.tmp"
+    cleanup_paths+=("${FAILED_UPDATE_RESUME_RECEIPT}.tmp")
+    install -o root -g root -m 0600 \
+      "${FAILED_UPDATE_RESUME_RECEIPT}.tmp" "$FAILED_UPDATE_RESUME_RECEIPT"
+    rm -f -- "${FAILED_UPDATE_RESUME_RECEIPT}.tmp"
+    fail 'retomada falhou; estado parcial preservado e nenhum rollback foi executado'
+  fi
+  {
+    printf 'schema=1\nstatus=passed\nrelease_id=%s\nprevious_release=%s\n' \
+      "$release_id" "$previous_release"
+    printf 'cpu_limit_budget=%s\ncompleted_at_utc=%s\n' \
+      "$PRODUCTION_CPU_LIMIT_BUDGET" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } >"${FAILED_UPDATE_RESUME_RECEIPT}.tmp"
+  cleanup_paths+=("${FAILED_UPDATE_RESUME_RECEIPT}.tmp")
+  install -o root -g root -m 0600 \
+    "${FAILED_UPDATE_RESUME_RECEIPT}.tmp" "$FAILED_UPDATE_RESUME_RECEIPT"
+  rm -f -- "${FAILED_UPDATE_RESUME_RECEIPT}.tmp"
+  verify_dispatch_v3_runtime >/dev/null
+  pass "release ${release_id} retomada sem rollback e mantida em estado preparado"
 }
 
 apply_release() {
@@ -4810,6 +4901,11 @@ case "${1:-}" in
       || fail 'uso: blindou-deployctl recover-failed-update RELEASE_FALHA RELEASE_ANTERIOR CONFIRMAÇÃO'
     recover_failed_update "$2" "$3" "$4"
     ;;
+  resume-failed-update)
+    [[ $# -eq 3 ]] \
+      || fail 'uso: blindou-deployctl resume-failed-update RELEASE_ID CONFIRMAÇÃO'
+    resume_failed_update "$2" "$3"
+    ;;
   bootstrap-superadmin)
     [[ $# -eq 3 ]] || fail 'uso: blindou-deployctl bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO'
     bootstrap_superadmin "$2" "$3"
@@ -4834,6 +4930,6 @@ case "${1:-}" in
     metrics
     ;;
   *)
-    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-r2-runtime-credential|verify-pagarme-credential|verify-pagarme-plans|verify-marketplaces-runtime|verify-dispatch-v3|diagnose-failed-update RELEASE_ID|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|provision-r2-runtime-credential CONFIRMAÇÃO|provision-dispatch-v3-secrets CONFIRMAÇÃO|repair-dispatch-v3-nats-credentials CONFIRMAÇÃO|provision-pagarme-credential CONFIRMAÇÃO|rotate-pagarme-webhook-secret CONFIRMAÇÃO|provision-pagarme-plans CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|provision-runtime-secrets CONFIRMAÇÃO|provision-ui-review-runtime CONFIRMAÇÃO|activate-pagarme-runtime RELEASE_ID CONFIRMAÇÃO|activate-marketplaces-runtime RELEASE_ID CONFIRMAÇÃO|activate-dispatch-v3-runtime RELEASE_ID CONFIRMAÇÃO|confirm-alert-delivery CONFIRMAÇÃO|confirm-offsite-backup BACKUP_ID SHA256 CONFIRMAÇÃO|activate-release-gates RELEASE_ID CONFIRMAÇÃO|validate-release RELEASE_ID|apply RELEASE_ID|recover-failed-update RELEASE_FALHA RELEASE_ANTERIOR CONFIRMAÇÃO|bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO|bootstrap-additional-superadmin RELEASE_ID IDENTIDADE CONFIRMAÇÃO|reset-additional-superadmin-password RELEASE_ID IDENTIDADE CONFIRMAÇÃO|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
+    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-r2-runtime-credential|verify-pagarme-credential|verify-pagarme-plans|verify-marketplaces-runtime|verify-dispatch-v3|diagnose-failed-update RELEASE_ID|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|provision-r2-runtime-credential CONFIRMAÇÃO|provision-dispatch-v3-secrets CONFIRMAÇÃO|repair-dispatch-v3-nats-credentials CONFIRMAÇÃO|provision-pagarme-credential CONFIRMAÇÃO|rotate-pagarme-webhook-secret CONFIRMAÇÃO|provision-pagarme-plans CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|provision-runtime-secrets CONFIRMAÇÃO|provision-ui-review-runtime CONFIRMAÇÃO|activate-pagarme-runtime RELEASE_ID CONFIRMAÇÃO|activate-marketplaces-runtime RELEASE_ID CONFIRMAÇÃO|activate-dispatch-v3-runtime RELEASE_ID CONFIRMAÇÃO|confirm-alert-delivery CONFIRMAÇÃO|confirm-offsite-backup BACKUP_ID SHA256 CONFIRMAÇÃO|activate-release-gates RELEASE_ID CONFIRMAÇÃO|validate-release RELEASE_ID|apply RELEASE_ID|recover-failed-update RELEASE_FALHA RELEASE_ANTERIOR CONFIRMAÇÃO|resume-failed-update RELEASE_ID CONFIRMAÇÃO|bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO|bootstrap-additional-superadmin RELEASE_ID IDENTIDADE CONFIRMAÇÃO|reset-additional-superadmin-password RELEASE_ID IDENTIDADE CONFIRMAÇÃO|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
     ;;
 esac

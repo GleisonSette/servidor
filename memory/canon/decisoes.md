@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-decisoes
   source_path: memory/canon/decisoes.md
   generated_from: decisões do usuário e limites observados do laboratório
-  updated_at: 2026-09-02
+  updated_at: 2026-09-06
   status: canonical
 
 ## Resolvida D001 - Projetos admitidos pela plataforma
@@ -1185,3 +1185,27 @@ exige ocupante `none` e zero workloads de APIWPP e SaferWPP. Ela não executa o
 verificador legado do APIWPP, pois esse contrato exige uma réplica ativa e
 falha por definição quando o slot mantém o serviço suspenso. Isso não autoriza
 ativar, remover ou alterar nenhum dos dois membros do slot.
+
+## Resolvida D056 - Retomada E5 sem rollback e orçamento físico de CPU
+
+Em 2026-09-06, depois de o expand e o JetStream passarem, o Kubernetes recusou
+o novo backend porque a soma estável dos limites declarados do Blindou com os
+três workloads V3 excede a quota de 10 CPU. O host possui quatro CPUs físicas;
+essa quota é um teto de admissão, não uma reserva nem consumo imediato. O
+orçamento de requests permanece em 2 CPU e o consumo real continua sujeito aos
+limites individuais, às filas e ao monitoramento.
+
+O usuário determinou prosseguir sem nova restauração da release anterior, pois
+ainda não existem clientes. A plataforma passa a reconciliar somente
+`limits.cpu` de `blindou-production-budget` para 12 após aplicar o manifesto
+assinado, preservando exatamente requests, memória, storage, PVCs, Pods e
+Services. Isso admite o estado estável de 10,35 CPU de limites com 1,65 CPU de
+margem declarativa e não concede capacidade a APIWPP, SaferWPP, Pixel/CIA ou
+DRE.
+
+A operação fechada `resume-failed-update` exige SHA, recibo de gate, cache
+root-owned, release anterior segura e Dispatch V3 ainda `prepared`. Ela repete
+a aplicação idempotente e grava recibo próprio. Se falhar, mantém o ponteiro da
+release anterior, preserva o estado parcial para diagnóstico e não chama
+rollback; a ativação de admissões continua sendo a ação separada
+`activate-dispatch-v3-runtime`.

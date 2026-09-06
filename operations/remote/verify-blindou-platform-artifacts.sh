@@ -683,10 +683,21 @@ apply_release_function="$(sed -n '/^apply_release()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 apply_cached_release_function="$(sed -n '/^apply_cached_release()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
+capacity_budget_function="$(sed -n '/^reconcile_production_capacity_budget()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
 grep -Fq 'prepare_redirector_database_role' <<<"$apply_release_function" \
   && grep -Fq 'reconcile_redirector_database_role' <<<"$apply_cached_release_function" \
   && grep -Fq 'verify_data_foundation >/dev/null' <<<"$apply_cached_release_function" \
   || fail 'release não prepara, finaliza e verifica o papel do redirector ao redor da migration'
+grep -Fq "readonly PRODUCTION_CPU_LIMIT_BUDGET='12'" \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'patch resourcequota blindou-production-budget' \
+    <<<"$capacity_budget_function" \
+  && grep -Fq 'reconcile_production_capacity_budget' \
+    <<<"$apply_cached_release_function" \
+  && grep -Fq '"limits.memory": "12Gi"' <<<"$capacity_budget_function" \
+  && grep -Fq '"requests.cpu": "2"' <<<"$capacity_budget_function" \
+  || fail 'orçamento físico do Blindou não preserva o perfil e o teto CPU aprovado'
 grep -Fq 'set +e' <<<"$apply_release_function" \
   && grep -Fq 'set -Eeuo pipefail' <<<"$apply_release_function" \
   && grep -Fq 'apply_status=$?' <<<"$apply_release_function" \
@@ -864,6 +875,17 @@ grep -Fq 'diagnose-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'rollback_release "$previous_release" "$ROLLBACK_CONFIRMATION" failed-update' \
     "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'diagnóstico ou recuperação fechada de atualização ausente'
+resume_failed_update_function="$(sed -n '/^resume_failed_update()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+grep -Fq 'resume-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'FAILED_UPDATE_RESUME_CONFIRMATION' \
+    <<<"$resume_failed_update_function" \
+  && grep -Fq 'apply_cached_release "$release_id"' \
+    <<<"$resume_failed_update_function" \
+  && grep -Fq 'estado parcial preservado e nenhum rollback foi executado' \
+    <<<"$resume_failed_update_function" \
+  && ! grep -Fq 'rollback_release' <<<"$resume_failed_update_function" \
+  || fail 'retomada fechada não preserva falha parcial sem rollback'
 grep -Fq "get deployment blindou-backend" "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq "pod/blindou-backend-[a-z0-9-]+" "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq "replicaset.apps/blindou-backend-[a-z0-9-]+" \
@@ -899,6 +921,8 @@ grep -Fq "SELECT to_regclass('public.dispatch_owner_controls_v3') IS NOT NULL" \
   || fail 'rollback V1 referencia tabela Dispatch V3 ausente no mesmo statement'
 grep -Fq 'diagnose-failed-update *' "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   && grep -Fq 'recover-failed-update * * blindou-failed-update-recovery' \
+    "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  && grep -Fq 'resume-failed-update * blindou-failed-update-resume' \
     "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   || fail 'sudoers não limita diagnóstico e recuperação de atualização'
 grep -Fq 'release anterior não permanece como autoridade corrente' \
