@@ -2239,3 +2239,9 @@ diagnóstico e restauração fechados antes de uma nova candidata.
   no topo do payload de criação do consumer. O helper passa a enviar o envelope
   `CreateConsumerRequest` com `stream_name`, `config` e ação `create`, mantendo
   a configuração do consumer dentro de `config` e falhando fechado em corrida.
+- a tentativa posterior reconciliou cinco streams e quatro consumers, mas
+  coincidiu com a curta coleta de métricas do slot secundário e o gate recusou
+  o lock ocupado; o rollback automático preservou a release anterior;
+- o gate passa a repetir por no máximo um minuto somente quando código e texto
+  correspondem exatamente ao lock transitório conhecido. Qualquer erro real,
+  saída divergente ou estado diferente de `none` falha imediatamente.

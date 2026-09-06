@@ -217,9 +217,25 @@ postgres_query() {
 }
 
 verify_secondary_slot_preservation() {
-  local receipt
-  receipt="$(/usr/local/sbin/secondary-slotctl verify)" \
-    || fail 'slot secundário não passou no gate de preservação'
+  local receipt='' error_file status=0 attempt
+  error_file="$(mktemp /var/tmp/blindou-dispatch-v3-slot-verify.XXXXXX)"
+  cleanup_paths+=("$error_file")
+  for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    set +e
+    receipt="$(/usr/local/sbin/secondary-slotctl verify 2>"$error_file")"
+    status=$?
+    set -e
+    (( status == 0 )) && break
+    if (( status != 1 )) \
+        || [[ "$(<"$error_file")" != '[secondary-slotctl] ERRO: outra operação do slot está em andamento' ]]; then
+      cat "$error_file" >&2
+      fail 'slot secundário não passou no gate de preservação'
+    fi
+    [[ "$attempt" != '12' ]] \
+      || fail 'slot secundário permaneceu ocupado por um minuto'
+    sleep 5
+  done
+  rm -f -- "$error_file"
   grep -Eq '^secondary_slot_verify=passed occupant=none generation=[1-9][0-9]* apiwpp_workloads=0 saferwpp_workloads=0$' \
     <<<"$receipt" \
     || fail 'slot secundário diverge do estado D033: sem ocupante e sem workloads'

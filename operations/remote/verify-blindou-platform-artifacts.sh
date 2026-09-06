@@ -117,6 +117,12 @@ grep -Fq 'setsid /usr/local/bin/k3s kubectl' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'kill -TERM -- "-${pgid}"' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'stop_dispatch_v3_port_forward' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'lifecycle do port-forward não isola grupo, lock e limpeza'
+grep -Fq "!= '[secondary-slotctl] ERRO: outra operação do slot está em andamento'" \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq "slot secundário permaneceu ocupado por um minuto" \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq "(( status != 1 ))" "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'gate do slot não limita retry ao lock transitório por um minuto'
 grep -Fq 'EMERGENCY_CONTROLLER_SOURCE' "${REMOTE_DIR}/bootstrap-blindou-deployctl.sh" \
   || fail 'bootstrap não instala o controlador emergencial'
 grep -Fq "'operations/remote/blindou-release-emergencyctl'" "$PULL_PROOF_SCRIPT" \
