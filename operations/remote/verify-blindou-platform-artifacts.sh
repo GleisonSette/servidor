@@ -833,6 +833,8 @@ grep -Fq 'diagnose-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'diagnóstico ou recuperação fechada de atualização ausente'
 grep -Fq 'ensure_ghcr_pull_secret failed-update' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'recuperação não valida GHCR sem depender do runtime indisponível'
+grep -Fq 'verify_data_foundation failed-update' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'recuperação de dados ainda depende do gate do runtime indisponível'
 grep -Fq 'diagnose-failed-update *' "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   && grep -Fq 'recover-failed-update * * blindou-failed-update-recovery' \
     "${REMOTE_DIR}/blindou-deployctl.sudoers" \

@@ -2184,6 +2184,7 @@ diagnóstico e restauração fechados antes de uma nova candidata.
 - o diagnóstico fechado identificou que o valor de
   `NATS_DEBEZIUM_V3_PASSWORD` foi interpretado como sintaxe do arquivo NATS;
   nenhum segredo foi exibido;
-- a primeira recuperação revelou uma dependência indireta no gate de saúde ao
-  recriar a credencial GHCR. O caminho foi corrigido para validar credencial e
-  Secrets diretamente, sem reduzir os demais vínculos da restauração.
+- as primeiras recuperações revelaram dependências indiretas no gate de saúde
+  ao verificar dados e recriar a credencial GHCR. O caminho foi corrigido para
+  validar fundação de dados, credencial e Secrets diretamente, sem reduzir os
+  demais vínculos da restauração.
