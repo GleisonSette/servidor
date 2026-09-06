@@ -17,6 +17,9 @@ readonly FOUNDATION_DIR='/usr/local/lib/blindou-platform/foundation'
 readonly EDGE_GATE_MANIFEST="${FOUNDATION_DIR}/15-edge-connector-gate.yaml"
 readonly EDGE_RUNTIME_MANIFEST="${FOUNDATION_DIR}/16-edge-connector-runtime.yaml"
 readonly CONFIRMATION='blindou-stuck-first-release'
+readonly STALE_PORT_FORWARD_CONFIRMATION='blindou-stale-dispatch-v3-port-forward'
+readonly DISPATCH_V3_STATE="${STATE_ROOT}/dispatch-v3.state"
+readonly STALE_PORT_FORWARD_RECEIPT="${STATE_ROOT}/stale-dispatch-v3-port-forward.state"
 readonly RELEASE_PATTERN='^[0-9a-f]{40}$'
 
 fail() {
@@ -111,8 +114,103 @@ contain_stuck_first_release() {
     "$release_id"
 }
 
+contain_stale_dispatch_v3_port_forward() {
+  local failed_release="$1" previous_release="$2" confirmation="$3"
+  local holder='' candidate fd target owner parent comm executable elapsed
+  local process_group session member
+  local -a holders=() session_members=()
+  [[ "$confirmation" == "$STALE_PORT_FORWARD_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${STALE_PORT_FORWARD_CONFIRMATION}"
+  [[ "$failed_release" =~ $RELEASE_PATTERN \
+      && "$previous_release" =~ $RELEASE_PATTERN \
+      && "$failed_release" != "$previous_release" ]] \
+    || fail 'par de releases da contenção é inválido'
+  [[ -e "$LOCK_FILE" && ! -L "$LOCK_FILE" ]] || fail 'lock do controlador ausente ou simbólico'
+  [[ -f "$CURRENT_RELEASE" && ! -L "$CURRENT_RELEASE" \
+      && "$(stat -c '%U:%G:%a' "$CURRENT_RELEASE")" == 'root:root:600' \
+      && "$(<"$CURRENT_RELEASE")" == "$previous_release" ]] \
+    || fail 'release anterior não permanece como autoridade corrente'
+  [[ -f "$RELEASE_GATE_RECEIPT" && ! -L "$RELEASE_GATE_RECEIPT" \
+      && "$(stat -c '%U:%G:%a' "$RELEASE_GATE_RECEIPT")" == 'root:root:600' ]] \
+    || fail 'recibo do gate da tentativa falha está ausente ou inseguro'
+  grep -Fxq "release_id=${failed_release}" "$RELEASE_GATE_RECEIPT" \
+    || fail 'recibo do gate não corresponde à release falha'
+  [[ -f "$DISPATCH_V3_STATE" && ! -L "$DISPATCH_V3_STATE" \
+      && "$(stat -c '%U:%G:%a' "$DISPATCH_V3_STATE")" == 'root:root:600' ]] \
+    && grep -Fxq 'state=prepared' "$DISPATCH_V3_STATE" \
+    || fail 'Dispatch V3 não está preparado e inativo'
+
+  for candidate in /proc/[0-9]*; do
+    [[ -d "$candidate/fd" ]] || continue
+    for fd in "$candidate"/fd/*; do
+      [[ -e "$fd" ]] || continue
+      target="$(readlink "$fd" 2>/dev/null || true)"
+      if [[ "$target" == "$LOCK_FILE" ]]; then
+        holders+=("${candidate#/proc/}")
+        break
+      fi
+    done
+  done
+  [[ "${#holders[@]}" -eq 1 && "${holders[0]}" =~ ^[1-9][0-9]*$ ]] \
+    || fail 'o lock não possui um único holder comprovável'
+  holder="${holders[0]}"
+  owner="$(stat -c '%u' "/proc/${holder}")"
+  parent="$(awk '/^PPid:/ {print $2}' "/proc/${holder}/status")"
+  comm="$(<"/proc/${holder}/comm")"
+  executable="$(readlink -e "/proc/${holder}/exe" || true)"
+  elapsed="$(ps -o etimes= -p "$holder" | tr -d ' ')"
+  read -r _ _ _ _ process_group session _ <"/proc/${holder}/stat"
+  [[ "$owner" == '0' && "$parent" == '1' && "$comm" == 'kubectl' \
+      && "$executable" == '/usr/local/bin/k3s' ]] \
+    || fail 'holder do lock não é o port-forward órfão esperado'
+  [[ "$elapsed" =~ ^[0-9]+$ && "$elapsed" -ge 30 ]] \
+    || fail 'holder do lock ainda não pode ser classificado como órfão estável'
+  [[ "$process_group" =~ ^[1-9][0-9]*$ && "$session" == "$process_group" \
+      && "$holder" != "$session" && ! -d "/proc/${session}" ]] \
+    || fail 'sessão do port-forward não possui a topologia órfã esperada'
+  mapfile -t session_members < <(pgrep -s "$session" || true)
+  [[ "${#session_members[@]}" -eq 1 && "${session_members[0]}" == "$holder" ]] \
+    || fail 'sessão órfã contém outro processo e não pode ser contida isoladamente'
+  exec 8>"$LOCK_FILE"
+  if flock --nonblock 8; then
+    fail 'holder identificado não mantém o lock do controlador'
+  fi
+
+  kill -TERM "$holder"
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    [[ ! -d "/proc/${holder}" ]] && break
+    sleep 1
+  done
+  if [[ -d "/proc/${holder}" ]]; then
+    kill -KILL "$holder"
+  fi
+  for _ in 1 2 3 4 5; do
+    [[ ! -d "/proc/${holder}" ]] && break
+    sleep 1
+  done
+  [[ ! -d "/proc/${holder}" ]] || fail 'port-forward órfão não encerrou'
+  flock --nonblock 8 || fail 'lock do controlador permaneceu retido após a contenção'
+  {
+    printf 'schema=1\nfailed_release=%s\nprevious_release=%s\n' \
+      "$failed_release" "$previous_release"
+    printf 'contained_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } >"${STALE_PORT_FORWARD_RECEIPT}.tmp"
+  install -o root -g root -m 0600 \
+    "${STALE_PORT_FORWARD_RECEIPT}.tmp" "$STALE_PORT_FORWARD_RECEIPT"
+  rm -f -- "${STALE_PORT_FORWARD_RECEIPT}.tmp"
+  printf '[blindou-release-emergencyctl] OK: port-forward órfão contido; lock liberado\n'
+}
+
 [[ "${EUID}" -eq 0 ]] || fail 'execute como root'
 [[ "$(hostname)" == "$EXPECTED_HOSTNAME" ]] || fail 'hostname inesperado'
-[[ $# -eq 3 && "$1" == 'contain-stuck-first-release' ]] \
-  || fail 'operação fechada inválida'
-contain_stuck_first_release "$2" "$3"
+case "${1:-}" in
+  contain-stuck-first-release)
+    [[ $# -eq 3 ]] || fail 'operação fechada inválida'
+    contain_stuck_first_release "$2" "$3"
+    ;;
+  contain-stale-dispatch-v3-port-forward)
+    [[ $# -eq 4 ]] || fail 'operação fechada inválida'
+    contain_stale_dispatch_v3_port_forward "$2" "$3" "$4"
+    ;;
+  *) fail 'operação fechada inválida' ;;
+esac

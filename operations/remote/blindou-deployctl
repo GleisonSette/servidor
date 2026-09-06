@@ -131,8 +131,29 @@ if ! flock --nonblock 9; then
 fi
 
 cleanup_paths=()
+dispatch_v3_port_forward_pgid=''
+
+stop_dispatch_v3_port_forward() {
+  local pgid="${dispatch_v3_port_forward_pgid:-}"
+  [[ "$pgid" =~ ^[1-9][0-9]*$ ]] || {
+    dispatch_v3_port_forward_pgid=''
+    return 0
+  }
+  kill -TERM -- "-${pgid}" 2>/dev/null || kill -TERM "$pgid" 2>/dev/null || true
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    kill -0 -- "-${pgid}" 2>/dev/null || break
+    sleep 0.1
+  done
+  if kill -0 -- "-${pgid}" 2>/dev/null; then
+    kill -KILL -- "-${pgid}" 2>/dev/null || true
+  fi
+  wait "$pgid" 2>/dev/null || true
+  dispatch_v3_port_forward_pgid=''
+}
+
 cleanup() {
   local path resolved
+  stop_dispatch_v3_port_forward
   for path in "${cleanup_paths[@]:-}"; do
     [[ -n "$path" ]] || continue
     resolved="$(readlink -m "$path")"
@@ -3949,6 +3970,7 @@ SQL
 
 provision_dispatch_v3_jetstream() {
   local rendered="$1" mode="${2:-reconcile}" port_forward_log port_forward_pid='' provision_status=0
+  local observed_pgid=''
   [[ "$mode" == 'reconcile' || "$mode" == 'verify' ]] \
     || fail 'modo JetStream Dispatch V3 inválido'
   [[ -f "$DISPATCH_V3_JETSTREAM_PROVISIONER" && ! -L "$DISPATCH_V3_JETSTREAM_PROVISIONER" \
@@ -3956,18 +3978,28 @@ provision_dispatch_v3_jetstream() {
     || fail 'provisionador JetStream V3 ausente ou inseguro'
   port_forward_log="$(mktemp /var/tmp/blindou-dispatch-v3-port-forward.XXXXXX)"
   cleanup_paths+=("$port_forward_log")
-  kube -n "$APP_NAMESPACE" port-forward service/blindou-nats 14222:4222 \
-    >"$port_forward_log" 2>&1 &
+  setsid /usr/local/bin/k3s kubectl -n "$APP_NAMESPACE" \
+    port-forward service/blindou-nats 14222:4222 \
+    9>&- >"$port_forward_log" 2>&1 &
   port_forward_pid=$!
+  dispatch_v3_port_forward_pgid="$port_forward_pid"
   local deadline=$((SECONDS + 30))
   until grep -Fq 'Forwarding from 127.0.0.1:14222' "$port_forward_log"; do
     if ! kill -0 "$port_forward_pid" 2>/dev/null; then
-      wait "$port_forward_pid" || true
+      stop_dispatch_v3_port_forward
       fail 'port-forward fechado do NATS não iniciou'
     fi
-    (( SECONDS < deadline )) || { kill "$port_forward_pid" 2>/dev/null || true; fail 'port-forward NATS excedeu 30 segundos'; }
+    if (( SECONDS >= deadline )); then
+      stop_dispatch_v3_port_forward
+      fail 'port-forward NATS excedeu 30 segundos'
+    fi
     sleep 1
   done
+  observed_pgid="$(ps -o pgid= -p "$port_forward_pid" | tr -d ' ')"
+  if [[ "$observed_pgid" != "$port_forward_pid" ]]; then
+    stop_dispatch_v3_port_forward
+    fail 'port-forward NATS não iniciou em grupo de processo próprio'
+  fi
   local -a provisioner_args=(
     python3 "$DISPATCH_V3_JETSTREAM_PROVISIONER" \
     --endpoint 127.0.0.1:14222 --user blindou-core \
@@ -3983,8 +4015,7 @@ provision_dispatch_v3_jetstream() {
   "${provisioner_args[@]}"
   provision_status=$?
   set -e
-  kill "$port_forward_pid" 2>/dev/null || true
-  wait "$port_forward_pid" 2>/dev/null || true
+  stop_dispatch_v3_port_forward
   rm -f -- "$port_forward_log"
   (( provision_status == 0 )) || fail 'provisionamento JetStream V3 falhou'
 }

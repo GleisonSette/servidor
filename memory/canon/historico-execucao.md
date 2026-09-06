@@ -2215,3 +2215,13 @@ diagnóstico e restauração fechados antes de uma nova candidata.
 - a correção preparada normaliza somente metadata reservada `_nats.*` e mantém
   a comparação estrita do `blindou.stream_incarnation` e de qualquer chave da
   aplicação.
+- a falha do provisionador deixou um `kubectl` órfão, filho de `init`, como
+  único processo de sua sessão e ainda segurando por herança o descritor do
+  lock do `blindou-deployctl`; nenhum workload novo foi ativado;
+- a correção preparada fecha o descritor 9 antes do `exec`, inicia o
+  port-forward em sessão própria e encerra todo o grupo em saída normal, erro
+  ou trap;
+- a contenção do processo já órfão usa uma operação emergencial distinta que
+  exige os dois SHAs e confirmação literal, comprova o arquivo de lock, UID 0,
+  `PPid=1`, executável K3s, nome `kubectl`, idade mínima e sessão unitária antes
+  de terminar somente o PID identificado e registrar recibo root-only.

@@ -90,6 +90,20 @@ grep -Fq 'rollout status deployment/blindou-cloudflared' \
 grep -Fq 'blindou-release-emergencyctl contain-stuck-first-release * blindou-stuck-first-release' \
   "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   || fail 'sudoers não limita a contenção emergencial ao contrato fechado'
+grep -Fq 'contain-stale-dispatch-v3-port-forward * * blindou-stale-dispatch-v3-port-forward' \
+  "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  || fail 'sudoers não limita a contenção do port-forward órfão ao contrato fechado'
+grep -Fq 'target" == "$LOCK_FILE"' "$EMERGENCY_CONTROLLER" \
+  && grep -Fq "\$parent\" == '1'" "$EMERGENCY_CONTROLLER" \
+  && grep -Fq "\$comm\" == 'kubectl'" "$EMERGENCY_CONTROLLER" \
+  && grep -Fq "\$executable\" == '/usr/local/bin/k3s'" "$EMERGENCY_CONTROLLER" \
+  && grep -Fq 'session_members[0]}" == "$holder"' "$EMERGENCY_CONTROLLER" \
+  || fail 'contenção do port-forward não fixa lock, processo e sessão órfã exatos'
+grep -Fq 'setsid /usr/local/bin/k3s kubectl' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq '9>&- >"$port_forward_log" 2>&1 &' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'kill -TERM -- "-${pgid}"' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'stop_dispatch_v3_port_forward' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'lifecycle do port-forward não isola grupo, lock e limpeza'
 grep -Fq 'EMERGENCY_CONTROLLER_SOURCE' "${REMOTE_DIR}/bootstrap-blindou-deployctl.sh" \
   || fail 'bootstrap não instala o controlador emergencial'
 grep -Fq "'operations/remote/blindou-release-emergencyctl'" "$PULL_PROOF_SCRIPT" \
