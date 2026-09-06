@@ -1916,7 +1916,7 @@ configure_edge() {
     || fail 'configuração exige edge bloqueada e vazia'
   [[ ! -t 0 ]] || fail 'token do túnel deve chegar por stdin não interativo'
   IFS= read -r token || fail 'token do túnel não foi recebido'
-  [[ ${#token} -ge 80 && ${#token} -le 4096 && "$token" =~ ^[A-Za-z0-9._~+/=-]+$ ]] \
+  [[ ${#token} -ge 80 && ${#token} -le 4096 && "$token" =~ ^[A-Za-z0-9._~+/=_-]+$ ]] \
     || { unset token; fail 'formato do token do túnel é inválido'; }
   verify_protected_projects
   acquire_controller_lock
