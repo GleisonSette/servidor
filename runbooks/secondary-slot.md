@@ -51,7 +51,9 @@ envia por `stdin` ao bootstrap fixo. O fluxo:
    `bootstrap-secondary-slotctl.sh` após o verificador offline passar;
 5. confirma novamente o status do controlador APIWPP e do Blindou, sem exigir
    APIWPP ativo quando o slot estiver `none`/suspenso, e sem suspender, escalar
-   ou implantar workload;
+   ou implantar workload. Se `blindou-deployctl status` disputar o lock com
+   outra leitura operacional e retornar exatamente lock ocupado, o bootstrap
+   tenta novamente por até doze tentativas de cinco segundos;
 6. gera um `operation_id` no formato
    `YYYYMMDDTHHMMSSZ-<12 caracteres hexadecimais>`;
 7. inicializa somente após confirmar APIWPP exatamente ativo, SaferWPP vazio e

@@ -71,6 +71,22 @@ fail() {
   exit 1
 }
 
+run_blindou_status_gate() {
+  local attempt output code
+  for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    if output="$(/usr/local/sbin/blindou-deployctl status 2>&1 >/dev/null)"; then
+      return 0
+    fi
+    code="$?"
+    if [[ "$code" != 2 || "$output" != *'outra operação Blindou está em andamento'* ]]; then
+      printf '%s\n' "$output" >&2
+      return "$code"
+    fi
+    sleep 5
+  done
+  fail 'blindou-deployctl status permaneceu bloqueado por outra operação'
+}
+
 readonly source_archive='__REMOTE_ARCHIVE__'
 readonly expected_sha256='__EXPECTED_SHA256__'
 readonly git_commit='__GIT_COMMIT__'
@@ -101,7 +117,7 @@ if systemctl is-failed --quiet secondary-slot-metrics.service \
 fi
 /usr/local/sbin/apiwpp-deployctl status >/dev/null
 /usr/local/sbin/blindou-hostctl verify >/dev/null
-/usr/local/sbin/blindou-deployctl status >/dev/null
+run_blindou_status_gate
 
 work_directory=''
 cleanup() {

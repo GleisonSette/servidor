@@ -165,7 +165,24 @@ test "$(hostname)" = apiwpp
 set -eu
 sudo -n /usr/local/sbin/secondary-slotctl status
 sudo -n /usr/local/sbin/apiwpp-deployctl status >/dev/null
-sudo -n /usr/local/sbin/blindou-deployctl status >/dev/null
+blindou_status=failed
+attempt=1
+while [ "$attempt" -le 12 ]; do
+  if sudo -n /usr/local/sbin/blindou-deployctl status >/dev/null; then
+    blindou_status=passed
+    break
+  fi
+  code="$?"
+  if [ "$code" -ne 2 ]; then
+    exit "$code"
+  fi
+  sleep 5
+  attempt=$((attempt + 1))
+done
+if [ "$blindou_status" != passed ]; then
+  printf '%s\n' '[secondary-slot-bootstrap] ERRO: blindou-deployctl status permaneceu bloqueado'
+  exit 2
+fi
 printf 'blindou_deployctl_status=passed\n'
 sudo -n /usr/local/sbin/blindou-hostctl verify
 '@
