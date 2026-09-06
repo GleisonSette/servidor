@@ -203,6 +203,26 @@ deployment_rule = next(
 )
 if set(deployment_rule.get("verbs", [])) != {"delete", "get", "patch", "update", "watch"}:
     fail("RBAC do Deployment do edge diverge")
+edge_unnamed_rules = [
+    rule
+    for rule in edge_role.get("rules", [])
+    if "resourceNames" not in rule
+]
+expected_edge_unnamed_rules = {
+    (("",), ("secrets",), ("create",)),
+    (("apps",), ("deployments",), ("create",)),
+    (("",), ("pods",), ("get", "list", "watch")),
+}
+actual_edge_unnamed_rules = {
+    (
+        tuple(rule.get("apiGroups", [])),
+        tuple(rule.get("resources", [])),
+        tuple(rule.get("verbs", [])),
+    )
+    for rule in edge_unnamed_rules
+}
+if actual_edge_unnamed_rules != expected_edge_unnamed_rules:
+    fail("RBAC não nomeado do edge diverge do mínimo necessário")
 edge_binding_matches = [
     document
     for document in foundation
