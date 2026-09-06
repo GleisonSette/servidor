@@ -45,6 +45,10 @@ function Invoke-CheckedProcess {
     }
 }
 
+function Wait-SecondarySlotRemoteInterval {
+    Start-Sleep -Seconds 15
+}
+
 Push-Location $repositoryRoot
 try {
     Invoke-CheckedProcess -FilePath 'git.exe' `
@@ -112,17 +116,20 @@ test "$(hostname)" = apiwpp
     Invoke-CheckedProcess -FilePath 'ssh.exe' `
         -ArgumentList ($sshArguments + @($server, $remotePreflight)) `
         -FailureMessage 'O preflight da identidade do host falhou.'
+    Wait-SecondarySlotRemoteInterval
     $prepareStaging =
         "install -d -m 0700 '$remoteDirectory' && " +
         "rm -f -- '$remoteTemporaryArchive'"
     Invoke-CheckedProcess -FilePath 'ssh.exe' `
         -ArgumentList ($sshArguments + @($server, $prepareStaging)) `
         -FailureMessage 'Não foi possível preparar o staging remoto.'
+    Wait-SecondarySlotRemoteInterval
 
     $scpArguments = $sshArguments + @($archive, "${server}:$remoteTemporaryArchive")
     Invoke-CheckedProcess -FilePath 'scp.exe' `
         -ArgumentList $scpArguments `
         -FailureMessage 'Não foi possível transportar o arquivo do slot.'
+    Wait-SecondarySlotRemoteInterval
     $finalizeStaging =
         "chmod 0600 '$remoteTemporaryArchive' && " +
         "mv -f -- '$remoteTemporaryArchive' '$remoteArchive' && " +
@@ -130,6 +137,7 @@ test "$(hostname)" = apiwpp
     Invoke-CheckedProcess -FilePath 'ssh.exe' `
         -ArgumentList ($sshArguments + @($server, $finalizeStaging)) `
         -FailureMessage 'O SHA-256 remoto do arquivo do slot diverge.'
+    Wait-SecondarySlotRemoteInterval
 
     Invoke-SecondarySlotSudoBootstrap `
         -SshArguments $sshArguments `
@@ -137,6 +145,7 @@ test "$(hostname)" = apiwpp
         -RemoteArchive $remoteArchive `
         -ExpectedSha256 $expectedSha256 `
         -GitCommit $gitCommit
+    Wait-SecondarySlotRemoteInterval
 
     $postInstall = @'
 sudo -n /usr/local/sbin/secondary-slotctl status

@@ -372,6 +372,8 @@ for invariant in (
     "IdentitiesOnly=yes",
     "BatchMode=yes",
     "StrictHostKeyChecking=yes",
+    "Wait-SecondarySlotRemoteInterval",
+    "Start-Sleep -Seconds 15",
     "apiwpp-deployctl verify",
     "blindou-deployctl status",
     "blindou-hostctl verify",
