@@ -295,7 +295,7 @@ require_production_active_release_state() {
       >/dev/null 2>&1; then
     fail 'Pod administrativo efêmero existe durante a atualização do controlador'
   fi
-  sudo -u apiadmin sudo -n /usr/local/sbin/dre-deployctl verify "$release_id" \
+  "$CONTROLLER_SOURCE" verify "$release_id" \
     >/dev/null || fail 'release ativa não passou pela verificação fechada do controlador'
 }
 
