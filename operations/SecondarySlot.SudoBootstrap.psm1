@@ -308,25 +308,22 @@ function Invoke-SecondarySlotSudoBootstrap {
         -ExpectedSha256 $ExpectedSha256 `
         -GitCommit $GitCommit
     $rootScript = $rootScript.Replace("`r`n", "`n").Replace("`r", "`n")
-    $encodedScript = [Convert]::ToBase64String(
-        [Text.Encoding]::UTF8.GetBytes($rootScript)
-    )
-    $remoteCommand =
-        "sudo -S -p `"`" -- /bin/bash -c 'printf %s $encodedScript | " +
-        "base64 --decode | /bin/bash'"
+    $remoteCommand = "sudo -S -p '' -- /bin/bash"
 
     $envFile = 'C:\github\servidor\.env'
     $password = Read-SecondarySlotSudoPassword -EnvFile $envFile
+    $inputPayload = $null
     try {
-        $password | & ssh.exe @SshArguments $Server $remoteCommand
+        $inputPayload = "$password`n$rootScript"
+        $inputPayload | & ssh.exe @SshArguments $Server $remoteCommand
         if ($LASTEXITCODE -ne 0) {
             throw 'Bootstrap remoto autenticado do slot secundário falhou.'
         }
     }
     finally {
         $password = $null
+        $inputPayload = $null
         $rootScript = $null
-        $encodedScript = $null
         $remoteCommand = $null
     }
 }
