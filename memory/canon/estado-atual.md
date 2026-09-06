@@ -4,22 +4,24 @@ metadata:
   canon_id: canon-estado-atual
   source_path: memory/canon/estado-atual.md
   generated_from: auditoria SSH, runtime K3s, Prometheus e repositórios locais
-  updated_at: 2026-09-02
+  updated_at: 2026-09-06
   status: canonical
 
 ## Escopo e data da evidência
 
 Este canon reúne o estado atual do host: versões, portas, capacidade, backups,
 workloads e serviços. A última auditoria de capacidade ocorreu em 2026-08-26 e
-a última operação DRE foi observada em 2026-09-02. O Blindou permanece ativo;
-o slot APIWPP/SaferWPP está sem ocupante na geração 2. O DRE possui fundação,
+a última operação DRE foi observada em 2026-09-06. O DRE possui fundação,
 Secrets, PostgreSQL/PVC dedicados e a release
 `dre-20260902T173345Z-a191f86039c1` ativa, com API, worker e PostgreSQL Ready.
-O backup completo externo passou. O primeiro restore drill dessa release
-atingiu o timeout de rollout porque o manifesto executava a imagem Alpine como
-UID/GID `999`, inexistente nela, em vez do usuário `postgres` `70`; o PVC
-descartável foi preservado e a correção D043 está pronta para instalação.
-Borda HTTPS e contas privadas ainda não foram concluídas.
+O backup completo externo e o restore descartável passaram. O diagnóstico
+fechado confirmou que o núcleo familiar e as contas `gleison`/`aline` existem
+no banco com os IDs operacionais esperados, mas a reconciliação do recibo ainda
+não foi aplicada porque a atualização do controlador foi bloqueada pelo gate
+cruzado do slot: `secondary-slotctl verify` informa que o Blindou não está
+Ready em `blindou-production`. O slot APIWPP/SaferWPP permanece sem ocupante na
+geração 2 e sem transição pendente. Borda HTTPS, `DRE_API_ORIGIN` e APK
+definitivo permanecem pendentes.
 
 ## DRE ativo e backup completo observado em 2026-09-02
 
@@ -51,8 +53,11 @@ Borda HTTPS e contas privadas ainda não foram concluídas.
   restrito, admissão fail-closed, timer de métricas e regras Prometheus.
 - O atestado root-only está válido na geração 2, com ocupante `none`, zero
   workload APIWPP e zero workload SaferWPP.
-- A verificação posterior à validação DRE retornou
-  `secondary_slot_verify=passed`; o DRE continua fora desse slot.
+- Em 2026-09-06, `secondary-slotctl status` confirmou atestado válido na
+  geração 2, ocupante `none`, zero workload APIWPP, zero workload SaferWPP,
+  admissão instalada e transição pendente ausente. O `verify` passou a reprovar
+  porque a prova cruzada exige Blindou Ready em `blindou-production`; o DRE
+  continua fora desse slot e não houve transição.
 - Fundação PostgreSQL, controladores e workloads SaferWPP continuam ausentes.
 
 ## DRE schema 2 e primeiro deploy persistente observado em 2026-09-02
@@ -152,14 +157,22 @@ Borda HTTPS e contas privadas ainda não foram concluídas.
   verificada, sem reaplicar fundação e com fingerprints imutáveis de produção e
   edge. D041/D040 foram instaladas; a release corrigida
   `dre-20260902T173345Z-a191f86039c1` está saudável com nove migrations. O
-  backup completo `20260902T174349Z-64e638e42c47` passou e o restore chegou à
-  recuperação de WAL, mas a tentativa `20260902T204720Z-30b422d374e8` voltou a
-  atingir o timeout; seu PVC descartável foi removido de forma autenticada por
-  `20260902T210953Z-367f1e0d3738`. D052 está preparada para aplicar
-  `--no-archive-async` no próprio `restore_command`. HTTPS e contas ainda não
-  foram concluídos. A chave Android definitiva já existe protegida fora do Git,
-  mas o APK definitivo ainda não foi gerado. FCM, dispositivo autorizado, saldo
-  inicial e dados financeiros reais continuam ausentes.
+  backup completo `20260902T174349Z-64e638e42c47` passou. Depois das correções
+  D043-D052, o restore descartável `20260902T215544Z-7c17bbe873bc` validou
+  migrations e índices e removeu o PV temporário. O diagnóstico fechado
+  `diagnose-accounts` confirmou em 2026-09-06 a presença de um household, dois
+  IDs de usuário, dois logins e dois usuários no núcleo para os identificadores
+  operacionais esperados. O commit de plataforma `b982e3a` adicionou
+  `reconcile-accounts`, e o commit `f9a2395` fixou o bundle
+  `83ba1ea2da7fcaf04e70f4b5fd4d98c303f6eb515a5beb2364f0bc595d737760`.
+  O bundle foi transportado para
+  `/home/apiadmin/dre-controller-bootstrap-4902604dad96-20260906T134022Z` com
+  owner/modo/SHA conferidos, mas o bootstrap foi recusado antes de substituir
+  arquivos porque `secondary-slotctl verify` reprovou a saúde cruzada do
+  Blindou em `blindou-production`. HTTPS, `DRE_API_ORIGIN`, reconciliação
+  formal das contas e APK definitivo ainda não foram concluídos. A chave
+  Android definitiva já existe protegida fora do Git. FCM, dispositivo
+  autorizado, saldo inicial e dados financeiros reais continuam ausentes.
 
 ## PostgreSQL dedicado Blindou I1 autorizado em 2026-08-29
 

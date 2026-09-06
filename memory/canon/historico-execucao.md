@@ -2102,3 +2102,48 @@ recuperação e D052 foi preparada.
 - D052 sobrescreve somente o `restore_command` do PostgreSQL descartável com
   `--no-archive-async`, mantendo o override de ambiente como defesa adicional.
   O teste do renderer fixa ambos antes de nova instalação.
+
+## 2026-09-06 - Reconciliação de contas DRE preparada e bloqueada por gate Blindou
+
+Resultado: DRE permaneceu saudável; o controlador de reconciliação foi
+publicado, transportado e recusado antes da troca porque a prova cruzada do
+Blindou não está verde.
+
+- O status DRE observado retornou release
+  `dre-20260902T173345Z-a191f86039c1`, gate `passed`, PVC `Bound` e Ready
+  `api=1`, `worker=1`, `postgres=1`; edge continua `blocked` e validação
+  descartável ausente.
+- A ação fechada `diagnose-accounts`, instalada anteriormente, confirmou um
+  household, dois IDs de usuário, dois logins e dois usuários do núcleo para os
+  identificadores operacionais de Gleison/Aline. Como a tentativa anterior
+  criou as linhas mas falhou antes do recibo final, a nova ação
+  `reconcile-accounts` foi preparada para validar o estado existente, exigir
+  auditoria `USER/CREATED`, exigir zero linha financeira inicial e gravar recibo
+  sem ler, imprimir ou persistir senha.
+- Os commits de plataforma `b982e3a` e `f9a2395` atualizaram controlador,
+  sudoers, bootstrap, verificador independente e pinos do bundle. A suíte
+  `scripts/Test-Repository.ps1` passou duas vezes no Windows sem WSL, incluindo
+  `dre_controller_artifacts=passed` e `dre_validation_executor_artifacts=passed`.
+- O bundle
+  `83ba1ea2da7fcaf04e70f4b5fd4d98c303f6eb515a5beb2364f0bc595d737760` foi
+  criado em
+  `C:\Users\gleis\AppData\Local\SaferDock\dre\controller-bundles\dre-controller-bootstrap-4902604dad96-20260906T134022Z`
+  e transportado para
+  `/home/apiadmin/dre-controller-bootstrap-4902604dad96-20260906T134022Z` com
+  owner `apiadmin:apiadmin`, modo `0600` e SHA-256 conferidos. A chave pública
+  continuou com SHA-256
+  `4902604dad96d9b07f4010308d30e3815cb4e76446855d925079be0e3b922ce9`.
+- O bootstrap D030 foi recusado antes de substituir arquivos: inicialmente o
+  gate encontrou `blindou-hostctl` falhando por unit systemd em `failed`; depois
+  `blindou-hostctl verify` voltou a passar, mas `secondary-slotctl verify`
+  continuou reprovando `Blindou não está Ready em blindou-production`.
+- `secondary-slotctl status` mostrou estado válido na geração 2, ocupante
+  `none`, zero workload APIWPP, zero workload SaferWPP, admissão instalada e
+  transição pendente ausente. `blindou-deployctl status` mostrou release
+  `ee4a335236b0e99e5fac4ee3e30a986f0ddc8bb2`, gates `passed`, 12 migrations,
+  conector Cloudflare Ready, Pagar.me ativo, marketplace Shopee pronto para
+  credenciais do tenant e backup `blindou-20260906T132435Z`.
+- Sem `sudo k3s` genérico e sem alterar Blindou, não foi possível identificar
+  pelo controlador fechado qual workload específico causou o `Ready` falso. O
+  próximo avanço do DRE depende de liberar esse gate ou de uma autorização
+  separada para diagnosticar/corrigir o runtime Blindou.

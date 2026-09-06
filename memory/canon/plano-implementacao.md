@@ -421,14 +421,17 @@ Aceite manual:
 
 ## Fase 3B - DRE familiar independente
 
-Status: rollout persistente e backup completo concluídos. A release
-`dre-20260902T173345Z-a191f86039c1` está ativa com nove migrations, API,
-worker, PostgreSQL e PVC dedicados saudáveis. O restore descartável falhou no
-timeout porque o renderer usava UID/GID `999` para uma imagem cujo usuário
-`postgres` é `70`; D043 está em implementação para corrigir, reinstalar o
-controlador, reconciliar o PVC de teste e repetir o restore. HTTPS, contas e APK
-permanecem na sequência autorizada; FCM, saldo inicial e dados financeiros reais
-continuam fora do escopo.
+Status: rollout persistente, backup completo e restore descartável concluídos.
+A release `dre-20260902T173345Z-a191f86039c1` está ativa com nove migrations,
+API, worker, PostgreSQL e PVC dedicados saudáveis. O diagnóstico fechado
+confirmou que o núcleo familiar e as contas `gleison`/`aline` já existem no
+banco com os IDs operacionais esperados, mas falta aplicar a reconciliação
+formal do recibo. A nova ação fechada `reconcile-accounts` está implementada,
+validada e publicada no repositório `servidor`, porém sua instalação foi
+bloqueada antes da troca de arquivos porque o gate cruzado
+`secondary-slotctl verify` informa que o Blindou não está Ready em
+`blindou-production`. HTTPS, `DRE_API_ORIGIN` e APK permanecem pendentes; FCM,
+saldo inicial e dados financeiros reais continuam fora do escopo.
 
 Ordem obrigatória:
 
@@ -452,7 +455,7 @@ Ordem obrigatória:
 9. concluído em 2026-08-31: executor rootless sem daemon e sem acesso ao K3s
    instalado; `make release-check` e `make e2e` aprovados em ambiente sintético
    descartável, com limpeza comprovada dos recursos da execução;
-10. em andamento sob autorização explícita de 2026-09-01: a segunda correção
+10. concluído sob autorização explícita de 2026-09-01: a segunda correção
    fail-closed e a validação `69716bb` passaram; o código 82 do pgBackRest foi
    diagnosticado sob D038; a causa foi corrigida em `8c52807`, cujos gates,
    imagens e release renovada passaram. D039 foi instalado, a validação
@@ -464,13 +467,18 @@ Ordem obrigatória:
    preparada para atualizar o controlador preservando uma release ativa por
    verificação dupla e fingerprints. D041/D040 foram instaladas; a release
    `a191f86` foi validada, o upgrade PostgreSQL e o backup completo passaram.
-   As correções D043-D051 levaram o drill até a recuperação de WAL e
-   reconciliaram com segurança cada PVC preservado. D052 está validada offline
-   e precisa ser instalada para repetir o restore com `--no-archive-async` no
-   comando efetivo;
-11. em andamento sob a mesma autorização: criar rota HTTPS, configurar
-   `DRE_API_ORIGIN` e chave Android definitiva. FCM, saldo inicial e dados
-   financeiros reais permanecem fora desta operação.
+   As correções D043-D052 foram instaladas depois e o restore descartável
+   `20260902T215544Z-7c17bbe873bc` passou, validando migrations e índices e
+   removendo o PV temporário;
+11. bloqueado por gate externo sob a mesma autorização: `diagnose-accounts`
+   confirmou o estado existente das contas e `reconcile-accounts` foi
+   implementado nos commits de plataforma `b982e3a`/`f9a2395`, com bundle
+   `83ba1ea2da7fcaf04e70f4b5fd4d98c303f6eb515a5beb2364f0bc595d737760`
+   transportado ao servidor. O bootstrap foi recusado antes de instalar porque
+   `secondary-slotctl verify` reprova Blindou Ready em `blindou-production`.
+   Após liberar esse gate, aplicar a reconciliação, criar rota HTTPS, configurar
+   `DRE_API_ORIGIN` e gerar/instalar o APK definitivo. FCM, saldo inicial e
+   dados financeiros reais permanecem fora desta operação.
 
 Aceite automatizado offline:
 
