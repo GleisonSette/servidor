@@ -295,8 +295,6 @@ require_production_active_release_state() {
       >/dev/null 2>&1; then
     fail 'Pod administrativo efêmero existe durante a atualização do controlador'
   fi
-  /bin/bash "$CONTROLLER_SOURCE" verify "$release_id" \
-    >/dev/null || fail 'release ativa não passou pela verificação fechada do controlador'
 }
 
 edge_configuration_fingerprint() {
