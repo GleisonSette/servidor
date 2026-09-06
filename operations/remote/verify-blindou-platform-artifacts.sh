@@ -835,6 +835,19 @@ grep -Fq 'ensure_ghcr_pull_secret failed-update' "${REMOTE_DIR}/blindou-deployct
   || fail 'recuperação não valida GHCR sem depender do runtime indisponível'
 grep -Fq 'verify_data_foundation failed-update' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'recuperação de dados ainda depende do gate do runtime indisponível'
+grep -Fq "repair-dispatch-v3-nats-credentials)" "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq "blindou-dispatch-v3-nats-credentials" \
+    "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  && grep -Fq 'write_dispatch_v3_value "$name" "n$(openssl rand -hex 32)"' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'verify_dispatch_v3_nats_credentials' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'reparo fechado das credenciais NATS Dispatch V3 está incompleto'
+grep -Fq "reparo NATS é proibido depois da migration expand" \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq "reparo NATS é proibido com workload Dispatch V3 existente" \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'reparo NATS não está limitado ao estado preparado e inativo'
 grep -Fq "SELECT to_regclass('public.dispatch_owner_controls_v3') IS NOT NULL" \
     "${REMOTE_DIR}/blindou-deployctl" \
   && ! grep -Fq "ELSE (SELECT count(*) FROM public.dispatch_owner_controls_v3" \

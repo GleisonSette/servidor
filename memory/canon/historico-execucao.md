@@ -2188,3 +2188,9 @@ diagnóstico e restauração fechados antes de uma nova candidata.
   ao verificar dados e recriar a credencial GHCR. O caminho foi corrigido para
   validar fundação de dados, credencial e Secrets diretamente, sem reduzir os
   demais vínculos da restauração.
+- a recuperação fechada restaurou a release
+  `ee4a335236b0e99e5fac4ee3e30a986f0ddc8bb2`; fundação, dados, slot, host,
+  API, readiness, painel e Tunnel voltaram a passar, ainda com 12 migrations;
+- o reparo preparado gira somente as quatro credenciais NATS V3 inativas para
+  um formato com prefixo alfabético e 256 bits aleatórios, confere cofre contra
+  Kubernetes sem mostrar valores e é recusado após expand ou com workload V3.

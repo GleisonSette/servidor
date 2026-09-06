@@ -742,6 +742,23 @@ dados, a credencial GHCR e os Secrets existentes são validados diretamente;
 essa validação não depende de `secondary-slotctl verify`, pois o runtime
 indisponível é justamente o objeto da restauração.
 
+O parser do NATS interpreta uma variável de ambiente não delimitada como um
+valor tipado; uma senha hexadecimal iniciada por número pode ser recusada antes
+do processo abrir a porta. As credenciais NATS novas do Dispatch V3 usam um
+prefixo alfabético seguido por 256 bits aleatórios. Se o material já preparado
+estiver no formato antigo, executar somente enquanto `state=prepared`, antes da
+migration expand e sem workload V3:
+
+```bash
+sudo -n /usr/local/sbin/blindou-deployctl \
+  repair-dispatch-v3-nats-credentials blindou-dispatch-v3-nats-credentials
+```
+
+A operação gira apenas as quatro credenciais V3 ainda inativas, republica os
+Secrets correspondentes, compara cofre e Kubernetes sem exibir valores e grava
+recibo root-only. Ela falha fechada depois da migration expand ou diante de
+qualquer workload V3 existente.
+
 O Job de migration é observado por estado terminal, não somente por
 `Complete`. `Failed` encerra a espera imediatamente; ausência de estado
 terminal continua limitada a 600 segundos. Antes do rollback, o controlador

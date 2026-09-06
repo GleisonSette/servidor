@@ -79,6 +79,7 @@ readonly DISPATCH_V3_R2_SECRET_KEY_FILE="${DISPATCH_V3_SECRET_DIR}/r2-secret-acc
 readonly DISPATCH_V3_PROVIDER_ENDPOINT_FILE="${DISPATCH_V3_SECRET_DIR}/provider-endpoint"
 readonly DISPATCH_V3_STREAM_INCARNATION_FILE="${DISPATCH_V3_SECRET_DIR}/stream-incarnation"
 readonly DISPATCH_V3_STATE="${STATE_ROOT}/dispatch-v3.state"
+readonly DISPATCH_V3_NATS_REPAIR_RECEIPT="${STATE_ROOT}/dispatch-v3-nats-repair.state"
 readonly DISPATCH_V3_EXPECTED_DEBEZIUM_IMAGE='ghcr.io/gleisonsette/blindou-debezium@sha256:04da6c9bfe2276985d8c30e5444b395a63467111225750c06d15d908c8595e08'
 readonly ALERT_RECEIPT="${STATE_ROOT}/alert-receiver.state"
 readonly UI_REVIEW_RECEIPT="${STATE_ROOT}/ui-review-mode.state"
@@ -107,6 +108,7 @@ readonly ALERT_DELIVERY_CONFIRMATION='blindou-alert-delivered'
 readonly OFFSITE_BACKUP_CONFIRMATION='blindou-offsite-backup'
 readonly RELEASE_GATES_CONFIRMATION='blindou-release-gates'
 readonly DISPATCH_V3_SECRETS_CONFIRMATION='blindou-dispatch-v3-secrets'
+readonly DISPATCH_V3_NATS_REPAIR_CONFIRMATION='blindou-dispatch-v3-nats-credentials'
 readonly DISPATCH_V3_ACTIVATION_CONFIRMATION='blindou-dispatch-v3-active'
 readonly FAILED_UPDATE_RECOVERY_CONFIRMATION='blindou-failed-update-recovery'
 readonly SUPERADMIN_CONFIRMATION='blindou-bootstrap-superadmin'
@@ -164,6 +166,7 @@ cleanup() {
       "${DISPATCH_V3_SECRET_DIR}"/*.tmp|"${DISPATCH_V3_RESOLVER_PKI_DIR}"/*.tmp|\
       "${DISPATCH_V3_RESOLVER_PKI_DIR}"/*.csr|"${DISPATCH_V3_RESOLVER_PKI_DIR}"/*.ext|\
       "${DISPATCH_V3_STATE}.tmp"|/var/tmp/blindou-dispatch-v3-*|\
+      "${DISPATCH_V3_NATS_REPAIR_RECEIPT}.tmp"|\
       "${FAILED_UPDATE_RECOVERY_RECEIPT}.tmp"|\
       "${UI_REVIEW_RECEIPT}.tmp"|\
       "${NATS_PKI_DIR}"/*.tmp|"${NATS_PKI_DIR}"/server-ext.*|\
@@ -2623,6 +2626,18 @@ ensure_dispatch_v3_random_hex() {
     || write_dispatch_v3_value "$name" "$(openssl rand -hex 32)"
 }
 
+dispatch_v3_nats_password_is_parser_safe() {
+  local path="$1"
+  dispatch_v3_file_is_secure "$path" \
+    && [[ "$(<"$path")" =~ ^[A-Za-z][A-Za-z0-9_-]{31,127}$ ]]
+}
+
+ensure_dispatch_v3_nats_password() {
+  local name="$1"
+  dispatch_v3_nats_password_is_parser_safe "${DISPATCH_V3_SECRET_DIR}/${name}" \
+    || write_dispatch_v3_value "$name" "n$(openssl rand -hex 32)"
+}
+
 dispatch_v3_r2_read_only_probe() {
   local read_access="$1" read_secret="$2" write_access write_secret
   local workdir object_key payload downloaded sink put_code get_code denied_put denied_delete cleanup_code result=0
@@ -2720,9 +2735,12 @@ generate_dispatch_v3_resolver_pki() {
 generate_dispatch_v3_internal_material() {
   install -d -o root -g root -m 0700 "$DISPATCH_V3_SECRET_DIR"
   local name
-  for name in authority-db-password debezium-db-password nats-debezium-password \
-    nats-sender-password nats-authority-password nats-api-password; do
+  for name in authority-db-password debezium-db-password; do
     ensure_dispatch_v3_random_hex "$name"
+  done
+  for name in nats-debezium-password nats-sender-password \
+    nats-authority-password nats-api-password; do
+    ensure_dispatch_v3_nats_password "$name"
   done
   if ! dispatch_v3_file_is_secure "$DISPATCH_V3_STREAM_INCARNATION_FILE"; then
     write_dispatch_v3_value stream-incarnation "$(</proc/sys/kernel/random/uuid)"
@@ -2848,6 +2866,26 @@ verify_dispatch_v3_kubernetes_material() {
     || fail 'ConfigMap Dispatch V3 diverge do contrato fechado'
 }
 
+verify_dispatch_v3_nats_credentials() {
+  local file key secret output
+  while IFS='|' read -r file secret key; do
+    dispatch_v3_nats_password_is_parser_safe "${DISPATCH_V3_SECRET_DIR}/${file}" \
+      || fail "credencial NATS Dispatch V3 incompatível com o parser: ${file}"
+    output="go-template={{index .data \"${key}\"}}"
+    kube -n "$APP_NAMESPACE" get secret "$secret" -o "$output" \
+      | base64 -d | cmp -s -- - "${DISPATCH_V3_SECRET_DIR}/${file}" \
+      || fail "Secret NATS Dispatch V3 diverge do cofre: ${secret}/${key}"
+  done <<'EOF'
+nats-debezium-password|blindou-nats-auth|debezium-v3-password
+nats-debezium-password|blindou-debezium-v3|nats-password
+nats-sender-password|blindou-nats-auth|sender-v3-password
+nats-sender-password|blindou-dispatch-sender-v3-nats|password
+nats-authority-password|blindou-nats-auth|authority-v3-password
+nats-authority-password|blindou-dispatch-authority-v3-nats|password
+nats-api-password|blindou-nats-auth|api-v3-password
+EOF
+}
+
 provision_dispatch_v3_secrets() {
   [[ "${1:-}" == "$DISPATCH_V3_SECRETS_CONFIRMATION" ]] \
     || fail "confirmação exigida: ${DISPATCH_V3_SECRETS_CONFIRMATION}"
@@ -2882,6 +2920,7 @@ provision_dispatch_v3_secrets() {
   create_runtime_kubernetes_material
   verify_runtime_material
   verify_dispatch_v3_kubernetes_material
+  verify_dispatch_v3_nats_credentials
   for deployment in blindou-backend blindou-ml-affiliate-connector blindou-redirector; do
     kube -n "$APP_NAMESPACE" rollout status "deployment/${deployment}" --timeout=300s >/dev/null
   done
@@ -2893,6 +2932,42 @@ provision_dispatch_v3_secrets() {
   install -o root -g root -m 0600 "${DISPATCH_V3_STATE}.tmp" "$DISPATCH_V3_STATE"
   rm -f -- "${DISPATCH_V3_STATE}.tmp"
   pass 'Secrets, TLS, credencial R2 read-only e logical decoding do Dispatch V3 preparados'
+}
+
+repair_dispatch_v3_nats_credentials() {
+  local confirmation="$1" workload name
+  [[ "$confirmation" == "$DISPATCH_V3_NATS_REPAIR_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${DISPATCH_V3_NATS_REPAIR_CONFIRMATION}"
+  require_platform_preconditions
+  verify_data_foundation >/dev/null
+  [[ -f "$DISPATCH_V3_STATE" && ! -L "$DISPATCH_V3_STATE" \
+      && "$(stat -c '%U:%G:%a' "$DISPATCH_V3_STATE")" == 'root:root:600' \
+      && "$(sed -n 's/^state=//p' "$DISPATCH_V3_STATE")" == 'prepared' ]] \
+    || fail 'reparo NATS exige Dispatch V3 preparado e inativo'
+  ! dispatch_v3_expand_migration_applied \
+    || fail 'reparo NATS é proibido depois da migration expand'
+  for workload in statefulset/blindou-debezium-v3 \
+    deployment/blindou-dispatch-authority-v3 deployment/blindou-dispatch-sender-v3; do
+    ! kube -n "$APP_NAMESPACE" get "$workload" >/dev/null 2>&1 \
+      || fail 'reparo NATS é proibido com workload Dispatch V3 existente'
+  done
+  for name in nats-debezium-password nats-sender-password \
+    nats-authority-password nats-api-password; do
+    write_dispatch_v3_value "$name" "n$(openssl rand -hex 32)"
+  done
+  create_dispatch_v3_kubernetes_material
+  verify_dispatch_v3_kubernetes_material
+  verify_dispatch_v3_nats_credentials
+  verify_runtime_material
+  {
+    printf 'schema=1\nstate=repaired\nformat=alpha-prefixed-256-bit-hex\n'
+    printf 'repaired_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } >"${DISPATCH_V3_NATS_REPAIR_RECEIPT}.tmp"
+  cleanup_paths+=("${DISPATCH_V3_NATS_REPAIR_RECEIPT}.tmp")
+  install -o root -g root -m 0600 \
+    "${DISPATCH_V3_NATS_REPAIR_RECEIPT}.tmp" "$DISPATCH_V3_NATS_REPAIR_RECEIPT"
+  rm -f -- "${DISPATCH_V3_NATS_REPAIR_RECEIPT}.tmp"
+  pass 'quatro credenciais NATS Dispatch V3 giradas e verificadas sem ativar workload'
 }
 
 create_runtime_kubernetes_material() {
@@ -3937,6 +4012,7 @@ verify_dispatch_v3_runtime() {
     || fail 'estado do Dispatch V3 inválido'
   verify_runtime_material
   verify_dispatch_v3_kubernetes_material
+  verify_dispatch_v3_nats_credentials
   verify_data_foundation >/dev/null
   if ! dispatch_v3_expand_migration_applied; then
     [[ "$state" == 'prepared' ]] || fail 'Dispatch V3 ativo sem migration expand'
@@ -4538,6 +4614,11 @@ case "${1:-}" in
     [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl provision-dispatch-v3-secrets CONFIRMAÇÃO'
     provision_dispatch_v3_secrets "$2"
     ;;
+  repair-dispatch-v3-nats-credentials)
+    [[ $# -eq 2 ]] \
+      || fail 'uso: blindou-deployctl repair-dispatch-v3-nats-credentials CONFIRMAÇÃO'
+    repair_dispatch_v3_nats_credentials "$2"
+    ;;
   provision-pagarme-credential)
     [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl provision-pagarme-credential CONFIRMAÇÃO'
     provision_pagarme_credential "$2"
@@ -4673,6 +4754,6 @@ case "${1:-}" in
     metrics
     ;;
   *)
-    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-r2-runtime-credential|verify-pagarme-credential|verify-pagarme-plans|verify-marketplaces-runtime|verify-dispatch-v3|diagnose-failed-update RELEASE_ID|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|provision-r2-runtime-credential CONFIRMAÇÃO|provision-dispatch-v3-secrets CONFIRMAÇÃO|provision-pagarme-credential CONFIRMAÇÃO|rotate-pagarme-webhook-secret CONFIRMAÇÃO|provision-pagarme-plans CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|provision-runtime-secrets CONFIRMAÇÃO|provision-ui-review-runtime CONFIRMAÇÃO|activate-pagarme-runtime RELEASE_ID CONFIRMAÇÃO|activate-marketplaces-runtime RELEASE_ID CONFIRMAÇÃO|activate-dispatch-v3-runtime RELEASE_ID CONFIRMAÇÃO|confirm-alert-delivery CONFIRMAÇÃO|confirm-offsite-backup BACKUP_ID SHA256 CONFIRMAÇÃO|activate-release-gates RELEASE_ID CONFIRMAÇÃO|validate-release RELEASE_ID|apply RELEASE_ID|recover-failed-update RELEASE_FALHA RELEASE_ANTERIOR CONFIRMAÇÃO|bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO|bootstrap-additional-superadmin RELEASE_ID IDENTIDADE CONFIRMAÇÃO|reset-additional-superadmin-password RELEASE_ID IDENTIDADE CONFIRMAÇÃO|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
+    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-r2-runtime-credential|verify-pagarme-credential|verify-pagarme-plans|verify-marketplaces-runtime|verify-dispatch-v3|diagnose-failed-update RELEASE_ID|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|provision-r2-runtime-credential CONFIRMAÇÃO|provision-dispatch-v3-secrets CONFIRMAÇÃO|repair-dispatch-v3-nats-credentials CONFIRMAÇÃO|provision-pagarme-credential CONFIRMAÇÃO|rotate-pagarme-webhook-secret CONFIRMAÇÃO|provision-pagarme-plans CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|verify-backup|export-latest-backup|provision-runtime-secrets CONFIRMAÇÃO|provision-ui-review-runtime CONFIRMAÇÃO|activate-pagarme-runtime RELEASE_ID CONFIRMAÇÃO|activate-marketplaces-runtime RELEASE_ID CONFIRMAÇÃO|activate-dispatch-v3-runtime RELEASE_ID CONFIRMAÇÃO|confirm-alert-delivery CONFIRMAÇÃO|confirm-offsite-backup BACKUP_ID SHA256 CONFIRMAÇÃO|activate-release-gates RELEASE_ID CONFIRMAÇÃO|validate-release RELEASE_ID|apply RELEASE_ID|recover-failed-update RELEASE_FALHA RELEASE_ANTERIOR CONFIRMAÇÃO|bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO|bootstrap-additional-superadmin RELEASE_ID IDENTIDADE CONFIRMAÇÃO|reset-additional-superadmin-password RELEASE_ID IDENTIDADE CONFIRMAÇÃO|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
     ;;
 esac

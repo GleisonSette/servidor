@@ -277,6 +277,13 @@ de 12 migrations permaneceram anteriores. Como o rollback automático exigia a
 saúde que precisava restaurar, o controlador prepara diagnóstico sanitizado e
 recuperação fechada vinculada aos SHAs antes de qualquer nova tentativa.
 
+A recuperação fechada restaurou a release anterior e todos os gates vivos. O
+diagnóstico provou que uma credencial hexadecimal iniciada por número foi
+interpretada como sintaxe pelo parser NATS. Antes de renovar backup e gates, o
+controlador deve girar as quatro credenciais V3 inativas para o formato com
+prefixo alfabético, conferir os Secrets e registrar recibo root-only; a mesma
+operação é proibida depois da migration expand ou com workload V3 existente.
+
 Ordem obrigatória da extensão:
 
 1. validar, publicar e instalar o controlador D055 sem alterar o runtime por
