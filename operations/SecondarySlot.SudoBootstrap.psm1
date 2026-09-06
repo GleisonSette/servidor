@@ -307,6 +307,7 @@ function Invoke-SecondarySlotSudoBootstrap {
         -RemoteArchive $RemoteArchive `
         -ExpectedSha256 $ExpectedSha256 `
         -GitCommit $GitCommit
+    $rootScript = $rootScript.Replace("`r`n", "`n").Replace("`r", "`n")
     $encodedScript = [Convert]::ToBase64String(
         [Text.Encoding]::UTF8.GetBytes($rootScript)
     )

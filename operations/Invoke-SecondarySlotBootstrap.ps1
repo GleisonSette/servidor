@@ -49,6 +49,17 @@ function Wait-SecondarySlotRemoteInterval {
     Start-Sleep -Seconds 15
 }
 
+function ConvertTo-SecondarySlotRemoteLf {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Script
+    )
+
+    return $Script.Replace("`r`n", "`n").Replace("`r", "`n")
+}
+
 Push-Location $repositoryRoot
 try {
     Invoke-CheckedProcess -FilePath 'git.exe' `
@@ -113,6 +124,7 @@ try {
 set -eu
 test "$(hostname)" = apiwpp
 '@
+    $remotePreflight = ConvertTo-SecondarySlotRemoteLf -Script $remotePreflight
     Invoke-CheckedProcess -FilePath 'ssh.exe' `
         -ArgumentList ($sshArguments + @($server, $remotePreflight)) `
         -FailureMessage 'O preflight da identidade do host falhou.'
@@ -120,6 +132,7 @@ test "$(hostname)" = apiwpp
     $prepareStaging =
         "install -d -m 0700 '$remoteDirectory' && " +
         "rm -f -- '$remoteTemporaryArchive'"
+    $prepareStaging = ConvertTo-SecondarySlotRemoteLf -Script $prepareStaging
     Invoke-CheckedProcess -FilePath 'ssh.exe' `
         -ArgumentList ($sshArguments + @($server, $prepareStaging)) `
         -FailureMessage 'Não foi possível preparar o staging remoto.'
@@ -134,6 +147,7 @@ test "$(hostname)" = apiwpp
         "chmod 0600 '$remoteTemporaryArchive' && " +
         "mv -f -- '$remoteTemporaryArchive' '$remoteArchive' && " +
         "test `$(sha256sum '$remoteArchive' | cut -d' ' -f1) = '$expectedSha256'"
+    $finalizeStaging = ConvertTo-SecondarySlotRemoteLf -Script $finalizeStaging
     Invoke-CheckedProcess -FilePath 'ssh.exe' `
         -ArgumentList ($sshArguments + @($server, $finalizeStaging)) `
         -FailureMessage 'O SHA-256 remoto do arquivo do slot diverge.'
@@ -148,12 +162,14 @@ test "$(hostname)" = apiwpp
     Wait-SecondarySlotRemoteInterval
 
     $postInstall = @'
+set -eu
 sudo -n /usr/local/sbin/secondary-slotctl status
 sudo -n /usr/local/sbin/apiwpp-deployctl verify
 sudo -n /usr/local/sbin/blindou-deployctl status >/dev/null
 printf 'blindou_deployctl_status=passed\n'
 sudo -n /usr/local/sbin/blindou-hostctl verify
 '@
+    $postInstall = ConvertTo-SecondarySlotRemoteLf -Script $postInstall
     Invoke-CheckedProcess -FilePath 'ssh.exe' `
         -ArgumentList ($sshArguments + @($server, $postInstall)) `
         -FailureMessage 'A verificação posterior à instalação falhou.'
