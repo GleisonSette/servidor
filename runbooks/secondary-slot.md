@@ -49,8 +49,9 @@ envia por `stdin` ao bootstrap fixo. O fluxo:
    SHA-256 local e remoto;
 4. cria um snapshot root-owned, repete o hash e executa somente
    `bootstrap-secondary-slotctl.sh` após o verificador offline passar;
-5. confirma novamente APIWPP e Blindou, sem suspender, escalar ou implantar
-   workload;
+5. confirma novamente o status do controlador APIWPP e do Blindou, sem exigir
+   APIWPP ativo quando o slot estiver `none`/suspenso, e sem suspender, escalar
+   ou implantar workload;
 6. gera um `operation_id` no formato
    `YYYYMMDDTHHMMSSZ-<12 caracteres hexadecimais>`;
 7. inicializa somente após confirmar APIWPP exatamente ativo, SaferWPP vazio e

@@ -164,7 +164,7 @@ test "$(hostname)" = apiwpp
     $postInstall = @'
 set -eu
 sudo -n /usr/local/sbin/secondary-slotctl status
-sudo -n /usr/local/sbin/apiwpp-deployctl verify
+sudo -n /usr/local/sbin/apiwpp-deployctl status >/dev/null
 sudo -n /usr/local/sbin/blindou-deployctl status >/dev/null
 printf 'blindou_deployctl_status=passed\n'
 sudo -n /usr/local/sbin/blindou-hostctl verify
