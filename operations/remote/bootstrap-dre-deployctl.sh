@@ -424,39 +424,20 @@ wait_for_protected_locks_release() {
   done
 }
 
-run_protected_gate() {
-  local label="$1"
-  local busy_message="$2"
-  shift 2
-  local output attempt code line
-  output="$(mktemp)"
-  for ((attempt = 1; attempt <= 12; attempt++)); do
-    if "$@" >"$output" 2>&1; then
-      rm -f -- "$output"
-      return 0
-    else
-      code=$?
-    fi
-    if [[ "$code" -ne 2 ]] || ! grep -Fq -- "$busy_message" "$output"; then
-      while IFS= read -r line; do
-        printf '[bootstrap-dre-deployctl] %s: %s\n' "$label" "$line" >&2
-      done <"$output"
-      rm -f -- "$output"
-      fail "${label} não está íntegro"
-    fi
-    if [[ "$attempt" -lt 12 ]]; then
-      sleep 5
-    fi
-  done
-  rm -f -- "$output"
-  fail "${label} permaneceu ocupado por 60 segundos"
+single_status_field() {
+  local key="$1" source="$2" count
+  count="$(grep -Ec "^${key}=" <<<"$source")"
+  [[ "$count" == 1 ]] || fail "campo ${key} ausente ou repetido no status protegido"
+  grep -E "^${key}=" <<<"$source" | cut -d= -f2-
 }
 
 run_secondary_slot_gate() {
   local output output_file attempt code occupant apiwpp_workloads saferwpp_workloads
+  local pending_transition admission_installed observed_apiwpp_state
+  local observed_apiwpp_workloads observed_saferwpp_workloads
   output_file="$(mktemp)"
   for ((attempt = 1; attempt <= 12; attempt++)); do
-    if sudo -u apiadmin sudo -n /usr/local/sbin/secondary-slotctl verify \
+    if sudo -u apiadmin sudo -n /usr/local/sbin/secondary-slotctl status \
         >"$output_file" 2>&1; then
       output="$(<"$output_file")"
       rm -f -- "$output_file"
@@ -478,33 +459,47 @@ run_secondary_slot_gate() {
     fi
     sleep 5
   done
-  if [[ "$output" =~ ^secondary_slot_verify=passed[[:space:]]occupant=(none|apiwpp|saferwpp)[[:space:]]generation=([0-9]+)[[:space:]]apiwpp_workloads=([0-9]+)[[:space:]]saferwpp_workloads=([0-9]+)$ ]]; then
-    occupant="${BASH_REMATCH[1]}"
-    apiwpp_workloads="${BASH_REMATCH[3]}"
-    saferwpp_workloads="${BASH_REMATCH[4]}"
-  else
-    fail 'atestado do slot secundário possui formato inesperado'
-  fi
+  grep -Fxq 'state=valid' <<<"$output" \
+    || fail 'estado do slot secundário não é válido'
+  occupant="$(single_status_field active_occupant "$output")"
+  apiwpp_workloads="$(single_status_field apiwpp_workloads "$output")"
+  saferwpp_workloads="$(single_status_field saferwpp_workloads "$output")"
+  pending_transition="$(single_status_field pending_transition "$output")"
+  admission_installed="$(single_status_field admission_installed "$output")"
+  observed_apiwpp_state="$(single_status_field observed_apiwpp_state "$output")"
+  observed_apiwpp_workloads="$(single_status_field observed_apiwpp_workloads "$output")"
+  observed_saferwpp_workloads="$(single_status_field observed_saferwpp_workloads "$output")"
+  [[ "$pending_transition" == absent ]] \
+    || fail 'slot secundário possui transição pendente'
+  [[ "$admission_installed" == true ]] \
+    || fail 'admissão do slot secundário não está instalada'
+  [[ "$apiwpp_workloads" =~ ^[0-9]+$ && "$saferwpp_workloads" =~ ^[0-9]+$ \
+      && "$observed_apiwpp_workloads" =~ ^[0-9]+$ \
+      && "$observed_saferwpp_workloads" =~ ^[0-9]+$ ]] \
+    || fail 'contagem do slot secundário não é numérica'
+  [[ "$apiwpp_workloads" == "$observed_apiwpp_workloads" \
+      && "$saferwpp_workloads" == "$observed_saferwpp_workloads" ]] \
+    || fail 'contagem observada do slot secundário diverge do atestado'
   case "$occupant" in
     none)
       [[ "$apiwpp_workloads" == 0 && "$saferwpp_workloads" == 0 ]] \
         || fail 'slot none possui workload ativo'
+      [[ "$observed_apiwpp_state" == suspended ]] \
+        || fail 'slot none exige APIWPP observado como suspenso'
       ;;
     apiwpp)
       [[ "$saferwpp_workloads" == 0 ]] || fail 'slot APIWPP possui workload SaferWPP'
-      if [[ "$apiwpp_workloads" != 0 ]]; then
-        run_protected_gate APIWPP 'another apiwpp deployment is already running' \
-          sudo -u apiadmin sudo -n /usr/local/sbin/apiwpp-deployctl verify
-      fi
+      [[ "$apiwpp_workloads" == 0 || "$observed_apiwpp_state" == active ]] \
+        || fail 'slot APIWPP ativo não corresponde ao runtime observado'
       ;;
     saferwpp)
       [[ "$apiwpp_workloads" == 0 && "$saferwpp_workloads" != 0 ]] \
         || fail 'slot SaferWPP possui contagem incompatível'
-      [[ -x /usr/local/sbin/saferwpp-deployctl \
-        && ! -L /usr/local/sbin/saferwpp-deployctl ]] \
-        || fail 'SaferWPP ocupante não possui controlador fechado'
-      sudo -u apiadmin sudo -n /usr/local/sbin/saferwpp-deployctl verify >/dev/null \
-        || fail 'SaferWPP ocupante não está íntegro'
+      [[ "$observed_apiwpp_state" == suspended ]] \
+        || fail 'slot SaferWPP exige APIWPP observado como suspenso'
+      ;;
+    *)
+      fail 'ocupante do slot secundário é desconhecido'
       ;;
   esac
 }
@@ -548,15 +543,11 @@ python3 "$ARTIFACT_VERIFIER"
 visudo -cf "$SUDOERS_SOURCE" >/dev/null
 logrotate --debug "$LOGROTATE_SOURCE" >/dev/null 2>&1
 promtool check rules "$CONTROLLER_ALERTS_SOURCE" >/dev/null
-for controller in /usr/local/sbin/apiwpp-deployctl \
-  /usr/local/sbin/blindou-deployctl /usr/local/sbin/secondary-slotctl; do
+for controller in /usr/local/sbin/secondary-slotctl; do
   [[ -x "$controller" && ! -L "$controller" ]] \
     || fail "controlador de proteção ausente: ${controller}"
 done
 reset_dre_unit_failures
-wait_for_protected_locks_release
-run_protected_gate Blindou 'outra operação Blindou está em andamento' \
-  sudo -u apiadmin sudo -n /usr/local/sbin/blindou-deployctl status
 wait_for_protected_locks_release
 run_secondary_slot_gate
 
@@ -808,9 +799,6 @@ systemctl reload prometheus.service
 flock --unlock 6
 exec 6>&-
 platform_lock_held=false
-wait_for_protected_locks_release
-run_protected_gate Blindou 'outra operação Blindou está em andamento' \
-  sudo -u apiadmin sudo -n /usr/local/sbin/blindou-deployctl status
 wait_for_protected_locks_release
 run_secondary_slot_gate
 case "$production_bootstrap_mode" in

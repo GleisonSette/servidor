@@ -365,12 +365,15 @@ for invariant in (
     "flock --wait 60 10",
     "attempt <= 12",
     "sleep 5",
-    "outra operação Blindou está em andamento",
     "outra operação do slot está em andamento",
     "release_shared_maintenance_locks",
-    "/usr/local/sbin/blindou-deployctl status",
+    "single_status_field",
+    "/usr/local/sbin/secondary-slotctl status",
+    "pending_transition",
+    "admission_installed",
+    "observed_apiwpp_state",
+    "observed_saferwpp_workloads",
     "protected_fingerprint",
-    "occupant=(none|apiwpp|saferwpp)",
     "slot none possui workload ativo",
     "namespaces+=(\"$namespace\")",
     "readonly BLINDOU_DATA_LOCK='/run/lock/blindou-datactl.lock'",
@@ -481,6 +484,10 @@ for forbidden in ("eval ", "bash -c", "sh -c", "kubectl $", "sudo -S"):
         fail(f"interface genérica detectada no controlador: {forbidden}")
 if "/usr/local/sbin/blindou-deployctl verify " in controller:
     fail("controlador DRE chama ação Blindou inexistente")
+if "/usr/local/sbin/blindou-deployctl status" in controller:
+    fail("controlador DRE depende do status operacional do Blindou")
+if "/usr/local/sbin/secondary-slotctl verify" in controller:
+    fail("controlador DRE depende do verify do slot, que inclui Ready do Blindou")
 if "get statefulset,daemonset,job,cronjob,service,pvc,configmap" in controller:
     fail("CA sistêmica do namespace voltou a ser tratada como objeto proibido genérico")
 if 'kube -n "$EDGE_NAMESPACE" get deployment,secret -o json' in controller.replace(
@@ -579,9 +586,7 @@ for invariant in (
     "verify-dre-controller-artifacts.py",
     "PUBLIC_KEY_SHA256",
     "ED25519 Public-Key",
-    "apiwpp-deployctl verify",
-    "blindou-deployctl status",
-    "secondary-slotctl verify",
+    "secondary-slotctl status",
     '.bridge_token_source == "orchestrator-stdin"',
     '(.read_only | index("diagnose-accounts")) != null',
     '(.mutations | index("reconcile-accounts")) != null',
@@ -642,12 +647,13 @@ for invariant in (
     "/run/lock/apiwpp-deploy.lock",
     "flock --timeout 90",
     "lock protegido não foi liberado em 90 segundos",
-    "run_protected_gate",
     "run_secondary_slot_gate",
-    "occupant=(none|apiwpp|saferwpp)",
+    "single_status_field",
+    "pending_transition",
+    "admission_installed",
+    "observed_apiwpp_state",
+    "observed_saferwpp_workloads",
     "slot none possui workload ativo",
-    "another apiwpp deployment is already running",
-    "outra operação Blindou está em andamento",
     "permaneceu ocupado por 60 segundos",
     "PLATFORM_BOOTSTRAP_LOCK='/run/lock/servidor-local-platform-bootstrap.lock'",
     "flock --nonblock 6",
@@ -686,12 +692,14 @@ slot_checks = [
     for index, line in enumerate(bootstrap.splitlines())
     if line == "run_secondary_slot_gate"
 ]
-if (
-    len(blindou_checks) != 2
-    or len(slot_checks) != 2
-    or any(blindou >= slot for blindou, slot in zip(blindou_checks, slot_checks))
-):
-    fail("ordem dos gates protegidos não evita herança transitória do lock Blindou")
+if blindou_checks:
+    fail("bootstrap DRE depende do status operacional do Blindou")
+if len(slot_checks) != 2:
+    fail("bootstrap DRE deve verificar o status do slot antes e depois da troca")
+if "/usr/local/sbin/blindou-deployctl status" in bootstrap:
+    fail("bootstrap DRE chama status operacional do Blindou")
+if "/usr/local/sbin/secondary-slotctl verify" in bootstrap:
+    fail("bootstrap DRE depende do verify do slot, que inclui Ready do Blindou")
 
 sudo_helper = read("operations/Dre.SudoBootstrap.psm1")
 for invariant in (

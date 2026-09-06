@@ -161,7 +161,9 @@ acquire_controller_lock() {
 }
 
 acquire_shared_maintenance_locks() {
-  exec 8>"$BLINDOU_LOCK"
+  [[ -f "$BLINDOU_LOCK" && ! -L "$BLINDOU_LOCK" ]] \
+    || fail 'lock Blindou ausente ou inseguro'
+  exec 8<>"$BLINDOU_LOCK"
   flock --wait 60 8 || fail 'operação Blindou em andamento'
   [[ -f "$SECONDARY_SLOT_LOCK" && ! -L "$SECONDARY_SLOT_LOCK" ]] \
     || fail 'lock do slot secundário ausente ou inseguro'
@@ -343,52 +345,67 @@ run_protected_command_with_retry() {
   return "$code"
 }
 
+single_status_field() {
+  local key="$1" source="$2" count
+  count="$(grep -Ec "^${key}=" <<<"$source")"
+  [[ "$count" == 1 ]] || fail "campo ${key} ausente ou repetido no status protegido"
+  grep -E "^${key}=" <<<"$source" | cut -d= -f2-
+}
+
 verify_protected_projects() {
   local controller slot_output occupant apiwpp_workloads saferwpp_workloads
+  local pending_transition admission_installed observed_apiwpp_state
+  local observed_apiwpp_workloads observed_saferwpp_workloads
   for controller in \
-    /usr/local/sbin/apiwpp-deployctl \
-    /usr/local/sbin/blindou-deployctl \
     /usr/local/sbin/secondary-slotctl; do
     [[ -x "$controller" && ! -L "$controller" ]] \
       || fail "controlador de proteção ausente: ${controller}"
   done
-  run_protected_command_with_retry \
-    '[blindou-deployctl] ERRO: outra operação Blindou está em andamento' \
-    /usr/local/sbin/blindou-deployctl status >/dev/null \
-    || fail 'Blindou não está íntegro'
   slot_output="$(run_protected_command_with_retry \
     '[secondary-slotctl] ERRO: outra operação do slot está em andamento' \
-    /usr/local/sbin/secondary-slotctl verify)" \
-    || fail 'slot APIWPP/SaferWPP não está íntegro'
-  if [[ "$slot_output" =~ ^secondary_slot_verify=passed[[:space:]]occupant=(none|apiwpp|saferwpp)[[:space:]]generation=([0-9]+)[[:space:]]apiwpp_workloads=([0-9]+)[[:space:]]saferwpp_workloads=([0-9]+)$ ]]; then
-    occupant="${BASH_REMATCH[1]}"
-    apiwpp_workloads="${BASH_REMATCH[3]}"
-    saferwpp_workloads="${BASH_REMATCH[4]}"
-  else
-    fail 'atestado do slot secundário possui formato inesperado'
-  fi
+    /usr/local/sbin/secondary-slotctl status)" \
+    || fail 'slot APIWPP/SaferWPP não expôs status íntegro'
+  grep -Fxq 'state=valid' <<<"$slot_output" \
+    || fail 'estado do slot secundário não é válido'
+  occupant="$(single_status_field active_occupant "$slot_output")"
+  apiwpp_workloads="$(single_status_field apiwpp_workloads "$slot_output")"
+  saferwpp_workloads="$(single_status_field saferwpp_workloads "$slot_output")"
+  pending_transition="$(single_status_field pending_transition "$slot_output")"
+  admission_installed="$(single_status_field admission_installed "$slot_output")"
+  observed_apiwpp_state="$(single_status_field observed_apiwpp_state "$slot_output")"
+  observed_apiwpp_workloads="$(single_status_field observed_apiwpp_workloads "$slot_output")"
+  observed_saferwpp_workloads="$(single_status_field observed_saferwpp_workloads "$slot_output")"
+  [[ "$pending_transition" == absent ]] \
+    || fail 'slot secundário possui transição pendente'
+  [[ "$admission_installed" == true ]] \
+    || fail 'admissão do slot secundário não está instalada'
+  [[ "$apiwpp_workloads" =~ ^[0-9]+$ && "$saferwpp_workloads" =~ ^[0-9]+$ \
+      && "$observed_apiwpp_workloads" =~ ^[0-9]+$ \
+      && "$observed_saferwpp_workloads" =~ ^[0-9]+$ ]] \
+    || fail 'contagem do slot secundário não é numérica'
+  [[ "$apiwpp_workloads" == "$observed_apiwpp_workloads" \
+      && "$saferwpp_workloads" == "$observed_saferwpp_workloads" ]] \
+    || fail 'contagem observada do slot secundário diverge do atestado'
   case "$occupant" in
     none)
       [[ "$apiwpp_workloads" == 0 && "$saferwpp_workloads" == 0 ]] \
         || fail 'slot none possui workload ativo'
+      [[ "$observed_apiwpp_state" == suspended ]] \
+        || fail 'slot none exige APIWPP observado como suspenso'
       ;;
     apiwpp)
       [[ "$saferwpp_workloads" == 0 ]] || fail 'slot APIWPP possui workload SaferWPP'
-      if [[ "$apiwpp_workloads" != 0 ]]; then
-        run_protected_command_with_retry \
-          'another apiwpp deployment is already running' \
-          /usr/local/sbin/apiwpp-deployctl verify >/dev/null \
-          || fail 'APIWPP ocupante não está íntegro'
-      fi
+      [[ "$apiwpp_workloads" == 0 || "$observed_apiwpp_state" == active ]] \
+        || fail 'slot APIWPP ativo não corresponde ao runtime observado'
       ;;
     saferwpp)
       [[ "$apiwpp_workloads" == 0 && "$saferwpp_workloads" != 0 ]] \
         || fail 'slot SaferWPP possui contagem incompatível'
-      [[ -x /usr/local/sbin/saferwpp-deployctl \
-        && ! -L /usr/local/sbin/saferwpp-deployctl ]] \
-        || fail 'SaferWPP ocupante não possui controlador fechado'
-      /usr/local/sbin/saferwpp-deployctl verify >/dev/null \
-        || fail 'SaferWPP ocupante não está íntegro'
+      [[ "$observed_apiwpp_state" == suspended ]] \
+        || fail 'slot SaferWPP exige APIWPP observado como suspenso'
+      ;;
+    *)
+      fail 'ocupante do slot secundário é desconhecido'
       ;;
   esac
   if admin_kube get namespace blindou-data >/dev/null 2>&1; then
