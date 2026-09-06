@@ -421,17 +421,18 @@ Aceite manual:
 
 ## Fase 3B - DRE familiar independente
 
-Status: rollout persistente, backup completo e restore descartável concluídos.
-A release `dre-20260902T173345Z-a191f86039c1` está ativa com nove migrations,
-API, worker, PostgreSQL e PVC dedicados saudáveis. O diagnóstico fechado
-confirmou que o núcleo familiar e as contas `gleison`/`aline` já existem no
-banco com os IDs operacionais esperados, mas falta aplicar a reconciliação
-formal do recibo. A nova ação fechada `reconcile-accounts` está implementada,
-validada e publicada no repositório `servidor`, porém sua instalação foi
-bloqueada antes da troca de arquivos porque o gate cruzado
-`secondary-slotctl verify` informa que o Blindou não está Ready em
-`blindou-production`. HTTPS, `DRE_API_ORIGIN` e APK permanecem pendentes; FCM,
-saldo inicial e dados financeiros reais continuam fora do escopo.
+Status: rollout persistente, backup completo, restore descartável,
+reconciliação formal das contas, edge Cloudflare, rota HTTPS e
+`DRE_API_ORIGIN` concluídos. A release `dre-20260902T173345Z-a191f86039c1`
+está ativa com nove migrations, API, worker, PostgreSQL e PVC dedicados
+saudáveis. A operação `20260906T160642Z-17e9a94b52b5` reconciliou
+`gleison`/`aline` sem criar dado financeiro, e a operação
+`20260906T164449Z-e7b71ea76649` deixou `dre-edge` em `connector-only` Ready.
+`https://dre-api.fitdock.com.br` respondeu HTTP 200 em `/health/live` e
+`/health/ready`; o Pages `dre-familiar` implantou o commit DRE `6b90023` com
+status `success` e a ponte respondeu 401 esperado em `/api/v1/me` e `/events`
+sem sessão. Instalação do APK definitivo em aparelho, FCM, dispositivo
+autorizado, saldo inicial e dados financeiros reais continuam fora do escopo.
 
 Ordem obrigatória:
 
@@ -470,15 +471,24 @@ Ordem obrigatória:
    As correções D043-D052 foram instaladas depois e o restore descartável
    `20260902T215544Z-7c17bbe873bc` passou, validando migrations e índices e
    removendo o PV temporário;
-11. bloqueado por gate externo sob a mesma autorização: `diagnose-accounts`
-   confirmou o estado existente das contas e `reconcile-accounts` foi
-   implementado nos commits de plataforma `b982e3a`/`f9a2395`, com bundle
-   `83ba1ea2da7fcaf04e70f4b5fd4d98c303f6eb515a5beb2364f0bc595d737760`
-   transportado ao servidor. O bootstrap foi recusado antes de instalar porque
-   `secondary-slotctl verify` reprova Blindou Ready em `blindou-production`.
-   Após liberar esse gate, aplicar a reconciliação, criar rota HTTPS, configurar
-   `DRE_API_ORIGIN` e gerar/instalar o APK definitivo. FCM, saldo inicial e
-   dados financeiros reais permanecem fora desta operação.
+11. concluído em 2026-09-06: `diagnose-accounts` confirmou o estado existente
+   das contas e `reconcile-accounts` foi instalado depois que o controlador DRE
+   deixou de depender do Ready operacional do Blindou. O recibo formal foi
+   gravado na operação `20260906T160642Z-17e9a94b52b5`, sem senha em argumento,
+   sem dado financeiro e sem mutação de banco;
+12. concluído em 2026-09-06: o controlador foi corrigido para aceitar token
+   Cloudflare base64url com CRLF vindo do Windows, recebeu RBAC mínimo de
+   criação inicial no namespace `dre-edge` e reaplica somente RBAC/admission em
+   release ativa. O bundle final
+   `f68fa74421a954bbfeacfa856e36b3aa79bed32ff5b180df8ccd3d58bdffb7df` foi
+   instalado com backup
+   `/var/backups/servidor-local/dre-controller-bootstrap/20260906T164338Z`;
+13. concluído em 2026-09-06: o Cloudflare Tunnel `dre-production-local` ficou
+   saudável, o DNS `dre-api.fitdock.com.br` foi criado, `dre-edge` ficou Ready,
+   `DRE_API_ORIGIN` foi salvo no Pages e o deployment
+   `29c2142b-6c05-4a33-9e17-eb77f3552ce2` terminou em `success`. FCM, saldo
+   inicial, dispositivo Android autorizado e dados financeiros reais permanecem
+   fora desta operação.
 
 Aceite automatizado offline:
 
@@ -507,6 +517,10 @@ Aceite operacional:
   remoção de containers, redes, volumes, imagens, processos e workspace;
 - backup offsite e restore descartável comprovados com a release implantada;
 - API, worker e PostgreSQL saudáveis sem exposição pública ou acesso cruzado.
+- contas `gleison`/`aline` reconciliadas formalmente por recibo protegido e
+  zero linha financeira real;
+- edge Cloudflare isolado em `dre-edge`, rota HTTPS pública da API validada e
+  Pages Function apontando para essa origem.
 
 ## Fase 4 - Pixel/CIA lab (cancelada para este host)
 

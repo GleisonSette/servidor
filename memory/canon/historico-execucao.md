@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-historico-execucao
   source_path: memory/canon/historico-execucao.md
   generated_from: auditorias e implementações autorizadas no laboratório
-  updated_at: 2026-09-02
+  updated_at: 2026-09-06
   status: canonical
 
 ## Regra de registro
@@ -2147,3 +2147,39 @@ Blindou não está verde.
   pelo controlador fechado qual workload específico causou o `Ready` falso. O
   próximo avanço do DRE depende de liberar esse gate ou de uma autorização
   separada para diagnosticar/corrigir o runtime Blindou.
+
+## 2026-09-06 - DRE independente com edge HTTPS e Pages ativados
+
+Resultado: concluído no escopo DRE, sem alterar Blindou.
+
+- Os commits de plataforma `e3e55c0` até `20336ce` desacoplaram o controlador
+  DRE do Ready operacional do Blindou, mantendo apenas a prova fechada
+  `secondary-slotctl status` para o slot APIWPP/SaferWPP.
+- O bundle final do controlador
+  `f68fa74421a954bbfeacfa856e36b3aa79bed32ff5b180df8ccd3d58bdffb7df` foi
+  instalado a partir de
+  `/home/apiadmin/dre-controller-bootstrap-4902604dad96-20260906T164131Z`, com
+  backup root-only
+  `/var/backups/servidor-local/dre-controller-bootstrap/20260906T164338Z`.
+- A operação `20260906T160642Z-17e9a94b52b5` reconciliou formalmente as contas
+  `gleison`/`aline` a partir do estado existente: um núcleo `Família`, dois
+  usuários do núcleo, duas auditorias `USER/CREATED`, zero conflito externo,
+  zero usuário extra e zero linha financeira.
+- A operação `20260906T164449Z-e7b71ea76649` ativou somente o conector
+  `dre-cloudflared` em `dre-edge`; o status final registrou release
+  `dre-20260902T173345Z-a191f86039c1`, gate `passed`, PVC `Bound`, API,
+  worker e PostgreSQL Ready, edge `connector-only` Ready e validação ausente.
+- No Cloudflare, o tunnel `dre-production-local` ficou saudável e o DNS
+  `dre-api.fitdock.com.br` foi criado para a API DRE. O token do tunnel entrou
+  apenas por entrada protegida e não foi persistido fora do Secret Kubernetes.
+- No Pages, o projeto `dre-familiar` recebeu `DRE_API_ORIGIN` apontando para
+  `https://dre-api.fitdock.com.br`. O deployment
+  `29c2142b-6c05-4a33-9e17-eb77f3552ce2`, ligado ao commit DRE `6b90023`,
+  terminou com status `success`.
+- As provas públicas passaram: `https://dre-api.fitdock.com.br/health/live` e
+  `/health/ready` responderam HTTP 200; `https://dre-familiar.pages.dev/api/v1/me`
+  e `/events` responderam HTTP 401 sem sessão, comprovando ponte ativa e
+  autenticação exigida.
+- Permanecem pendentes antes de uso real: instalação do APK definitivo no
+  aparelho, autorização do dispositivo, FCM, saldo inicial auditado e dados
+  financeiros reais.

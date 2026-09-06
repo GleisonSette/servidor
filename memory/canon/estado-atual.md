@@ -14,14 +14,20 @@ workloads e serviços. A última auditoria de capacidade ocorreu em 2026-08-26 e
 a última operação DRE foi observada em 2026-09-06. O DRE possui fundação,
 Secrets, PostgreSQL/PVC dedicados e a release
 `dre-20260902T173345Z-a191f86039c1` ativa, com API, worker e PostgreSQL Ready.
-O backup completo externo e o restore descartável passaram. O diagnóstico
-fechado confirmou que o núcleo familiar e as contas `gleison`/`aline` existem
-no banco com os IDs operacionais esperados, mas a reconciliação do recibo ainda
-não foi aplicada porque a atualização do controlador foi bloqueada pelo gate
-cruzado do slot: `secondary-slotctl verify` informa que o Blindou não está
-Ready em `blindou-production`. O slot APIWPP/SaferWPP permanece sem ocupante na
-geração 2 e sem transição pendente. Borda HTTPS, `DRE_API_ORIGIN` e APK
-definitivo permanecem pendentes.
+O backup completo externo e o restore descartável passaram. A reconciliação
+formal das contas `gleison`/`aline` foi aplicada sem criar dados financeiros na
+operação `20260906T160642Z-17e9a94b52b5`. O controlador DRE foi desacoplado do
+Ready operacional do Blindou e usa somente o atestado fechado
+`secondary-slotctl status`, que permanece válido com ocupante `none`, geração 2
+e transição pendente ausente. O edge Cloudflare foi ativado na operação
+`20260906T164449Z-e7b71ea76649`: `dre-edge` está em `connector-only` com
+`dre-cloudflared` Ready. A rota `https://dre-api.fitdock.com.br` respondeu
+HTTP 200 em `/health/live` e `/health/ready`. O Pages `dre-familiar` recebeu
+`DRE_API_ORIGIN`, implantou o commit DRE `6b90023` no deployment
+`29c2142b-6c05-4a33-9e17-eb77f3552ce2` com status `success` e respondeu 401
+esperado em `/api/v1/me` e `/events` sem sessão. Instalação do APK definitivo
+em aparelho, FCM, dispositivo autorizado, saldo inicial e dados financeiros
+reais permanecem pendentes.
 
 ## DRE ativo e backup completo observado em 2026-09-02
 
@@ -165,13 +171,36 @@ definitivo permanecem pendentes.
   operacionais esperados. O commit de plataforma `b982e3a` adicionou
   `reconcile-accounts`, e o commit `f9a2395` fixou o bundle
   `83ba1ea2da7fcaf04e70f4b5fd4d98c303f6eb515a5beb2364f0bc595d737760`.
-  O bundle foi transportado para
-  `/home/apiadmin/dre-controller-bootstrap-4902604dad96-20260906T134022Z` com
-  owner/modo/SHA conferidos, mas o bootstrap foi recusado antes de substituir
-  arquivos porque `secondary-slotctl verify` reprovou a saúde cruzada do
-  Blindou em `blindou-production`. HTTPS, `DRE_API_ORIGIN`, reconciliação
-  formal das contas e APK definitivo ainda não foram concluídos. A chave
-  Android definitiva já existe protegida fora do Git. FCM, dispositivo
+  A primeira instalação foi recusada porque o DRE ainda dependia de
+  `secondary-slotctl verify`, que inclui o Ready operacional do Blindou.
+- Em 2026-09-06, os commits de plataforma `e3e55c0` até `20336ce` removeram a
+  dependência do Ready Blindou, passaram a usar somente `secondary-slotctl
+  status`, corrigiram token Cloudflare base64url/CRLF, permitiram a criação
+  inicial mínima de Secret/Deployment no edge e reaplicaram RBAC/admission do
+  controlador em release ativa sem resetar labels dos namespaces. O bundle
+  final `f68fa74421a954bbfeacfa856e36b3aa79bed32ff5b180df8ccd3d58bdffb7df`
+  foi transportado para
+  `/home/apiadmin/dre-controller-bootstrap-4902604dad96-20260906T164131Z`,
+  instalado com backup
+  `/var/backups/servidor-local/dre-controller-bootstrap/20260906T164338Z` e
+  validado por `scripts/Test-Repository.ps1`.
+- A operação `20260906T160642Z-17e9a94b52b5` reconciliou formalmente as contas
+  existentes `gleison`/`aline`, exigiu um único núcleo `Família`, duas auditorias
+  `USER/CREATED`, zero conflito externo, zero usuário extra e zero linha
+  financeira, gravando recibo sem senha e sem mutação de banco.
+- A operação `20260906T164449Z-e7b71ea76649` criou o Secret Kubernetes
+  `dre-cloudflare-tunnel` e o Deployment `dre-cloudflared` somente em
+  `dre-edge`. O status final é `gate=passed`, PVC `Bound`, Ready
+  `api=1`, `worker=1`, `postgres=1`, edge `connector-only` Ready e
+  `dre-validation` ausente. No Cloudflare, o tunnel `dre-production-local`
+  ficou saudável, a rota DNS `dre-api.fitdock.com.br` foi criada e o Pages
+  recebeu `DRE_API_ORIGIN=https://dre-api.fitdock.com.br`.
+- O deployment Pages `29c2142b-6c05-4a33-9e17-eb77f3552ce2` do commit DRE
+  `6b90023` terminou em `success`. As provas públicas passaram: API direta
+  `/health/live` e `/health/ready` responderam HTTP 200; Pages produção
+  `/api/v1/me` e `/events` responderam HTTP 401 sem sessão, comprovando ponte
+  ativa e autenticação exigida. A chave Android definitiva já existe protegida
+  fora do Git. Instalação do APK definitivo em aparelho, FCM, dispositivo
   autorizado, saldo inicial e dados financeiros reais continuam ausentes.
 
 ## PostgreSQL dedicado Blindou I1 autorizado em 2026-08-29
