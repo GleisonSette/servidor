@@ -21,6 +21,7 @@ readonly STALE_PORT_FORWARD_CONFIRMATION='blindou-stale-dispatch-v3-port-forward
 readonly DISPATCH_V3_STATE="${STATE_ROOT}/dispatch-v3.state"
 readonly STALE_PORT_FORWARD_RECEIPT="${STATE_ROOT}/stale-dispatch-v3-port-forward.state"
 readonly RELEASE_PATTERN='^[0-9a-f]{40}$'
+readonly K3S_EXECUTABLE_PATTERN='^(/usr/local/bin/k3s|/var/lib/rancher/k3s/data/[0-9a-f]{64}/bin/k3s)$'
 
 fail() {
   printf '[blindou-release-emergencyctl] ERRO: %s\n' "$*" >&2
@@ -161,7 +162,7 @@ contain_stale_dispatch_v3_port_forward() {
   elapsed="$(ps -o etimes= -p "$holder" | tr -d ' ')"
   read -r _ _ _ _ process_group session _ <"/proc/${holder}/stat"
   [[ "$owner" == '0' && "$parent" == '1' && "$comm" == 'kubectl' \
-      && "$executable" == '/usr/local/bin/k3s' ]] \
+      && "$executable" =~ $K3S_EXECUTABLE_PATTERN ]] \
     || fail "holder do lock não é o port-forward órfão esperado: uid=${owner} ppid=${parent} comm=${comm} exe=${executable:-ausente}"
   [[ "$elapsed" =~ ^[0-9]+$ && "$elapsed" -ge 30 ]] \
     || fail 'holder do lock ainda não pode ser classificado como órfão estável'

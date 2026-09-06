@@ -2225,6 +2225,9 @@ diagnóstico e restauração fechados antes de uma nova candidata.
   exige os dois SHAs e confirmação literal, comprova o arquivo de lock, UID 0,
   `PPid=1`, executável K3s, nome `kubectl`, idade mínima e sessão unitária antes
   de terminar somente o PID identificado e registrar recibo root-only.
+- no host, o multicall do K3s resolve o executável para o diretório imutável de
+  dados com hash de 64 caracteres, não para o symlink `/usr/local/bin/k3s`; a
+  contenção aceita exclusivamente essas duas formas canônicas do mesmo binário.
 - a reinstalação corretiva passa a usar um orquestrador versionado que fixa
   host, chave SSH, `known_hosts`, archive do SHA limpo, staging e confirmação;
   a senha administrativa continua restrita ao módulo aprovado e nunca entra

@@ -107,7 +107,9 @@ grep -Fq 'contain-stale-dispatch-v3-port-forward * * blindou-stale-dispatch-v3-p
 grep -Fq 'target" == "$LOCK_FILE"' "$EMERGENCY_CONTROLLER" \
   && grep -Fq "\$parent\" == '1'" "$EMERGENCY_CONTROLLER" \
   && grep -Fq "\$comm\" == 'kubectl'" "$EMERGENCY_CONTROLLER" \
-  && grep -Fq "\$executable\" == '/usr/local/bin/k3s'" "$EMERGENCY_CONTROLLER" \
+  && grep -Fq "readonly K3S_EXECUTABLE_PATTERN='^(/usr/local/bin/k3s|/var/lib/rancher/k3s/data/[0-9a-f]{64}/bin/k3s)\$'" \
+    "$EMERGENCY_CONTROLLER" \
+  && grep -Fq '$executable" =~ $K3S_EXECUTABLE_PATTERN' "$EMERGENCY_CONTROLLER" \
   && grep -Fq 'session_members[0]}" == "$holder"' "$EMERGENCY_CONTROLLER" \
   || fail 'contenção do port-forward não fixa lock, processo e sessão órfã exatos'
 grep -Fq 'setsid /usr/local/bin/k3s kubectl' "${REMOTE_DIR}/blindou-deployctl" \
