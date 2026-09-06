@@ -53,7 +53,9 @@ envia por `stdin` ao bootstrap fixo. O fluxo:
    APIWPP ativo quando o slot estiver `none`/suspenso, e sem suspender, escalar
    ou implantar workload. Se `blindou-deployctl status` disputar o lock com
    outra leitura operacional e retornar exatamente lock ocupado, o bootstrap
-   tenta novamente por até doze tentativas de cinco segundos;
+   tenta novamente por até doze tentativas de cinco segundos. O pós-check do
+   próprio `secondary-slotctl status` usa a mesma tolerância quando disputa o
+   lock com o timer de métricas recém-habilitado;
 6. gera um `operation_id` no formato
    `YYYYMMDDTHHMMSSZ-<12 caracteres hexadecimais>`;
 7. inicializa somente após confirmar APIWPP exatamente ativo, SaferWPP vazio e

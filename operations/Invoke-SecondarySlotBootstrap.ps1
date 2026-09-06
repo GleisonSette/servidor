@@ -163,7 +163,31 @@ test "$(hostname)" = apiwpp
 
     $postInstall = @'
 set -eu
-sudo -n /usr/local/sbin/secondary-slotctl status
+slot_status=failed
+attempt=1
+while [ "$attempt" -le 12 ]; do
+  slot_output="$(sudo -n /usr/local/sbin/secondary-slotctl status 2>&1)"
+  code="$?"
+  if [ "$code" -eq 0 ]; then
+    printf '%s\n' "$slot_output"
+    slot_status=passed
+    break
+  fi
+  case "$slot_output" in
+    *'outra operação do slot está em andamento'*)
+      sleep 5
+      ;;
+    *)
+      printf '%s\n' "$slot_output" >&2
+      exit "$code"
+      ;;
+  esac
+  attempt=$((attempt + 1))
+done
+if [ "$slot_status" != passed ]; then
+  printf '%s\n' '[secondary-slot-bootstrap] ERRO: secondary-slotctl status permaneceu bloqueado'
+  exit 1
+fi
 sudo -n /usr/local/sbin/apiwpp-deployctl status >/dev/null
 blindou_status=failed
 attempt=1

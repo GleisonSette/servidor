@@ -383,6 +383,8 @@ for invariant in (
     "ConvertTo-SecondarySlotRemoteLf",
     "set -eu",
     'while [ "$attempt" -le 12 ]; do',
+    "outra operação do slot está em andamento",
+    "secondary-slotctl status permaneceu bloqueado",
     "blindou-deployctl status permaneceu bloqueado",
     "apiwpp-deployctl status",
     "blindou-deployctl status",
