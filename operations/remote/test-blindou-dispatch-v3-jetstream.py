@@ -81,6 +81,7 @@ class FakeConnection:
         self.add_server_metadata = add_server_metadata
         self.drift_metadata = drift_metadata
         self.configs: dict[str, dict[str, Any]] = {}
+        self.consumer_create_requests: list[dict[str, Any]] = []
 
     def response_config(self, key: str) -> dict[str, Any]:
         config = json.loads(json.dumps(self.configs[key]))
@@ -109,10 +110,23 @@ class FakeConnection:
             return {"config": self.response_config(key)}
         if body is None:
             raise AssertionError(f"payload ausente em {subject}")
-        key = body.get("name") or body.get("durable_name")
+        stored = body
+        if ".CONSUMER.DURABLE.CREATE." in subject:
+            if set(body) != {"stream_name", "config", "action"}:
+                raise AssertionError("envelope de criação do consumer divergente")
+            if body.get("action") != "create":
+                raise AssertionError("consumer não usa ação create fail-closed")
+            config = body.get("config")
+            if not isinstance(config, dict):
+                raise AssertionError("config do consumer ausente no envelope")
+            if body.get("stream_name") not in MODULE.EXPECTED_STREAM_ORDER:
+                raise AssertionError("stream do consumer ausente no envelope")
+            self.consumer_create_requests.append(json.loads(json.dumps(body)))
+            stored = config
+        key = stored.get("name") or stored.get("durable_name")
         if not isinstance(key, str):
             raise AssertionError(f"identidade ausente em {subject}")
-        self.configs[key] = json.loads(json.dumps(body))
+        self.configs[key] = json.loads(json.dumps(stored))
         return {"config": self.response_config(key)}
 
 
@@ -131,6 +145,8 @@ def run() -> None:
         )
         if len(connection.configs) != 9:
             raise AssertionError("reconciliação não criou cinco streams e quatro consumers")
+        if len(connection.consumer_create_requests) != 4:
+            raise AssertionError("criação não usou quatro envelopes ConsumerCreateRequest")
         connection.existing = True
         MODULE.provision(
             connection,

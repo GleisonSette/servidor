@@ -276,8 +276,14 @@ def provision(
         if is_not_found(info):
             if verify_only:
                 fail(f"consumer {durable} ausente")
+            create_request = {
+                "stream_name": stream,
+                "config": config,
+                "action": "create",
+            }
             response = connection.request(
-                f"$JS.API.CONSUMER.DURABLE.CREATE.{stream}.{durable}", config
+                f"$JS.API.CONSUMER.DURABLE.CREATE.{stream}.{durable}",
+                create_request,
             )
             current = require_success(response, f"criação do consumer {durable}").get("config", {})
         else:

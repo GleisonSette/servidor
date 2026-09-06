@@ -2232,3 +2232,10 @@ diagnóstico e restauração fechados antes de uma nova candidata.
   host, chave SSH, `known_hosts`, archive do SHA limpo, staging e confirmação;
   a senha administrativa continua restrita ao módulo aprovado e nunca entra
   em argumento, arquivo adicional ou saída.
+- a contenção emergencial passou, liberou o lock e registrou recibo; a aplicação
+  seguinte confirmou que o novo lifecycle não deixa port-forward órfão após
+  falha;
+- streams e migrations foram aceitos, mas o NATS 2.12.2 recusou `durable_name`
+  no topo do payload de criação do consumer. O helper passa a enviar o envelope
+  `CreateConsumerRequest` com `stream_name`, `config` e ação `create`, mantendo
+  a configuração do consumer dentro de `config` e falhando fechado em corrida.

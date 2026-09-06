@@ -910,6 +910,10 @@ grep -Fq '"sources"' "$DISPATCH_V3_JETSTREAM_PROVISIONER" \
   && grep -Fq '"allow_msg_schedules"' "$DISPATCH_V3_JETSTREAM_PROVISIONER" \
   && grep -Fq '"--verify-only"' "$DISPATCH_V3_JETSTREAM_PROVISIONER" \
   || fail 'provisionador JetStream não verifica sources, scheduling e modo read-only'
+grep -Fq '"stream_name": stream' "$DISPATCH_V3_JETSTREAM_PROVISIONER" \
+  && grep -Fq '"config": config' "$DISPATCH_V3_JETSTREAM_PROVISIONER" \
+  && grep -Fq '"action": "create"' "$DISPATCH_V3_JETSTREAM_PROVISIONER" \
+  || fail 'criação de consumer não usa o envelope ConsumerCreateRequest fechado'
 grep -Fq 'DISPATCH_V3_EXPECTED_DEBEZIUM_IMAGE' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'EXPECTED_DEBEZIUM_IMAGE' "${REMOTE_DIR}/blindou-release-verify.py" \
   || fail 'digest aprovado do Debezium não está fechado nas duas fronteiras'
