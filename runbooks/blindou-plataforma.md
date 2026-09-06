@@ -737,7 +737,10 @@ do gate ainda aponte para o SHA. A recuperação aceita somente
 o ponteiro corrente precisa continuar no SHA anterior, o recibo precisa apontar
 para a tentativa falha e as duas releases precisam existir no cache fechado.
 Ela reaplica somente a release anterior, remove o recibo do gate falho e grava
-um recibo root-only da recuperação.
+um recibo root-only da recuperação. Nesse caminho excepcional, a credencial
+GHCR e os Secrets existentes são validados diretamente; essa validação não
+depende de `secondary-slotctl verify`, pois o runtime indisponível é justamente
+o objeto da restauração.
 
 O Job de migration é observado por estado terminal, não somente por
 `Complete`. `Failed` encerra a espera imediatamente; ausência de estado

@@ -2181,3 +2181,9 @@ diagnóstico e restauração fechados antes de uma nova candidata.
 - a correção adiciona diagnóstico sanitizado do NATS e recuperação estrita
   vinculada ao SHA falho, ao SHA anterior e ao recibo vivo, sem `sudo` ou
   `kubectl` genérico.
+- o diagnóstico fechado identificou que o valor de
+  `NATS_DEBEZIUM_V3_PASSWORD` foi interpretado como sintaxe do arquivo NATS;
+  nenhum segredo foi exibido;
+- a primeira recuperação revelou uma dependência indireta no gate de saúde ao
+  recriar a credencial GHCR. O caminho foi corrigido para validar credencial e
+  Secrets diretamente, sem reduzir os demais vínculos da restauração.

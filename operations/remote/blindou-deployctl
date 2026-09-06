@@ -763,8 +763,7 @@ ghcr_token_has_read_only_packages_scope() {
   [[ "$scopes" == 'read:packages' ]]
 }
 
-verify_ghcr_pull_credential() {
-  require_platform_preconditions
+verify_ghcr_pull_credential_material() {
   ghcr_token_file_is_secure \
     || fail 'GHCR pull credential file is absent or insecure'
   local token
@@ -775,6 +774,11 @@ verify_ghcr_pull_credential() {
     fail 'GHCR credential is inactive, belongs to another actor or is not exactly read:packages'
   fi
   unset token
+}
+
+verify_ghcr_pull_credential() {
+  require_platform_preconditions
+  verify_ghcr_pull_credential_material
   pass 'GHCR credential is active, root-only and limited to read:packages'
 }
 
@@ -1442,7 +1446,19 @@ provision_pagarme_plans() {
 }
 
 ensure_ghcr_pull_secret() {
-  verify_ghcr_pull_credential >/dev/null
+  local origin="${1:-operator}"
+  case "$origin" in
+    operator)
+      verify_ghcr_pull_credential >/dev/null
+      ;;
+    failed-update)
+      require_root_and_host
+      verify_ghcr_pull_credential_material
+      ;;
+    *)
+      fail 'origem da publicação da credencial GHCR inválida'
+      ;;
+  esac
   local token auth namespace
   IFS= read -r token <"$GHCR_PULL_TOKEN_FILE" \
     || fail 'GHCR pull credential could not be read'
@@ -4126,7 +4142,7 @@ rollback_release() {
       ;;
     failed-update)
       verify_data_foundation >/dev/null
-      ensure_ghcr_pull_secret
+      ensure_ghcr_pull_secret failed-update
       verify_runtime_material
       ;;
     operator)
