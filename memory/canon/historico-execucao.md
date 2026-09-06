@@ -2194,3 +2194,10 @@ diagnóstico e restauração fechados antes de uma nova candidata.
 - o reparo preparado gira somente as quatro credenciais NATS V3 inativas para
   um formato com prefixo alfabético e 256 bits aleatórios, confere cofre contra
   Kubernetes sem mostrar valores e é recusado após expand ou com workload V3.
+- o backup `blindou-20260906T141117Z`, SHA-256
+  `50c43e6d77758b338128162ed4b331da12e9e49366f90b04e37f0a5406800f32`,
+  foi copiado para a estação e confirmado offsite;
+- o gate posterior recusou uma unit falha: os dois timers de métricas estavam
+  sincronizados e disputavam o lock do slot em todos os ciclos observados. A
+  correção preparada fixa o coletor do slot no segundo 30 e substitui o gate
+  legado do APIWPP pelo atestado D033 do próprio slot no bootstrap.

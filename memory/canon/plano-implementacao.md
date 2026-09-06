@@ -283,6 +283,10 @@ interpretada como sintaxe pelo parser NATS. Antes de renovar backup e gates, o
 controlador deve girar as quatro credenciais V3 inativas para o formato com
 prefixo alfabético, conferir os Secrets e registrar recibo root-only; a mesma
 operação é proibida depois da migration expand ou com workload V3 existente.
+O gate seguinte também revelou que os timers do slot e da plataforma disparavam
+no mesmo instante e mantinham `secondary-slot-metrics.service` em falha por
+disputa de lock. O bootstrap do slot deve instalar o offset fixo no segundo 30,
+validar o estado D033 pelo controlador compartilhado e só então renovar o gate.
 
 Ordem obrigatória da extensão:
 

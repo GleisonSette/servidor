@@ -49,8 +49,8 @@ envia por `stdin` ao bootstrap fixo. O fluxo:
    SHA-256 local e remoto;
 4. cria um snapshot root-owned, repete o hash e executa somente
    `bootstrap-secondary-slotctl.sh` após o verificador offline passar;
-5. confirma novamente APIWPP e Blindou, sem suspender, escalar ou implantar
-   workload;
+5. confirma novamente o atestado vigente do slot e o Blindou, sem suspender,
+   escalar ou implantar workload;
 6. gera um `operation_id` no formato
    `YYYYMMDDTHHMMSSZ-<12 caracteres hexadecimais>`;
 7. inicializa somente após confirmar APIWPP exatamente ativo, SaferWPP vazio e
@@ -70,6 +70,11 @@ o timer. O `tmpfiles.d` cria o lock global como arquivo regular `root:root`
 `0600` em todo boot, antes que uma identidade sem privilégio possa ocupar esse
 caminho. O bootstrap não cria o atestado, não reduz réplicas e não aplica
 workloads SaferWPP.
+
+O coletor do slot executa no segundo 30 de cada minuto. Esse offset o separa do
+coletor da plataforma Blindou, que também consulta o atestado do slot. Remover
+o offset recria uma disputa determinística pelo lock e deixa a unit em
+`failed`, bloqueando corretamente os gates do host.
 
 ## Ordem APIWPP para SaferWPP
 

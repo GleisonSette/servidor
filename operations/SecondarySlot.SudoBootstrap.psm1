@@ -99,7 +99,7 @@ if systemctl is-failed --quiet secondary-slot-metrics.service \
     secondary-slot-metrics.timer; then
   fail 'estado failed anterior do slot não pôde ser limpo'
 fi
-/usr/local/sbin/apiwpp-deployctl verify >/dev/null
+/usr/local/sbin/secondary-slotctl verify >/dev/null
 /usr/local/sbin/blindou-hostctl verify >/dev/null
 /usr/local/sbin/blindou-deployctl status >/dev/null
 

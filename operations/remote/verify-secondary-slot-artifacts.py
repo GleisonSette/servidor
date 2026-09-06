@@ -271,6 +271,7 @@ bootstrap = read("operations/remote/bootstrap-secondary-slotctl.sh")
 tmpfiles = read("operations/remote/secondary-slot-tmpfiles.conf")
 sudo_bootstrap = read("operations/SecondarySlot.SudoBootstrap.psm1")
 orchestrator = read("operations/Invoke-SecondarySlotBootstrap.ps1")
+metrics_timer = read("operations/remote/secondary-slot-metrics.timer")
 for invariant in (
     "/run/lock/servidor-local-secondary-slot.lock",
     "/var/lib/servidor-local/secondary-slot",
@@ -286,6 +287,10 @@ for invariant in (
 ):
     if invariant not in controller:
         fail(f"invariante ausente no controlador: {invariant}")
+if "OnCalendar=*-*-* *:*:30" not in metrics_timer or "AccuracySec=1s" not in metrics_timer:
+    fail("timer de métricas do slot não possui offset determinístico")
+if "OnUnitActiveSec" in metrics_timer:
+    fail("timer de métricas do slot voltou a colidir com o coletor Blindou")
 for invariant in (
     "STATE_KEYS",
     "parse_exact_key_values",
@@ -341,7 +346,7 @@ for invariant in (
     "servidor-local-platform-bootstrap.lock",
     "sha256sum",
     "apiadmin:apiadmin:600:1",
-    "/usr/local/sbin/apiwpp-deployctl verify",
+    "/usr/local/sbin/secondary-slotctl verify",
     "/usr/local/sbin/blindou-hostctl verify",
     "/usr/local/sbin/blindou-deployctl status",
     "systemctl reset-failed secondary-slot-metrics.service",
@@ -365,7 +370,7 @@ for invariant in (
     "IdentitiesOnly=yes",
     "BatchMode=yes",
     "StrictHostKeyChecking=yes",
-    "apiwpp-deployctl verify",
+    "secondary-slotctl verify",
     "blindou-deployctl status",
     "blindou-hostctl verify",
     "Invoke-SecondarySlotSudoBootstrap",
