@@ -835,6 +835,11 @@ grep -Fq 'ensure_ghcr_pull_secret failed-update' "${REMOTE_DIR}/blindou-deployct
   || fail 'recuperação não valida GHCR sem depender do runtime indisponível'
 grep -Fq 'verify_data_foundation failed-update' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'recuperação de dados ainda depende do gate do runtime indisponível'
+grep -Fq "SELECT to_regclass('public.dispatch_owner_controls_v3') IS NOT NULL" \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  && ! grep -Fq "ELSE (SELECT count(*) FROM public.dispatch_owner_controls_v3" \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'rollback V1 referencia tabela Dispatch V3 ausente no mesmo statement'
 grep -Fq 'diagnose-failed-update *' "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   && grep -Fq 'recover-failed-update * * blindou-failed-update-recovery' \
     "${REMOTE_DIR}/blindou-deployctl.sudoers" \

@@ -4167,8 +4167,13 @@ rollback_release() {
     kube apply -f "$rendered/72-dispatch-v3-network-policies.yaml" >/dev/null
     kube apply -f "$rendered/71-dispatch-v3-workloads.yaml" >/dev/null
   else
-    [[ "$(postgres_query -d blindou -Atqc \
-      "SELECT CASE WHEN to_regclass('public.dispatch_owner_controls_v3') IS NULL THEN 0 ELSE (SELECT count(*) FROM public.dispatch_owner_controls_v3 WHERE engine_version=3) END")" == '0' ]] \
+    local dispatch_v3_owner_count=0
+    if [[ "$(postgres_query -d blindou -Atqc \
+      "SELECT to_regclass('public.dispatch_owner_controls_v3') IS NOT NULL")" == 't' ]]; then
+      dispatch_v3_owner_count="$(postgres_query -d blindou -Atqc \
+        'SELECT count(*) FROM public.dispatch_owner_controls_v3 WHERE engine_version=3')"
+    fi
+    [[ "$dispatch_v3_owner_count" == '0' ]] \
       || fail 'rollback V1 recusado: já existem owners V3'
     kube -n "$APP_NAMESPACE" delete deployment blindou-dispatch-authority-v3 blindou-dispatch-sender-v3 \
       --ignore-not-found --wait=true >/dev/null
