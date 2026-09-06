@@ -4,6 +4,7 @@ apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl contract
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl status
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl diagnose-production
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl diagnose-validation
+apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl diagnose-accounts *
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl import-release *
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl initialize-secrets *
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl validate-release *

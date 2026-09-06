@@ -2114,6 +2114,125 @@ provision_accounts() {
   pass 'núcleo privado e contas Gleison/Aline provisionados atomicamente'
 }
 
+diagnose_accounts() {
+  [[ "$#" -eq 4 ]] \
+    || fail 'uso: diagnose-accounts RELEASE_ID HOUSEHOLD_ID PRIMARY_USER_ID SECONDARY_USER_ID'
+  local release_id="$1" household_id="$2" primary_user_id="$3" secondary_user_id="$4"
+  local postgres_pod raw_output exit_code sanitized combined
+  require_cached_release "$release_id"
+  require_schema_two_release "$release_id"
+  for identifier in "$household_id" "$primary_user_id" "$secondary_user_id"; do
+    [[ "$identifier" =~ $UUID_PATTERN ]] || fail 'UUID operacional inválido'
+  done
+  [[ "$household_id" != "$primary_user_id" \
+    && "$household_id" != "$secondary_user_id" \
+    && "$primary_user_id" != "$secondary_user_id" ]] \
+    || fail 'UUIDs operacionais devem ser distintos'
+  verify_foundation
+  [[ "$(current_release_id)" == "$release_id" ]] \
+    || fail 'release solicitada não é a corrente'
+  verify_runtime_core "$release_id"
+  postgres_pod="$(kube -n "$NAMESPACE" get pods \
+    -l app.kubernetes.io/name=dre-postgres,app.kubernetes.io/component=database \
+    -o json | jq -er 'if (.items | length) == 1 then .items[0].metadata.name else error("pod count") end')" \
+    || fail 'diagnóstico exige exatamente um Pod PostgreSQL'
+  set +e
+  raw_output="$(kube --request-timeout=120s -n "$NAMESPACE" exec -i "$postgres_pod" \
+    --container postgres -- \
+    psql --no-psqlrc --tuples-only --no-align --quiet \
+    -h /var/run/postgresql -U dre_postgres_admin -d dre \
+    --set=ON_ERROR_STOP=1 \
+    --set=VERBOSITY=terse \
+    --set=release_id="$release_id" \
+    --set=household_id="$household_id" \
+    --set=primary_user_id="$primary_user_id" \
+    --set=secondary_user_id="$secondary_user_id" <<'SQL'
+BEGIN;
+SET LOCAL ROLE dre_migrator;
+SELECT count(*)::int AS existing_household
+  FROM households WHERE id = :'household_id'::uuid \gset
+SELECT count(*)::int AS existing_user_ids
+  FROM users
+  WHERE id IN (:'primary_user_id'::uuid, :'secondary_user_id'::uuid) \gset
+SELECT count(*)::int AS existing_logins
+  FROM users WHERE login IN ('gleison', 'aline') \gset
+SELECT count(*)::int AS existing_family_users
+  FROM users WHERE household_id = :'household_id'::uuid \gset
+SELECT ((:existing_household::int + :existing_user_ids::int +
+         :existing_logins::int + :existing_family_users::int) = 0) AS should_dry_run \gset
+SELECT json_build_object(
+  'schema', 1,
+  'phase', 'preflight',
+  'release_id', :'release_id',
+  'session_user', session_user,
+  'current_role', current_role,
+  'existing_household', :existing_household::int,
+  'existing_user_ids', :existing_user_ids::int,
+  'existing_logins', :existing_logins::int,
+  'existing_family_users', :existing_family_users::int,
+  'privileges', json_build_object(
+    'households_insert', has_table_privilege(current_role, 'public.households', 'INSERT'),
+    'users_insert', has_table_privilege(current_role, 'public.users', 'INSERT'),
+    'audit_log_insert', has_table_privilege(current_role, 'public.audit_log', 'INSERT')
+  )
+)::text;
+\if :should_dry_run
+INSERT INTO households (id, name, timezone, created_at, updated_at)
+VALUES (:'household_id'::uuid, 'Familia', 'America/Sao_Paulo', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+INSERT INTO users (
+  id, household_id, login, display_name, password_hash,
+  active, version, created_at, updated_at
+) VALUES (
+  :'primary_user_id'::uuid, :'household_id'::uuid, 'gleison', 'Gleison',
+  '$argon2id$diagnostic-primary', true, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+);
+INSERT INTO audit_log (
+  id, household_id, actor_kind, actor_user_id, client_operation_id,
+  action, resource_type, resource_id, resource_version, changed_fields, occurred_at
+) VALUES (
+  gen_random_uuid(), :'household_id'::uuid, 'SYSTEM', NULL, NULL,
+  'CREATED', 'USER', :'primary_user_id'::uuid, 1, ARRAY['identity']::text[], CURRENT_TIMESTAMP
+);
+INSERT INTO users (
+  id, household_id, login, display_name, password_hash,
+  active, version, created_at, updated_at
+) VALUES (
+  :'secondary_user_id'::uuid, :'household_id'::uuid, 'aline', 'Aline',
+  '$argon2id$diagnostic-secondary', true, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+);
+INSERT INTO audit_log (
+  id, household_id, actor_kind, actor_user_id, client_operation_id,
+  action, resource_type, resource_id, resource_version, changed_fields, occurred_at
+) VALUES (
+  gen_random_uuid(), :'household_id'::uuid, 'SYSTEM', NULL, NULL,
+  'CREATED', 'USER', :'secondary_user_id'::uuid, 1, ARRAY['identity']::text[], CURRENT_TIMESTAMP
+);
+SELECT json_build_object('schema', 1, 'phase', 'dry_run', 'status', 'passed')::text;
+\else
+SELECT json_build_object('schema', 1, 'phase', 'dry_run', 'status', 'skipped_existing')::text;
+\endif
+ROLLBACK;
+SQL
+  )"
+  exit_code="$?"
+  set -e
+  sanitized="$(printf '%s' "$raw_output" | sanitize_diagnostic_output | tail -c 16384)"
+  if [[ "$exit_code" -ne 0 ]]; then
+    jq -cn \
+      --arg release_id "$release_id" \
+      --arg pod "$postgres_pod" \
+      --argjson exit_code "$exit_code" \
+      --arg output "${sanitized:-sem saída técnica}" \
+      '{schema:1,status:"failed",release_id:$release_id,pod:$pod,exit_code:$exit_code,output:$output}'
+    exit "$exit_code"
+  fi
+  combined="$(printf '%s\n' "$sanitized" | jq -sc \
+    --arg release_id "$release_id" \
+    --arg pod "$postgres_pod" \
+    '{schema:1,status:"passed",release_id:$release_id,pod:$pod,checks:.}')"
+  printf '%s\n' "$combined"
+}
+
 backup_database() {
   [[ "$#" -eq 2 ]] || fail 'uso: backup {full|diff} OPERATION_ID'
   local backup_type="$1" operation_id="$2" release_id info stop
@@ -2850,7 +2969,7 @@ status() {
 
 contract() {
   [[ "$#" -eq 0 ]] || fail 'uso: contract'
-  jq -cn '{schema:2,controller:"dre-deployctl",namespace:"dre-production",edge_namespace:"dre-edge",validation_namespace:"dre-validation",restore_namespace:"dre-restore-drill",lifecycle:"always-active",secondary_slot_member:false,permanent_containers:["api","worker","postgres"],edge_connector:"cloudflared-isolated",images:"digest-only",release_signature:"ed25519",release_schemas:{import:[1,2],deploy:[2],rollback:[1,2]},migration_count:9,validation:{required_before_plan:true,disposable:true,preserve_on_failure:true,cleanup_on_success:true,restarts:["api","worker","postgres"]},postgres_upgrade:{requires_current_backup_after_plan:true,only_postgres_digest_change:true,rollback:true},first_deploy_recovery:{requires_failed_receipt:true,requires_validation:true,preserves_pvc:true,applies_migrations:false},secret_input_schema:1,bridge_token_source:"orchestrator-stdin",edge_token_source:"orchestrator-stdin",read_only:["contract","status","diagnose-validation","diagnose-production"],mutations:["import-release","initialize-secrets","validate-release","cleanup-validation","recover-first-deploy","plan","deploy","upgrade-postgres","configure-edge","provision-accounts","backup","restore-drill","cleanup-restore"],generic_shell:false,generic_kubectl:false}'
+  jq -cn '{schema:2,controller:"dre-deployctl",namespace:"dre-production",edge_namespace:"dre-edge",validation_namespace:"dre-validation",restore_namespace:"dre-restore-drill",lifecycle:"always-active",secondary_slot_member:false,permanent_containers:["api","worker","postgres"],edge_connector:"cloudflared-isolated",images:"digest-only",release_signature:"ed25519",release_schemas:{import:[1,2],deploy:[2],rollback:[1,2]},migration_count:9,validation:{required_before_plan:true,disposable:true,preserve_on_failure:true,cleanup_on_success:true,restarts:["api","worker","postgres"]},postgres_upgrade:{requires_current_backup_after_plan:true,only_postgres_digest_change:true,rollback:true},first_deploy_recovery:{requires_failed_receipt:true,requires_validation:true,preserves_pvc:true,applies_migrations:false},secret_input_schema:1,bridge_token_source:"orchestrator-stdin",edge_token_source:"orchestrator-stdin",read_only:["contract","status","diagnose-validation","diagnose-production","diagnose-accounts"],mutations:["import-release","initialize-secrets","validate-release","cleanup-validation","recover-first-deploy","plan","deploy","upgrade-postgres","configure-edge","provision-accounts","backup","restore-drill","cleanup-restore"],generic_shell:false,generic_kubectl:false}'
 }
 
 main() {
@@ -2866,6 +2985,7 @@ main() {
     contract) contract "$@" ;;
     diagnose-production) diagnose_production "$@" ;;
     diagnose-validation) diagnose_validation "$@" ;;
+    diagnose-accounts) diagnose_accounts "$@" ;;
     import-release) import_release "$@" ;;
     initialize-secrets) initialize_secrets "$@" ;;
     validate-release) validate_release_disposable "$@" ;;
