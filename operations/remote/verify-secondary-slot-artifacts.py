@@ -350,6 +350,7 @@ for invariant in (
     "/usr/local/sbin/apiwpp-deployctl verify",
     "/usr/local/sbin/blindou-hostctl verify",
     "/usr/local/sbin/blindou-deployctl status",
+    "C:\\github\\servidor\\.env",
     "systemctl reset-failed secondary-slot-metrics.service",
     "verify-secondary-slot-artifacts.py",
     "bootstrap-secondary-slotctl.sh",
