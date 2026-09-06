@@ -2245,3 +2245,12 @@ diagnóstico e restauração fechados antes de uma nova candidata.
 - o gate passa a repetir por no máximo um minuto somente quando código e texto
   correspondem exatamente ao lock transitório conhecido. Qualquer erro real,
   saída divergente ou estado diferente de `none` falha imediatamente.
+- o apply seguinte passou JetStream e o slot, mas o novo backend excedeu o
+  `progressDeadline`; a ativação V3 não ocorreu;
+- o rollback automático revelou uma dependência circular: exigia Blindou Ready
+  antes de restaurar a release que recuperaria o próprio readiness. A correção
+  mantém host, K3s, PostgreSQL, dados, credencial GHCR e Secrets como
+  pré-condições diretas, restaura os workloads e exige o slot completo depois;
+- o diagnóstico fechado passa a incluir somente Deployment, Pods, eventos e
+  últimas 100 linhas sanitizadas do backend da candidata, além do NATS já
+  coberto, sem acesso genérico ao cluster.

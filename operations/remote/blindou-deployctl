@@ -3867,7 +3867,7 @@ require_release_gates() {
 redact_migration_diagnostics() {
   sed -E \
     -e 's#(postgres(ql)?://)[^[:space:]]+#\1[REDACTED]#gI' \
-    -e 's#((password|token|secret|private[_-]?key)=)[^[:space:]]+#\1[REDACTED]#gI'
+    -e 's#((password|token|secret|private[_-]?key|access[_-]?key|authorization)[=:][[:space:]]*)[^[:space:]]+#\1[REDACTED]#gI'
 }
 
 emit_migration_diagnostics() {
@@ -4178,7 +4178,7 @@ wait_release() {
 }
 
 diagnose_failed_update() {
-  local release_id="$1"
+  local release_id="$1" pod_ref pod
   [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
   require_root_and_host
   [[ -f "$RELEASE_GATE_RECEIPT" && ! -L "$RELEASE_GATE_RECEIPT" \
@@ -4206,6 +4206,23 @@ diagnose_failed_update() {
   kube -n "$APP_NAMESPACE" logs blindou-nats-0 -c nats --tail=80 --prefix=true 2>&1 \
     | redact_migration_diagnostics \
     || true
+  kube -n "$APP_NAMESPACE" get deployment blindou-backend \
+    -o custom-columns='NAME:.metadata.name,GENERATION:.metadata.generation,OBSERVED:.status.observedGeneration,AVAILABLE:.status.availableReplicas,READY:.status.readyReplicas,UPDATED:.status.updatedReplicas,UNAVAILABLE:.status.unavailableReplicas'
+  kube -n "$APP_NAMESPACE" get pods -l 'app.kubernetes.io/name=blindou-backend' \
+    -o custom-columns='NAME:.metadata.name,PHASE:.status.phase,READY:.status.containerStatuses[0].ready,WAITING:.status.containerStatuses[0].state.waiting.reason,TERMINATED:.status.containerStatuses[0].lastState.terminated.reason,EXIT:.status.containerStatuses[0].lastState.terminated.exitCode,RESTARTS:.status.containerStatuses[0].restartCount,IMAGE:.spec.containers[0].image'
+  while IFS= read -r pod_ref; do
+    [[ "$pod_ref" =~ ^pod/blindou-backend-[a-z0-9-]+$ ]] || continue
+    pod="${pod_ref#pod/}"
+    kube -n "$APP_NAMESPACE" get events \
+      --field-selector "involvedObject.name=${pod}" \
+      --sort-by=.metadata.creationTimestamp \
+      -o custom-columns='TIME:.metadata.creationTimestamp,TYPE:.type,REASON:.reason,MESSAGE:.message' \
+      | tail -n 25
+    kube -n "$APP_NAMESPACE" logs "$pod" -c backend --tail=100 --prefix=true 2>&1 \
+      | redact_migration_diagnostics \
+      || true
+  done < <(kube -n "$APP_NAMESPACE" get pods \
+    -l 'app.kubernetes.io/name=blindou-backend' -o name)
 }
 
 apply_cached_release() {
@@ -4262,13 +4279,8 @@ rollback_release() {
       || fail 'rollback recusado: Shopee ativa exige release compatível ou desativação reconciliada'
   fi
   case "$origin" in
-    automatic)
-      require_platform_preconditions
-      verify_data_foundation >/dev/null
-      ensure_ghcr_pull_secret
-      verify_runtime_material
-      ;;
-    failed-update)
+    automatic|failed-update)
+      require_root_and_host
       verify_data_foundation failed-update >/dev/null
       ensure_ghcr_pull_secret failed-update
       verify_runtime_material
@@ -4312,6 +4324,9 @@ rollback_release() {
     kube -n "$APP_NAMESPACE" rollout status "deployment/${deployment}" --timeout=600s
   done
   kube -n "$EDGE_NAMESPACE" rollout status deployment/blindou-cloudflared --timeout=300s
+  if [[ "$origin" == 'automatic' || "$origin" == 'failed-update' ]]; then
+    verify_secondary_slot_preservation
+  fi
   printf '%s\n' "$release_id" >"${CURRENT_RELEASE}.tmp"
   install -o root -g root -m 0600 "${CURRENT_RELEASE}.tmp" "$CURRENT_RELEASE"
   rm -f -- "${CURRENT_RELEASE}.tmp"

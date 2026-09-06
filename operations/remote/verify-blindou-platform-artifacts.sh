@@ -864,6 +864,15 @@ grep -Fq 'diagnose-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'rollback_release "$previous_release" "$ROLLBACK_CONFIRMATION" failed-update' \
     "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'diagnóstico ou recuperação fechada de atualização ausente'
+grep -Fq "get deployment blindou-backend" "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq "pod/blindou-backend-[a-z0-9-]+" "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'logs "$pod" -c backend --tail=100' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'diagnóstico da atualização não cobre o backend sem selecionar outro workload'
+grep -Fq 'automatic|failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'ensure_ghcr_pull_secret failed-update' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'if [[ "$origin" == '\''automatic'\'' || "$origin" == '\''failed-update'\'' ]]; then' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'rollback corretivo não separa pré-condições diretas do gate posterior do slot'
 grep -Fq 'ensure_ghcr_pull_secret failed-update' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'recuperação não valida GHCR sem depender do runtime indisponível'
 grep -Fq 'verify_data_foundation failed-update' "${REMOTE_DIR}/blindou-deployctl" \
