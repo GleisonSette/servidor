@@ -728,6 +728,17 @@ reativado e só então captura o código para decidir rollback. Não envolver
 nas funções chamadas nesse contexto e pode continuar após uma recusa do
 Kubernetes.
 
+Se uma atualização deixar o runtime sem Ready e o rollback automático for
+recusado pelo gate que observa essa mesma saúde, não usar `kubectl` ou `sudo`
+genérico. Primeiro executar `diagnose-failed-update <sha-falho>`; a saída é
+limitada ao StatefulSet/Pod/eventos/log sanitizado do NATS e exige que o recibo
+do gate ainda aponte para o SHA. A recuperação aceita somente
+`recover-failed-update <sha-falho> <sha-anterior> blindou-failed-update-recovery`:
+o ponteiro corrente precisa continuar no SHA anterior, o recibo precisa apontar
+para a tentativa falha e as duas releases precisam existir no cache fechado.
+Ela reaplica somente a release anterior, remove o recibo do gate falho e grava
+um recibo root-only da recuperação.
+
 O Job de migration é observado por estado terminal, não somente por
 `Complete`. `Failed` encerra a espera imediatamente; ausência de estado
 terminal continua limitada a 600 segundos. Antes do rollback, o controlador

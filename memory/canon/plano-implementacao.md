@@ -270,6 +270,13 @@ material: `nounset` expandia o nome do arquivo na mesma declaração local que o
 atribuía. A correção separa atribuição e composição do path e adiciona uma
 regressão ao gate; o passo 4 continua pendente até reinstalação e nova entrada.
 
+A repetição preparou o material, e o backup `blindou-20260906T132435Z` foi
+confirmado offsite. A primeira aplicação da candidata parou antes das migrations
+porque o NATS não ficou Ready em 300 segundos; a release corrente e a contagem
+de 12 migrations permaneceram anteriores. Como o rollback automático exigia a
+saúde que precisava restaurar, o controlador prepara diagnóstico sanitizado e
+recuperação fechada vinculada aos SHAs antes de qualquer nova tentativa.
+
 Ordem obrigatória da extensão:
 
 1. validar, publicar e instalar o controlador D055 sem alterar o runtime por

@@ -2163,3 +2163,21 @@ correção do controlador e sua regressão foram preparadas para reinstalação.
 - o status posterior permaneceu com 12 migrations, release
   `ee4a335236b0e99e5fac4ee3e30a986f0ddc8bb2` e
   `dispatch_v3_state=absent_or_insecure`.
+
+## 2026-09-06 - Primeira aplicação E5 interrompida no rollout do NATS
+
+Resultado: migrations e ativação não ocorreram; o runtime parcial exige
+diagnóstico e restauração fechados antes de uma nova candidata.
+
+- a nova entrada protegida passou e deixou `dispatch_v3_state=prepared`;
+- o backup `blindou-20260906T132435Z`, com SHA-256
+  `8b89ae8c8f33f16bad9798b1a7cf0d0daa655bcb71252588c16fae6f6ae02b90`,
+  foi baixado e confirmado offsite;
+- o rollout de `blindou-nats` atingiu o timeout de 300 segundos antes do Job de
+  migration; `migration_history_count=12` e `current_release` continuou em
+  `ee4a335236b0e99e5fac4ee3e30a986f0ddc8bb2`;
+- o rollback automático foi recusado porque o gate do slot exige Blindou Ready,
+  exatamente a condição que a restauração precisava recuperar;
+- a correção adiciona diagnóstico sanitizado do NATS e recuperação estrita
+  vinculada ao SHA falho, ao SHA anterior e ao recibo vivo, sem `sudo` ou
+  `kubectl` genérico.

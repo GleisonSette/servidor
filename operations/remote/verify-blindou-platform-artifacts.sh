@@ -826,6 +826,20 @@ grep -Fq 'provision-dispatch-v3-secrets)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'verify-dispatch-v3)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'activate-dispatch-v3-runtime)' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'operações fechadas do Dispatch V3 ausentes'
+grep -Fq 'diagnose-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'recover-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'rollback_release "$previous_release" "$ROLLBACK_CONFIRMATION" failed-update' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'diagnóstico ou recuperação fechada de atualização ausente'
+grep -Fq 'diagnose-failed-update *' "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  && grep -Fq 'recover-failed-update * * blindou-failed-update-recovery' \
+    "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  || fail 'sudoers não limita diagnóstico e recuperação de atualização'
+grep -Fq 'release anterior não permanece como autoridade corrente' \
+  "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'recibo do gate não corresponde à release falha' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'recuperação de atualização não vincula as duas releases ao estado vivo'
 if grep -Fq 'local name="$1" value="$2" path="${DISPATCH_V3_SECRET_DIR}/${name}"' \
   "${REMOTE_DIR}/blindou-deployctl"; then
   fail 'controlador expande nome do material Dispatch V3 antes da atribuição sob nounset'
