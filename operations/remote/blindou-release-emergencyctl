@@ -162,7 +162,7 @@ contain_stale_dispatch_v3_port_forward() {
   read -r _ _ _ _ process_group session _ <"/proc/${holder}/stat"
   [[ "$owner" == '0' && "$parent" == '1' && "$comm" == 'kubectl' \
       && "$executable" == '/usr/local/bin/k3s' ]] \
-    || fail 'holder do lock não é o port-forward órfão esperado'
+    || fail "holder do lock não é o port-forward órfão esperado: uid=${owner} ppid=${parent} comm=${comm} exe=${executable:-ausente}"
   [[ "$elapsed" =~ ^[0-9]+$ && "$elapsed" -ge 30 ]] \
     || fail 'holder do lock ainda não pode ser classificado como órfão estável'
   [[ "$process_group" =~ ^[1-9][0-9]*$ && "$session" == "$process_group" \
