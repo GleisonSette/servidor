@@ -312,8 +312,8 @@ function Invoke-SecondarySlotSudoBootstrap {
         [Text.Encoding]::UTF8.GetBytes($rootScript)
     )
     $remoteCommand =
-        "sudo -S -p '' -- /bin/bash -c `"printf '%s' '$encodedScript' | " +
-        "base64 --decode | /bin/bash`""
+        "sudo -S -p `"`" -- /bin/bash -c 'printf %s $encodedScript | " +
+        "base64 --decode | /bin/bash'"
 
     $envFile = 'C:\github\servidor\.env'
     $password = Read-SecondarySlotSudoPassword -EnvFile $envFile

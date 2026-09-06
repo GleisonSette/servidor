@@ -352,6 +352,7 @@ for invariant in (
     "/usr/local/sbin/blindou-hostctl verify",
     "/usr/local/sbin/blindou-deployctl status",
     "C:\\github\\servidor\\.env",
+    "printf %s $encodedScript",
     "systemctl reset-failed secondary-slot-metrics.service",
     "verify-secondary-slot-artifacts.py",
     "bootstrap-secondary-slotctl.sh",
