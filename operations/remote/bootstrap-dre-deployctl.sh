@@ -443,8 +443,7 @@ run_secondary_slot_gate() {
     else
       code=$?
     fi
-    if [[ "$code" -ne 2 ]] \
-        || ! grep -Fq -- 'outra operação do slot está em andamento' "$output_file"; then
+    if ! grep -Fq -- 'outra operação do slot está em andamento' "$output_file"; then
       while IFS= read -r line; do
         printf '[bootstrap-dre-deployctl] Slot: %s\n' "$line" >&2
       done <"$output_file"

@@ -314,6 +314,7 @@ for invariant in (
     "verify_cached_release_again",
     "verify_release_secret_inventory",
     "require_new_receipt",
+    'grep -Fxq -- "$busy_message"',
     "provision_accounts",
     "diagnose_accounts",
     "reconcile_accounts",

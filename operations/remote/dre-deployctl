@@ -333,7 +333,7 @@ run_protected_command_with_retry() {
       printf '%s\n' "$output"
       return 0
     fi
-    if [[ "$code" -ne 2 || "$output" != "$busy_message" ]]; then
+    if ! grep -Fxq -- "$busy_message" <<<"$output"; then
       printf '%s\n' "$output" >&2
       return "$code"
     fi
