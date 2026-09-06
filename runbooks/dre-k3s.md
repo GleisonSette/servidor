@@ -411,6 +411,22 @@ Essa ação é de uso único para a primeira família. Troca de senha, dispositi
 saldo inicial continuam fluxos administrativos separados e exigem autorização
 própria.
 
+Se uma tentativa anterior tiver criado o núcleo e as duas contas, mas falhado
+antes do recibo final, a reconciliação fechada pode registrar o aceite sem
+senha e sem alterar o banco:
+
+```text
+sudo -n /usr/local/sbin/dre-deployctl reconcile-accounts RELEASE_ID OPERATION_ID
+```
+
+Nesse modo, o controlador descobre os IDs existentes somente se houver o estado
+exato esperado: um núcleo `Família`, logins `gleison` e `aline` ativos, dois
+eventos de auditoria `USER/CREATED`, nenhum conflito de login, nenhum usuário
+extra no núcleo e zero linha financeira. Se algum desses pontos divergir, a
+operação falha fechada. O modo explícito com
+`HOUSEHOLD_ID GLEISON_USER_ID ALINE_USER_ID` continua disponível para quando os
+identificadores operacionais estiverem à mão.
+
 ## Backup e restauração
 
 Operações autorizadas:

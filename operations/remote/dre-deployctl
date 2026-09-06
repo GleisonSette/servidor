@@ -2251,21 +2251,29 @@ SQL
 }
 
 reconcile_accounts() {
-  [[ "$#" -eq 5 ]] \
-    || fail 'uso: reconcile-accounts RELEASE_ID OPERATION_ID HOUSEHOLD_ID PRIMARY_USER_ID SECONDARY_USER_ID'
-  local release_id="$1" operation_id="$2" household_id="$3"
-  local primary_user_id="$4" secondary_user_id="$5" protected_before secrets_before
+  [[ "$#" -eq 2 || "$#" -eq 5 ]] \
+    || fail 'uso: reconcile-accounts RELEASE_ID OPERATION_ID [HOUSEHOLD_ID PRIMARY_USER_ID SECONDARY_USER_ID]'
+  local release_id="$1" operation_id="$2" household_id=''
+  local primary_user_id='' secondary_user_id='' explicit_identifiers=false
+  local protected_before secrets_before
   local receipt postgres_pod raw_output exit_code account_state
+  local reported_household_id reported_primary_user_id reported_secondary_user_id
+  if [[ "$#" -eq 5 ]]; then
+    household_id="$3"
+    primary_user_id="$4"
+    secondary_user_id="$5"
+    explicit_identifiers=true
+    for identifier in "$household_id" "$primary_user_id" "$secondary_user_id"; do
+      [[ "$identifier" =~ $UUID_PATTERN ]] || fail 'UUID operacional inválido'
+    done
+    [[ "$household_id" != "$primary_user_id" \
+      && "$household_id" != "$secondary_user_id" \
+      && "$primary_user_id" != "$secondary_user_id" ]] \
+      || fail 'UUIDs operacionais devem ser distintos'
+  fi
   require_cached_release "$release_id"
   require_schema_two_release "$release_id"
   require_operation_id "$operation_id"
-  for identifier in "$household_id" "$primary_user_id" "$secondary_user_id"; do
-    [[ "$identifier" =~ $UUID_PATTERN ]] || fail 'UUID operacional inválido'
-  done
-  [[ "$household_id" != "$primary_user_id" \
-    && "$household_id" != "$secondary_user_id" \
-    && "$primary_user_id" != "$secondary_user_id" ]] \
-    || fail 'UUIDs operacionais devem ser distintos'
   require_new_receipt accounts "$operation_id"
   verify_cached_release_again "$release_id"
   verify_foundation
@@ -2304,21 +2312,26 @@ reconcile_accounts() {
     -o json | jq -er 'if (.items | length) == 1 then .items[0].metadata.name else error("pod count") end')" \
     || fail 'reconciliação exige exatamente um Pod PostgreSQL'
   set +e
-  raw_output="$(kube --request-timeout=120s -n "$NAMESPACE" exec -i "$postgres_pod" \
-    --container postgres -- \
-    psql --no-psqlrc --tuples-only --no-align --quiet \
-    -h /var/run/postgresql -U dre_postgres_admin -d dre \
-    --set=ON_ERROR_STOP=1 \
-    --set=VERBOSITY=terse \
-    --set=release_id="$release_id" \
-    --set=household_id="$household_id" \
-    --set=primary_user_id="$primary_user_id" \
-    --set=secondary_user_id="$secondary_user_id" <<'SQL' 2>&1
+  if $explicit_identifiers; then
+    raw_output="$(kube --request-timeout=120s -n "$NAMESPACE" exec -i "$postgres_pod" \
+      --container postgres -- \
+      psql --no-psqlrc --tuples-only --no-align --quiet \
+      -h /var/run/postgresql -U dre_postgres_admin -d dre \
+      --set=ON_ERROR_STOP=1 \
+      --set=VERBOSITY=terse \
+      --set=release_id="$release_id" \
+      --set=household_id="$household_id" \
+      --set=primary_user_id="$primary_user_id" \
+      --set=secondary_user_id="$secondary_user_id" <<'SQL' 2>&1
 BEGIN;
 SET LOCAL ROLE dre_migrator;
 SELECT json_build_object(
   'schema', 1,
   'release_id', :'release_id',
+  'mode', 'explicit-identifiers',
+  'household_id', :'household_id',
+  'primary_user_id', :'primary_user_id',
+  'secondary_user_id', :'secondary_user_id',
   'session_user', session_user,
   'current_role', current_role,
   'household_rows', (
@@ -2407,7 +2420,133 @@ SELECT json_build_object(
 )::text;
 ROLLBACK;
 SQL
-  )"
+    )"
+  else
+    raw_output="$(kube --request-timeout=120s -n "$NAMESPACE" exec -i "$postgres_pod" \
+      --container postgres -- \
+      psql --no-psqlrc --tuples-only --no-align --quiet \
+      -h /var/run/postgresql -U dre_postgres_admin -d dre \
+      --set=ON_ERROR_STOP=1 \
+      --set=VERBOSITY=terse \
+      --set=release_id="$release_id" <<'SQL' 2>&1
+BEGIN;
+SET LOCAL ROLE dre_migrator;
+WITH selected AS (
+  SELECT
+    (SELECT id FROM households ORDER BY created_at, id LIMIT 1) AS household_id,
+    (SELECT id FROM users WHERE login = 'gleison' ORDER BY created_at, id LIMIT 1) AS primary_user_id,
+    (SELECT id FROM users WHERE login = 'aline' ORDER BY created_at, id LIMIT 1) AS secondary_user_id
+),
+state AS (
+  SELECT
+    s.household_id,
+    s.primary_user_id,
+    s.secondary_user_id,
+    (SELECT count(*)::int FROM households) AS household_rows,
+    (
+      SELECT count(*)::int FROM households
+      WHERE id = s.household_id
+        AND name = 'Família'
+        AND timezone = 'America/Sao_Paulo'
+    ) AS exact_household,
+    (
+      SELECT count(*)::int FROM users
+      WHERE id IN (s.primary_user_id, s.secondary_user_id)
+    ) AS user_id_rows,
+    (
+      SELECT count(*)::int FROM users WHERE login IN ('gleison', 'aline')
+    ) AS login_rows,
+    (
+      SELECT count(*)::int FROM users WHERE household_id = s.household_id
+    ) AS family_user_rows,
+    (
+      SELECT count(*)::int FROM users
+      WHERE (
+        id = s.primary_user_id
+        AND household_id = s.household_id
+        AND login = 'gleison'
+        AND display_name = 'Gleison'
+        AND active
+        AND version = 1
+        AND password_hash LIKE '$argon2id$%'
+      ) OR (
+        id = s.secondary_user_id
+        AND household_id = s.household_id
+        AND login = 'aline'
+        AND display_name = 'Aline'
+        AND active
+        AND version = 1
+        AND password_hash LIKE '$argon2id$%'
+      )
+    ) AS exact_users,
+    (
+      SELECT count(*)::int FROM users
+      WHERE login IN ('gleison', 'aline')
+        AND NOT (
+          (id = s.primary_user_id
+           AND household_id = s.household_id
+           AND login = 'gleison')
+          OR
+          (id = s.secondary_user_id
+           AND household_id = s.household_id
+           AND login = 'aline')
+        )
+    ) AS foreign_login_conflicts,
+    (
+      SELECT count(*)::int FROM users
+      WHERE household_id = s.household_id
+        AND id NOT IN (s.primary_user_id, s.secondary_user_id)
+    ) AS foreign_family_users,
+    (
+      SELECT count(*)::int FROM audit_log
+      WHERE household_id = s.household_id
+        AND actor_kind = 'SYSTEM'
+        AND actor_user_id IS NULL
+        AND action = 'CREATED'
+        AND resource_type = 'USER'
+        AND resource_id IN (s.primary_user_id, s.secondary_user_id)
+        AND resource_version = 1
+        AND changed_fields = ARRAY['identity']::text[]
+    ) AS audit_user_creates,
+    (
+      SELECT (
+        (SELECT count(*) FROM balance_anchors WHERE household_id = s.household_id)
+        + (SELECT count(*) FROM transactions WHERE household_id = s.household_id)
+        + (SELECT count(*) FROM invoice_payments WHERE household_id = s.household_id)
+      )::int
+    ) AS financial_rows
+  FROM selected s
+)
+SELECT json_build_object(
+  'schema', 1,
+  'release_id', :'release_id',
+  'mode', 'auto-discover',
+  'household_id', household_id,
+  'primary_user_id', primary_user_id,
+  'secondary_user_id', secondary_user_id,
+  'session_user', session_user,
+  'current_role', current_role,
+  'household_rows', household_rows,
+  'exact_household', exact_household,
+  'user_id_rows', user_id_rows,
+  'login_rows', login_rows,
+  'family_user_rows', family_user_rows,
+  'exact_users', exact_users,
+  'foreign_login_conflicts', foreign_login_conflicts,
+  'foreign_family_users', foreign_family_users,
+  'audit_user_creates', audit_user_creates,
+  'financial_rows', financial_rows,
+  'privileges', json_build_object(
+    'households_select', has_table_privilege(current_role, 'public.households', 'SELECT'),
+    'users_select', has_table_privilege(current_role, 'public.users', 'SELECT'),
+    'audit_log_select', has_table_privilege(current_role, 'public.audit_log', 'SELECT')
+  )
+)::text
+FROM state;
+ROLLBACK;
+SQL
+    )"
+  fi
   exit_code="$?"
   set -e
   account_state="$(printf '%s' "$raw_output" | sanitize_diagnostic_output | tail -c 16384)"
@@ -2431,6 +2570,29 @@ SQL
     and .privileges.users_select == true
     and .privileges.audit_log_select == true
   ' >/dev/null || fail 'estado existente das contas DRE diverge do contrato fechado'
+  reported_household_id="$(printf '%s\n' "$account_state" | jq -er '.household_id')" \
+    || fail 'estado das contas DRE não retornou household_id'
+  reported_primary_user_id="$(printf '%s\n' "$account_state" | jq -er '.primary_user_id')" \
+    || fail 'estado das contas DRE não retornou primary_user_id'
+  reported_secondary_user_id="$(printf '%s\n' "$account_state" | jq -er '.secondary_user_id')" \
+    || fail 'estado das contas DRE não retornou secondary_user_id'
+  for identifier in "$reported_household_id" "$reported_primary_user_id" \
+      "$reported_secondary_user_id"; do
+    [[ "$identifier" =~ $UUID_PATTERN ]] || fail 'UUID operacional reconciliado inválido'
+  done
+  [[ "$reported_household_id" != "$reported_primary_user_id" \
+    && "$reported_household_id" != "$reported_secondary_user_id" \
+    && "$reported_primary_user_id" != "$reported_secondary_user_id" ]] \
+    || fail 'UUIDs operacionais reconciliados devem ser distintos'
+  if $explicit_identifiers; then
+    [[ "$reported_household_id" == "$household_id" \
+      && "$reported_primary_user_id" == "$primary_user_id" \
+      && "$reported_secondary_user_id" == "$secondary_user_id" ]] \
+      || fail 'IDs informados não correspondem ao estado existente das contas DRE'
+  fi
+  household_id="$reported_household_id"
+  primary_user_id="$reported_primary_user_id"
+  secondary_user_id="$reported_secondary_user_id"
   verify_runtime_core "$release_id"
   [[ "$(secret_inventory_fingerprint)" == "$secrets_before" ]] \
     || fail 'Secrets mudaram durante a reconciliação das contas DRE'
