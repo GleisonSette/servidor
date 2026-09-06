@@ -70,6 +70,42 @@ require_empty_namespace() {
   done
 }
 
+apply_controller_access_foundation() {
+  python3 - "$FOUNDATION_SOURCE" <<'PY' | "$K3S" kubectl apply -f - >/dev/null
+import sys
+import yaml
+
+source = sys.argv[1]
+allowed = {
+    ("ClusterRole", "", "dre-deployctl-cluster"),
+    ("ClusterRoleBinding", "", "dre-deployctl-cluster"),
+    ("Role", "dre-production", "dre-deployctl"),
+    ("RoleBinding", "dre-production", "dre-deployctl"),
+    ("Role", "dre-edge", "dre-deployctl"),
+    ("RoleBinding", "dre-edge", "dre-deployctl"),
+    ("Role", "dre-restore-drill", "dre-deployctl"),
+    ("RoleBinding", "dre-restore-drill", "dre-deployctl"),
+    ("ValidatingAdmissionPolicy", "", "dre-controller-only"),
+    ("ValidatingAdmissionPolicyBinding", "", "dre-controller-only"),
+}
+with open(source, encoding="utf-8") as handle:
+    selected = [
+        document
+        for document in yaml.safe_load_all(handle)
+        if document
+        and (
+            document.get("kind"),
+            document.get("metadata", {}).get("namespace", ""),
+            document.get("metadata", {}).get("name"),
+        )
+        in allowed
+    ]
+if len(selected) != len(allowed):
+    raise SystemExit("inventário RBAC/admission DRE diverge da fundação fechada")
+yaml.safe_dump_all(selected, sys.stdout, sort_keys=False)
+PY
+}
+
 restore_configuration_fingerprint() {
   if ! "$K3S" kubectl --namespace dre-restore-drill get pvc dre-restore-data \
       >/dev/null 2>&1; then
@@ -646,7 +682,6 @@ if "$K3S" kubectl get validatingadmissionpolicy dre-controller-only >/dev/null 2
         && ! -L "${STATE_ROOT}/current-release" ]]; then
       production_bootstrap_mode=active-release
       require_production_active_release_state
-      edge_fingerprint_before="$(edge_configuration_fingerprint)"
     else
       production_bootstrap_mode=failed-first-deploy
       require_production_failed_first_deploy_state
@@ -675,6 +710,11 @@ if "$K3S" kubectl get validatingadmissionpolicy dre-controller-only >/dev/null 2
       "$K3S" kubectl label namespace dre-production \
         platform.servidor.local/deployment-gate=secrets-only \
         --overwrite >/dev/null
+    fi
+  else
+    apply_controller_access_foundation
+    if [[ "$production_bootstrap_mode" == active-release ]]; then
+      edge_fingerprint_before="$(edge_configuration_fingerprint)"
     fi
   fi
 else
