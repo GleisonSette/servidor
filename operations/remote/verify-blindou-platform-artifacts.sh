@@ -6,6 +6,7 @@ readonly REMOTE_DIR="${REPOSITORY_ROOT}/operations/remote"
 readonly PULL_PROOF_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouGhcrCandidatePullProof.ps1"
 readonly SUDO_BOOTSTRAP_MODULE="${REPOSITORY_ROOT}/operations/Blindou.SudoBootstrap.psm1"
 readonly DATA_BOOTSTRAP_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouDataControllerBootstrap.ps1"
+readonly DEPLOY_BOOTSTRAP_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouDeployControllerBootstrap.ps1"
 readonly DATA_PULL_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouDataPullProof.ps1"
 readonly FIRST_RELEASE_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouFirstRelease.ps1"
 readonly ADDITIONAL_SUPERADMIN_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouAdditionalSuperadmin.ps1"
@@ -31,6 +32,16 @@ fail() {
   || fail 'módulo fechado de bootstrap sudo ausente ou simbólico'
 [[ -f "$DATA_BOOTSTRAP_SCRIPT" && ! -L "$DATA_BOOTSTRAP_SCRIPT" ]] \
   || fail 'orquestrador do bootstrap de dados ausente ou simbólico'
+[[ -f "$DEPLOY_BOOTSTRAP_SCRIPT" && ! -L "$DEPLOY_BOOTSTRAP_SCRIPT" ]] \
+  || fail 'orquestrador do bootstrap do deployctl ausente ou simbólico'
+grep -Fq "[ValidateSet('INSTALAR BLINDOU DEPLOYCTL')]" "$DEPLOY_BOOTSTRAP_SCRIPT" \
+  && grep -Fq "blindou-platform-bootstrap-deployctl/\$ServerCommit" "$DEPLOY_BOOTSTRAP_SCRIPT" \
+  && grep -Fq -- "-ControllerSet DeployController" "$DEPLOY_BOOTSTRAP_SCRIPT" \
+  && grep -Fq "C:\\github\\servidor\\.env" "$SUDO_BOOTSTRAP_MODULE" \
+  || fail 'bootstrap do deployctl não fixa confirmação, staging, controlador e cofre'
+if grep -Eq '(KEY_SERVIDOR=|Write-(Host|Output).*(password|senha))' "$DEPLOY_BOOTSTRAP_SCRIPT"; then
+  fail 'orquestrador do deployctl pode materializar ou revelar a senha administrativa'
+fi
 [[ -f "$DATA_PULL_SCRIPT" && ! -L "$DATA_PULL_SCRIPT" ]] \
   || fail 'orquestrador da prova PostgreSQL ausente ou simbólico'
 if grep -Fq 'local name="$1" release="$2" path="${RECEIPT_ROOT}/${name}.state"' \

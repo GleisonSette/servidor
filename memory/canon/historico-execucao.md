@@ -2225,3 +2225,7 @@ diagnóstico e restauração fechados antes de uma nova candidata.
   exige os dois SHAs e confirmação literal, comprova o arquivo de lock, UID 0,
   `PPid=1`, executável K3s, nome `kubectl`, idade mínima e sessão unitária antes
   de terminar somente o PID identificado e registrar recibo root-only.
+- a reinstalação corretiva passa a usar um orquestrador versionado que fixa
+  host, chave SSH, `known_hosts`, archive do SHA limpo, staging e confirmação;
+  a senha administrativa continua restrita ao módulo aprovado e nunca entra
+  em argumento, arquivo adicional ou saída.
