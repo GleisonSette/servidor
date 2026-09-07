@@ -353,6 +353,13 @@ provar que o template é da sucessora, que há uma réplica e que o Pod ainda é
 release intermediária. A operação não altera a estratégia do StatefulSet nem
 autoriza rollback, migration, Secret, admissão ou ativação.
 
+Atualização D063 em 2026-09-07: o checksum do JKS foi corrigido para o formato
+OpenJDK e a espera do Debezium passou a tratar `OnDelete` pelo Pod ordinal
+anotado e pronto, em vez de usar a operação Kubernetes incompatível com essa
+estratégia. O rearme pode renovar somente esse JKS, sob todos os gates já
+exigidos e com V3 inativo; o backup D061 continua a exigir sua ausência antes
+do primeiro rearme. Não há nova migration, rollback, admission ou ativação.
+
 Ordem obrigatória da extensão:
 
 1. validar, publicar e instalar o controlador D055 sem alterar o runtime por

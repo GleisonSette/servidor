@@ -27,6 +27,7 @@ ENTRY_TAG_TRUSTED_CERTIFICATE = 2
 ALIAS = "blindou-nats-ca"
 CERTIFICATE_TYPE = "X.509"
 PASSWORD = "changeit"
+INTEGRITY_SALT = b"Mighty Aphrodite"
 MAX_PEM_BYTES = 64 * 1024
 MAX_KEYSTORE_BYTES = 128 * 1024
 PEM_PATTERN = re.compile(
@@ -87,7 +88,11 @@ def write_utf(value: str) -> bytes:
 
 
 def checksum(content: bytes) -> bytes:
-    return hashlib.sha1(content + PASSWORD.encode("utf-16-be")).digest()
+    # JavaKeyStore antepõe a senha UTF-16BE e a constante histórica antes dos
+    # bytes serializados. A ordem é parte do formato JKS, não uma escolha local.
+    return hashlib.sha1(
+        PASSWORD.encode("utf-16-be") + INTEGRITY_SALT + content
+    ).digest()
 
 
 def encode_jks(der: bytes) -> bytes:

@@ -1386,3 +1386,25 @@ Somente então exclui esse único Pod, esperando a recriação pelo StatefulSet 
 validado. Não há seletor amplo, exclusão do StatefulSet, PVC, stream, Secret,
 migration, admissão, provider ou rollback. Qualquer divergência recusa antes da
 exclusão e preserva o estado parcial.
+
+## Resolvida D063 - Integridade JKS OpenJDK e espera do Debezium OnDelete
+
+Em 2026-09-07, a primeira recriação OnDelete confirmou o novo caminho de
+montagem JKS, mas o Debezium ainda encerrou. A revisão do formato contra a
+implementação OpenJDK mostrou que o checksum estava em ordem incompatível: o
+JKS exige SHA-1 de `senha UTF-16BE`, da constante pública `Mighty Aphrodite` e
+dos bytes serializados, nessa ordem. O gerador e a verificação passam a usar
+exatamente esse formato, e o teste independente recusa o checksum legado.
+
+O rearme D060 pode substituir um JKS preexistente somente depois de todos os
+mesmos gates da sucessora, com Dispatch V3 preparado, inativo e sem estado ou
+outbox V3; o backup D061 continua exigindo ausência do JKS antes do primeiro
+rearme. A substituição é aplicada pela mesma criação idempotente do Secret e
+não abre escrita genérica em Secrets.
+
+O controlador também não chama `rollout status` para um StatefulSet `OnDelete`.
+Ele confirma a release no template e no Pod ordinal fixo e espera a condição
+`Ready` desse Pod; `RollingUpdate` preserva a espera nativa. O diagnóstico
+fechado inclui a última execução do container, ainda sanitizada. A decisão não
+autoriza migration, ativação, alteração de estratégia, rollback, provider ou
+qualquer objeto além da continuação E5 já delimitada.

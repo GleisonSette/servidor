@@ -3139,7 +3139,10 @@ verify_dispatch_v3_kubernetes_material() {
 }
 
 verify_dispatch_v3_kubernetes_material_before_truststore() {
-  local truststore_data
+  local mode="${1:-pre-truststore-successor}" truststore_data
+  [[ "$mode" == 'pre-truststore-successor' \
+      || "$mode" == 'pre-truststore-successor-rearm' ]] \
+    || fail 'modo de baseline do truststore Dispatch V3 inválido'
   secret_has_keys "$APP_NAMESPACE" blindou-nats-auth backend-password \
     debezium-v3-password sender-v3-password authority-v3-password api-v3-password
   secret_has_keys "$APP_NAMESPACE" blindou-dispatch-sender-v3-nats password ca.crt
@@ -3159,8 +3162,14 @@ verify_dispatch_v3_kubernetes_material_before_truststore() {
   truststore_data="$(kube -n "$APP_NAMESPACE" get secret blindou-debezium-v3 \
     -o 'go-template={{index .data "nats-truststore.jks"}}')" \
     || fail 'Secret Debezium V3 obrigatório ausente'
-  [[ -z "$truststore_data" || "$truststore_data" == '<no value>' ]] \
-    || fail 'baseline da sucessora exige truststore JKS ainda ausente'
+  if [[ "$mode" == 'pre-truststore-successor' ]]; then
+    [[ -z "$truststore_data" || "$truststore_data" == '<no value>' ]] \
+      || fail 'baseline da sucessora exige truststore JKS ainda ausente'
+  else
+    [[ -z "$truststore_data" || "$truststore_data" == '<no value>' \
+        || "$truststore_data" =~ ^[A-Za-z0-9+/=]{1,174764}$ ]] \
+      || fail 'truststore JKS existente não possui codificação limitada para rearme'
+  fi
   [[ "$(kube -n "$APP_NAMESPACE" get configmap blindou-dispatch-v3-runtime \
     -o 'go-template={{len .data}}')" == '3' ]] \
     || fail 'ConfigMap Dispatch V3 diverge do contrato fechado'
@@ -3361,7 +3370,8 @@ create_runtime_kubernetes_material() {
 verify_runtime_material() {
   local dispatch_v3_material_mode="${1:-strict}"
   [[ "$dispatch_v3_material_mode" == 'strict' \
-      || "$dispatch_v3_material_mode" == 'pre-truststore-successor' ]] \
+      || "$dispatch_v3_material_mode" == 'pre-truststore-successor' \
+      || "$dispatch_v3_material_mode" == 'pre-truststore-successor-rearm' ]] \
     || fail 'modo de verificação do material Dispatch V3 inválido'
   runtime_secret_file_is_secure "$RUNTIME_CONFIG_FILE" || fail 'configuração root-only ausente'
   grep -Fxq 'AUTH_REQUIRE_2FA=false' "$RUNTIME_CONFIG_FILE" \
@@ -3462,7 +3472,7 @@ verify_runtime_material() {
     if [[ "$dispatch_v3_material_mode" == 'strict' ]]; then
       verify_dispatch_v3_kubernetes_material
     else
-      verify_dispatch_v3_kubernetes_material_before_truststore
+      verify_dispatch_v3_kubernetes_material_before_truststore "$dispatch_v3_material_mode"
     fi
   else
     secret_has_keys "$APP_NAMESPACE" blindou-nats-auth backend-password
@@ -4579,8 +4589,9 @@ verify_dispatch_v3_runtime() {
       == "$DISPATCH_V3_EXPECTED_DEBEZIUM_IMAGE" ]] \
     || fail 'digest Debezium operacional divergiu'
   local workload observed_release
-  for workload in statefulset/blindou-debezium-v3 \
-    deployment/blindou-dispatch-authority-v3 deployment/blindou-dispatch-sender-v3; do
+  wait_dispatch_v3_debezium "$release_id" 120s
+  for workload in deployment/blindou-dispatch-authority-v3 \
+    deployment/blindou-dispatch-sender-v3; do
     observed_release="$(kube -n "$APP_NAMESPACE" get "$workload" \
       -o 'jsonpath={.spec.template.metadata.annotations.blindou\.io/release}')"
     [[ "$observed_release" == "$release_id" ]] \
@@ -4618,8 +4629,9 @@ activate_dispatch_v3_runtime() {
   grep -Fxq 'state=prepared' "$DISPATCH_V3_STATE" \
     || fail 'Dispatch V3 não está no estado preparado'
   activate_dispatch_v3_database
-  for workload in statefulset/blindou-debezium-v3 \
-    deployment/blindou-dispatch-authority-v3 deployment/blindou-dispatch-sender-v3; do
+  wait_dispatch_v3_debezium "$release_id" 600s
+  for workload in deployment/blindou-dispatch-authority-v3 \
+    deployment/blindou-dispatch-sender-v3; do
     kube -n "$APP_NAMESPACE" rollout status "$workload" --timeout=600s >/dev/null
   done
   set_runtime_config_value DISPATCH_V3_MODE active
@@ -4652,7 +4664,7 @@ wait_release() {
     kube -n "$APP_NAMESPACE" rollout status "deployment/${deployment}" --timeout=600s
   done < <(find "$rendered/workers" -maxdepth 1 -type f -name '*.yaml' | sort)
   if [[ -f "$rendered/71-dispatch-v3-workloads.yaml" ]]; then
-    kube -n "$APP_NAMESPACE" rollout status statefulset/blindou-debezium-v3 --timeout=600s
+    wait_dispatch_v3_debezium "$release_id" 600s
     kube -n "$APP_NAMESPACE" rollout status deployment/blindou-dispatch-authority-v3 --timeout=600s
     kube -n "$APP_NAMESPACE" rollout status deployment/blindou-dispatch-sender-v3 --timeout=600s
   fi
@@ -4683,6 +4695,9 @@ diagnose_dispatch_v3_workload() {
       -o custom-columns='TIME:.metadata.creationTimestamp,TYPE:.type,REASON:.reason,MESSAGE:.message' \
       | tail -n 25
     kube -n "$APP_NAMESPACE" logs "$pod" -c "$container" --tail=100 --prefix=true 2>&1 \
+      | redact_migration_diagnostics \
+      || true
+    kube -n "$APP_NAMESPACE" logs "$pod" -c "$container" --previous --tail=100 --prefix=true 2>&1 \
       | redact_migration_diagnostics \
       || true
   done < <(kube -n "$APP_NAMESPACE" get pods -l "$selector" -o name)
@@ -4800,9 +4815,43 @@ refresh_debezium_successor_on_delete() {
     || fail 'StatefulSet Debezium não está na atualização OnDelete esperada'
   pod_release="$(kube -n "$APP_NAMESPACE" get pod blindou-debezium-v3-0 \
     -o 'jsonpath={.metadata.annotations.blindou\.io/release}')"
-  [[ "$pod_release" == "$previous_release" ]] \
-    || fail 'Pod Debezium não corresponde à release parcial que pode ser substituída'
-  kube -n "$APP_NAMESPACE" delete pod blindou-debezium-v3-0 --wait=true >/dev/null
+  case "$pod_release" in
+    "$previous_release")
+      kube -n "$APP_NAMESPACE" delete pod blindou-debezium-v3-0 --wait=true >/dev/null
+      ;;
+    "$release_id")
+      ;;
+    *) fail 'Pod Debezium não corresponde à release parcial que pode ser substituída' ;;
+  esac
+}
+
+wait_dispatch_v3_debezium() {
+  local release_id="$1" timeout="$2" template_release update_strategy replicas pod_release
+  [[ "$release_id" =~ $RELEASE_PATTERN && "$timeout" =~ ^[1-9][0-9]*s$ ]] \
+    || fail 'espera do StatefulSet Debezium recebeu contrato inválido'
+  template_release="$(kube -n "$APP_NAMESPACE" get statefulset blindou-debezium-v3 \
+    -o 'jsonpath={.spec.template.metadata.annotations.blindou\.io/release}')"
+  update_strategy="$(kube -n "$APP_NAMESPACE" get statefulset blindou-debezium-v3 \
+    -o 'jsonpath={.spec.updateStrategy.type}')"
+  [[ "$template_release" == "$release_id" ]] \
+    || fail 'template Debezium diverge da release esperada'
+  case "$update_strategy" in
+    RollingUpdate)
+      kube -n "$APP_NAMESPACE" rollout status statefulset/blindou-debezium-v3 \
+        --timeout="$timeout"
+      ;;
+    OnDelete)
+      replicas="$(kube -n "$APP_NAMESPACE" get statefulset blindou-debezium-v3 \
+        -o 'jsonpath={.spec.replicas}')"
+      pod_release="$(kube -n "$APP_NAMESPACE" get pod blindou-debezium-v3-0 \
+        -o 'jsonpath={.metadata.annotations.blindou\.io/release}')"
+      [[ "$replicas" == '1' && "$pod_release" == "$release_id" ]] \
+        || fail 'Pod Debezium OnDelete não corresponde ao template da release'
+      kube -n "$APP_NAMESPACE" wait --for=condition=Ready pod/blindou-debezium-v3-0 \
+        --timeout="$timeout"
+      ;;
+    *) fail 'estratégia do StatefulSet Debezium não é suportada' ;;
+  esac
 }
 
 apply_cached_release() {
@@ -5206,7 +5255,7 @@ rearm_failed_update_successor() {
   dispatch_v3_state_is_empty \
     || fail 'sucessora recusada: há estado durável V3 ou evento na outbox'
   verify_data_foundation failed-update >/dev/null
-  verify_runtime_material pre-truststore-successor
+  verify_runtime_material pre-truststore-successor-rearm
   verify_dispatch_v3_nats_credentials
   verify_r2_runtime_credential failed-update >/dev/null
   fresh_offsite_backup_is_confirmed \

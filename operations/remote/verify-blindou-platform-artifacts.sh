@@ -918,6 +918,16 @@ cached_release_function="$(sed -n '/^apply_cached_release()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 refresh_debezium_successor_function="$(sed -n '/^refresh_debezium_successor_on_delete()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
+wait_dispatch_v3_debezium_function="$(sed -n '/^wait_dispatch_v3_debezium()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+wait_release_function="$(sed -n '/^wait_release()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+verify_dispatch_v3_runtime_function="$(sed -n '/^verify_dispatch_v3_runtime()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+activate_dispatch_v3_runtime_function="$(sed -n '/^activate_dispatch_v3_runtime()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+diagnose_dispatch_v3_workload_function="$(sed -n '/^diagnose_dispatch_v3_workload()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
 r2_credential_verification_function="$(sed -n '/^verify_r2_runtime_credential()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 failed_update_backup_function="$(sed -n '/^backup_database_for_failed_update()/,/^}/p' \
@@ -975,6 +985,8 @@ grep -Fq 'rearm-failed-update-successor)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'dispatch_v3_state_is_empty' <<<"$rearm_failed_update_successor_function" \
   && grep -Fq 'fresh_offsite_backup_is_confirmed' \
     <<<"$rearm_failed_update_successor_function" \
+  && grep -Fq 'verify_runtime_material pre-truststore-successor-rearm' \
+    <<<"$rearm_failed_update_successor_function" \
   && grep -Fq 'generate_dispatch_v3_nats_truststore' \
     <<<"$rearm_failed_update_successor_function" \
   && grep -Fq 'verify_dispatch_v3_kubernetes_material' \
@@ -1007,6 +1019,24 @@ grep -Fq 'rearm-failed-update-successor)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'resume-failed-update-successor * blindou-failed-update-successor-resume' \
     "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   || fail 'D062 não preserva cadeia, atualização OnDelete, backups, imagens, inatividade e ausência de rollback'
+grep -Fq 'wait_dispatch_v3_debezium "$release_id" 600s' <<<"$wait_release_function" \
+  && grep -Fq 'wait_dispatch_v3_debezium "$release_id" 120s' \
+    <<<"$verify_dispatch_v3_runtime_function" \
+  && grep -Fq 'wait_dispatch_v3_debezium "$release_id" 600s' \
+    <<<"$activate_dispatch_v3_runtime_function" \
+  && grep -Fq 'RollingUpdate)' <<<"$wait_dispatch_v3_debezium_function" \
+  && grep -Fq 'OnDelete)' <<<"$wait_dispatch_v3_debezium_function" \
+  && grep -Fq 'wait --for=condition=Ready pod/blindou-debezium-v3-0' \
+    <<<"$wait_dispatch_v3_debezium_function" \
+  && grep -Fq 'logs "$pod" -c "$container" --previous --tail=100' \
+    <<<"$diagnose_dispatch_v3_workload_function" \
+  && ! grep -Fq 'rollout status statefulset/blindou-debezium-v3' \
+    <<<"$wait_release_function" \
+  && ! grep -Fq 'rollout status statefulset/blindou-debezium-v3' \
+    <<<"$verify_dispatch_v3_runtime_function" \
+  && ! grep -Fq 'rollout status statefulset/blindou-debezium-v3' \
+    <<<"$activate_dispatch_v3_runtime_function" \
+  || fail 'D063 não verifica Debezium OnDelete por Pod pronto e release esperada'
 grep -Fq 'rearm-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'FAILED_UPDATE_REARM_CONFIRMATION' <<<"$rearm_failed_update_function" \
   && grep -Fq 'verify_secondary_slot_resume_preservation' <<<"$rearm_failed_update_function" \

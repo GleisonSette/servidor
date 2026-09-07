@@ -46,8 +46,15 @@ def main() -> int:
             "cabeçalho JKS diverge",
         )
         require(
-            hashlib.sha1(signed + "changeit".encode("utf-16-be")).digest() == digest,
-            "checksum JKS diverge",
+            hashlib.sha1(
+                "changeit".encode("utf-16-be") + b"Mighty Aphrodite" + signed
+            ).digest()
+            == digest,
+            "checksum JKS não segue o formato OpenJDK",
+        )
+        require(
+            hashlib.sha1(signed + "changeit".encode("utf-16-be")).digest() != digest,
+            "checksum legado incompatível com OpenJDK foi emitido",
         )
 
         modified = bytearray(content)

@@ -2425,3 +2425,22 @@ do host, Secret, migration, admissão ou rollback.
   fechada;
 - não há seletor amplo, exclusão do StatefulSet, PVC, stream, Secret,
   migration, rollback ou ativação do Dispatch V3.
+
+## 2026-09-07 - Integridade JKS e espera OnDelete da sucessora E5 preparadas
+
+Resultado: a retomada controlada recriou o Pod Debezium, mas revelou o checksum
+JKS incompatível com a JVM e a espera inválida por `rollout status` em uma
+estratégia `OnDelete`. Esta entrada registra a correção offline; nenhum host,
+Secret, migration, admissão, provider ou rollback foi alterado por ela.
+
+- o algoritmo foi alinhado à fonte OpenJDK: senha UTF-16BE, constante pública
+  `Mighty Aphrodite` e conteúdo JKS, antes do SHA-1; o teste recusa a ordem
+  legada;
+- o rearme mantém todos os gates D060/D061 e pode substituir somente o JKS
+  existente da tentativa parcial; o backup inicial continua exigindo ausência
+  desse arquivo;
+- a espera do StatefulSet separa `RollingUpdate` de `OnDelete`; neste último,
+  valida a release no template e no Pod `blindou-debezium-v3-0`, depois aguarda
+  exclusivamente sua condição `Ready`;
+- o diagnóstico fechado inclui logs da última execução, aplicando a mesma
+  sanitização de credenciais, URLs e chaves.
