@@ -2345,3 +2345,6 @@ executada por este registro.
 - o backup normal conserva a exigência de Blindou Ready; a variante corretiva
   permanece vinculada à falha conhecida, à candidata e ao recibo D059, sem
   transformar o atestado D033 em bypass geral.
+- a revalidação R2 do rearme também permanece normal por padrão e só usa D033
+  dentro dessa operação fechada, após host, candidata, falha e recibo já
+  comprovados.

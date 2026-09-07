@@ -884,6 +884,8 @@ resume_failed_update_function="$(sed -n '/^resume_failed_update()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 rearm_failed_update_function="$(sed -n '/^rearm_failed_update()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
+r2_credential_verification_function="$(sed -n '/^verify_r2_runtime_credential()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
 failed_update_backup_function="$(sed -n '/^backup_database_for_failed_update()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 slot_repair_function="$(sed -n '/^repair_dispatch_v3_logical_slot()/,/^}/p' \
@@ -921,6 +923,8 @@ grep -Fq 'rearm-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'verify_secondary_slot_resume_preservation' <<<"$rearm_failed_update_function" \
   && grep -Fq 'verify_data_foundation failed-update >/dev/null' \
     <<<"$rearm_failed_update_function" \
+  && grep -Fq 'verify_r2_runtime_credential failed-update >/dev/null' \
+    <<<"$rearm_failed_update_function" \
   && grep -Fq 'verify_latest_backup >/dev/null' <<<"$rearm_failed_update_function" \
   && grep -Fq 'ghcr_pull_latest_proof_is_secure' <<<"$rearm_failed_update_function" \
   && grep -Fq 'dispatch_v3_slot_repair_receipt_matches' \
@@ -929,6 +933,12 @@ grep -Fq 'rearm-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'failed-update-rearm' <<<"$rearm_failed_update_function" \
   && ! grep -Fq 'rollback_release' <<<"$rearm_failed_update_function" \
   || fail 'rearme fechado não vincula falha, backup e preservação do slot'
+grep -Fq "[[ \"\$origin\" == 'operator' || \"\$origin\" == 'failed-update' ]]" \
+    <<<"$r2_credential_verification_function" \
+  && grep -Fq 'require_platform_preconditions' <<<"$r2_credential_verification_function" \
+  && grep -Fq 'verify_secondary_slot_resume_preservation' \
+    <<<"$r2_credential_verification_function" \
+  || fail 'verificação R2 não isola a exceção fechada da retomada'
 backup_database_function="$(sed -n '/^backup_database()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 grep -Fq 'backup-database-for-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \

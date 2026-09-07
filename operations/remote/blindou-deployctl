@@ -1160,7 +1160,17 @@ record_r2_verification() {
 }
 
 verify_r2_runtime_credential() {
-  require_platform_preconditions
+  local origin="${1:-operator}"
+  [[ "$origin" == 'operator' || "$origin" == 'failed-update' ]] \
+    || fail 'origem da verificação R2 inválida'
+  if [[ "$origin" == 'operator' ]]; then
+    require_platform_preconditions
+  else
+    require_root_and_host
+    /usr/local/sbin/blindou-hostctl verify >/dev/null \
+      || fail 'contenção temporária do host não passou'
+    verify_secondary_slot_resume_preservation
+  fi
   r2_credential_files_are_secure \
     || fail 'credencial R2 ausente, insegura ou fora do formato esperado'
   local access_key secret_key
@@ -4717,7 +4727,7 @@ rearm_failed_update() {
     || fail 'rearme recusado com admissão Dispatch V3 ativa'
   verify_data_foundation failed-update >/dev/null
   verify_runtime_material
-  verify_r2_runtime_credential >/dev/null
+  verify_r2_runtime_credential failed-update >/dev/null
   if grep -Fxq 'INITIAL_UI_REVIEW_MODE=true' "$RUNTIME_CONFIG_FILE"; then
     [[ -f "$UI_REVIEW_RECEIPT" ]] \
       && grep -Fxq 'status=authorized' "$UI_REVIEW_RECEIPT" \

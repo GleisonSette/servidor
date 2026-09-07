@@ -1305,3 +1305,8 @@ e as mesmas provas de falha, candidata, estado V3 inativo, recibo D059, host,
 dados e gates de namespace. Ele chama a mesma rotina de dump, catálogo e CMS do
 backup normal; não libera a aplicação, não altera a retenção nem evita a
 confirmação offsite posterior.
+
+A verificação R2 conserva o preflight normal por padrão. Somente a chamada
+interna do rearme com origem `failed-update` troca esse preflight pelo host e
+atestado D033 já exigidos pelo rearme; a mesma sonda autenticada de R2 e o
+recibo continuam obrigatórios. A interface read-only não aceita essa origem.
