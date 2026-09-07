@@ -21,6 +21,7 @@ from secondary_slot import (  # noqa: E402
     count_active_workloads,
     long_running_workload_is_active,
     parse_state,
+    preserves_empty_secondary_slot,
     runtime_is_fully_suspended,
     state_matches_runtime,
     state_from_unambiguous_runtime,
@@ -179,6 +180,18 @@ class TextfileCollectorDirectoryTests(unittest.TestCase):
                 st_gid=gid,
             )
             self.assertFalse(textfile_directory_metadata_is_safe(metadata, 112, 118))
+
+
+class BlindouResumePreservationTests(unittest.TestCase):
+    def test_preservation_accepts_only_idle_slot(self) -> None:
+        state = SlotState(9, "none", 0, 0, "2026-09-07T12:00:00+00:00")
+        runtime = RuntimeObservation("suspended", 0, 0, True, False)
+        self.assertTrue(preserves_empty_secondary_slot(state, runtime))
+
+    def test_preservation_rejects_any_occupied_slot(self) -> None:
+        state = SlotState(9, "apiwpp", 1, 0, "2026-09-07T12:00:00+00:00")
+        runtime = RuntimeObservation("active", 1, 0, True, False)
+        self.assertFalse(preserves_empty_secondary_slot(state, runtime))
 
 
 if __name__ == "__main__":

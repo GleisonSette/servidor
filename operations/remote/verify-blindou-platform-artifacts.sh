@@ -204,6 +204,10 @@ for orchestrator in \
 done
 grep -Fq 'sudo -n /usr/local/sbin/secondary-slotctl verify' "$PULL_PROOF_SCRIPT" \
   || fail 'prova GHCR não preserva o estado canônico do slot secundário'
+grep -Fq '[switch]$FailedUpdateResume' "$PULL_PROOF_SCRIPT" \
+  && grep -Fq 'verify-preservation-for-blindou-resume' "$PULL_PROOF_SCRIPT" \
+  && grep -Fq 'Usando exclusivamente o atestado D033' "$PULL_PROOF_SCRIPT" \
+  || fail 'prova GHCR não limita a exceção D033 à retomada explícita'
 if grep -Fq 'sudo -n /usr/local/sbin/apiwpp-deployctl verify' "$PULL_PROOF_SCRIPT"; then
   fail 'prova GHCR ainda exige APIWPP ativo apesar do estado D033'
 fi
@@ -877,6 +881,8 @@ grep -Fq 'diagnose-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'diagnóstico ou recuperação fechada de atualização ausente'
 resume_failed_update_function="$(sed -n '/^resume_failed_update()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
+rearm_failed_update_function="$(sed -n '/^rearm_failed_update()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
 grep -Fq 'resume-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'FAILED_UPDATE_RESUME_CONFIRMATION' \
     <<<"$resume_failed_update_function" \
@@ -886,6 +892,19 @@ grep -Fq 'resume-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
     <<<"$resume_failed_update_function" \
   && ! grep -Fq 'rollback_release' <<<"$resume_failed_update_function" \
   || fail 'retomada fechada não preserva falha parcial sem rollback'
+grep -Fq 'rearm-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'FAILED_UPDATE_REARM_CONFIRMATION' <<<"$rearm_failed_update_function" \
+  && grep -Fq 'verify_secondary_slot_resume_preservation' <<<"$rearm_failed_update_function" \
+  && grep -Fq 'verify_latest_backup >/dev/null' <<<"$rearm_failed_update_function" \
+  && grep -Fq 'ghcr_pull_latest_proof_is_secure' <<<"$rearm_failed_update_function" \
+  && grep -Fq 'backend não comprova a falha conhecida' <<<"$rearm_failed_update_function" \
+  && grep -Fq 'failed-update-rearm' <<<"$rearm_failed_update_function" \
+  && ! grep -Fq 'rollback_release' <<<"$rearm_failed_update_function" \
+  || fail 'rearme fechado não vincula falha, backup e preservação do slot'
+grep -Fq 'verify-preservation-for-blindou-resume' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'secondary_slot_preservation=passed occupant=none' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'controlador Blindou não exige atestado D033 específico na retomada'
 grep -Fq "get deployment blindou-backend" "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq "pod/blindou-backend-[a-z0-9-]+" "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq "replicaset.apps/blindou-backend-[a-z0-9-]+" \
@@ -921,6 +940,8 @@ grep -Fq "SELECT to_regclass('public.dispatch_owner_controls_v3') IS NOT NULL" \
   || fail 'rollback V1 referencia tabela Dispatch V3 ausente no mesmo statement'
 grep -Fq 'diagnose-failed-update *' "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   && grep -Fq 'recover-failed-update * * blindou-failed-update-recovery' \
+    "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  && grep -Fq 'rearm-failed-update * blindou-failed-update-rearm' \
     "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   && grep -Fq 'resume-failed-update * blindou-failed-update-resume' \
     "${REMOTE_DIR}/blindou-deployctl.sudoers" \

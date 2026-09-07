@@ -89,6 +89,31 @@ Como o preflight também consulta o controlador Blindou, ele e a verificação
 posterior repetem por no máximo um minuto apenas diante do código e da mensagem
 exatos de lock ocupado. Erro diferente não recebe retry.
 
+### Exceção estrita para retomada do próprio Blindou
+
+`secondary-slotctl verify` continua sendo a verificação normal e sempre exige
+o Blindou Ready e com fingerprint íntegro. Durante uma atualização conhecida
+como falha do próprio Blindou, essa exigência impediria instalar o controlador
+que precisa substituir o backend não Ready. Somente nesse caso o bootstrap
+pode aceitar a mensagem exata de indisponibilidade do Blindou e executar a
+leitura separada:
+
+```text
+sudo -n /usr/local/sbin/secondary-slotctl \
+  verify-preservation-for-blindou-resume
+```
+
+Ela não é uma transição nem uma forma alternativa de verificar releases:
+exige ausência de transição pendente, estado root-only íntegro, gates e
+admissão íntegros, ocupante `none` e zero workloads APIWPP/SaferWPP observados.
+Ela deliberadamente não consulta a saúde do Blindou. Somente
+`blindou-deployctl rearm-failed-update` a usa para vincular a exceção à release
+falha, à candidata corretiva, ao backup recém-confirmado offsite e ao estado V3
+`prepared`; `resume-failed-update` exige o recibo root-only desse rearme. A
+retomada volta a exigir `secondary-slotctl verify` normal ao concluir. Nenhum
+operador deve usar essa leitura para ativar APIWPP, SaferWPP ou admissões do
+Dispatch V3.
+
 ## Ordem APIWPP para SaferWPP
 
 Os comandos do slot e do APIWPP usam o mesmo `operation_id`. O controlador

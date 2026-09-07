@@ -52,6 +52,7 @@ from secondary_slot import (  # noqa: E402
     observe_runtime,
     parse_state,
     parse_timestamp,
+    preserves_empty_secondary_slot,
     prune_secure_history,
     read_secure_state,
     require_blindou_healthy_and_fingerprint,
@@ -683,6 +684,27 @@ def verify() -> None:
     )
 
 
+def verify_preservation_for_blindou_resume() -> None:
+    """Prova D033 enquanto o próprio Blindou é o componente em recuperação.
+
+    Esta leitura não substitui ``verify``: ela atesta somente a exclusão mútua
+    do slot, sua admissão e a ausência de transição pendente. A saúde do
+    Blindou continua obrigatória no verificador normal e volta a ser exigida
+    assim que o rollout corretivo terminar.
+    """
+
+    require_no_pending()
+    state, runtime = require_state_runtime_and_gates()
+    if not preserves_empty_secondary_slot(state, runtime):
+        fail("slot secundário diverge do estado D033: sem ocupante e sem workloads")
+    print(
+        "secondary_slot_preservation=passed "
+        f"occupant={state.active_occupant} generation={state.generation} "
+        f"apiwpp_workloads={runtime.apiwpp_workloads} "
+        f"saferwpp_workloads={runtime.saferwpp_workloads}"
+    )
+
+
 def show_status() -> None:
     runtime = observe_runtime(kubernetes)
     state_status = "absent"
@@ -835,12 +857,20 @@ def collect_metrics() -> None:
 
 def dispatch(arguments: list[str]) -> None:
     if not arguments:
-        fail("uso: secondary-slotctl {status|verify|metrics|transição fechada}")
+        fail(
+            "uso: secondary-slotctl "
+            "{status|verify|verify-preservation-for-blindou-resume|metrics|transição fechada}"
+        )
     action = arguments[0]
-    if action in {"status", "verify", "metrics"}:
+    if action in {"status", "verify", "verify-preservation-for-blindou-resume", "metrics"}:
         if len(arguments) != 1:
             fail(f"uso: secondary-slotctl {action}")
-        {"status": show_status, "verify": verify, "metrics": collect_metrics}[action]()
+        {
+            "status": show_status,
+            "verify": verify,
+            "verify-preservation-for-blindou-resume": verify_preservation_for_blindou_resume,
+            "metrics": collect_metrics,
+        }[action]()
         return
     if action == "initialize-apiwpp-active":
         if len(arguments) != 3:

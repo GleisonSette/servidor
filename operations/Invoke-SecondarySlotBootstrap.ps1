@@ -156,6 +156,7 @@ run_slot_gate() {
     fi
     if [ "$slot_code" -ne 1 ] || \
         [ "$slot_output" != '[secondary-slotctl] ERRO: outra operação do slot está em andamento' ]; then
+      printf '%s\n' "$slot_output" >&2
       return "$slot_code"
     fi
     sleep 5
@@ -180,7 +181,19 @@ for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
 done
 [ "$blindou_status_passed" = true ]
 run_slot_gate status
-run_slot_gate verify
+set +e
+slot_verify_output="$(run_slot_gate verify 2>&1)"
+slot_verify_status="$?"
+set -e
+if [ "$slot_verify_status" -eq 0 ]; then
+  printf '%s\n' "$slot_verify_output"
+elif [ "$slot_verify_output" = '[secondary-slotctl] ERRO: Blindou não está Ready em blindou-production' ]; then
+  run_slot_gate verify-preservation-for-blindou-resume
+  printf '%s\n' 'secondary_slot_bootstrap=blindou-resume-preservation-only'
+else
+  printf '%s\n' "$slot_verify_output" >&2
+  exit "$slot_verify_status"
+fi
 printf 'blindou_deployctl_status=passed\n'
 sudo -n /usr/local/sbin/blindou-hostctl verify
 '@

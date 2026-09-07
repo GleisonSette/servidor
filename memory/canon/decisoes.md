@@ -1242,3 +1242,30 @@ Durante a instalação interna, todas as provas de `status` são concluídas com
 timer pausado. A reativação é o último ato antes do recibo de sucesso, eliminando
 a janela em que o próprio bootstrap poderia disputar o lock que acabara de
 validar.
+
+## Resolvida D058 - Rearme E5 preserva D033 sem depender do backend falho
+
+Em 2026-09-07, a tentativa E5 conhecida pela release
+`cd605c83b3e330d69f977dc2664b2e3fe0bbc203` deixou o backend Blindou não Ready.
+O gate normal `secondary-slotctl verify` corretamente recusou qualquer nova
+release enquanto o Blindou permanecesse indisponível, mas isso também bloqueou
+a candidata corretiva que deveria substituí-lo. Reduzir o gate normal criaria
+uma rota geral de bypass para o slot compartilhado e foi recusado.
+
+A D058 conserva `verify` inalterado e cria somente a leitura root-only
+`verify-preservation-for-blindou-resume`. Ela exige estado e runtime D033
+(`occupant=none`, APIWPP e SaferWPP sem workloads), admissão e gates de
+namespace válidos e nenhuma transição pendente; não consulta a saúde do
+Blindou porque ele é exatamente o componente em recuperação. O bootstrap só a
+aceita após a falha literal do verificador normal; qualquer outra falha continua
+fechada.
+
+`rearm-failed-update` exige essa prova, o backend ainda anotado com a release
+falha e sem réplica Ready, release anterior segura, candidata corretiva no
+cache com prova GHCR, Dispatch V3 `prepared` e inativo, host/dados/material
+íntegros e backup criptografado confirmado offsite há no máximo uma hora. Só
+então grava os recibos root-only do gate e do rearme. `resume-failed-update`
+exige o recibo correspondente e preserva o estado parcial em nova falha; não
+executa rollback. Após sucesso, a verificação normal do slot volta a ser
+obrigatória. A decisão não autoriza migration adicional, Secret, ativação de
+admissões V3, mudança de ocupante, rollback ou outro workload.

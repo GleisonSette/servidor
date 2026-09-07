@@ -283,10 +283,25 @@ for invariant in (
     "abort-transition",
     "reconcile",
     "require_blindou_healthy_and_fingerprint",
+    "verify_preservation_for_blindou_resume",
+    "verify-preservation-for-blindou-resume",
     "transition-needs-reconciliation",
 ):
     if invariant not in controller:
         fail(f"invariante ausente no controlador: {invariant}")
+preservation_start = controller.index("def verify_preservation_for_blindou_resume()")
+preservation_end = controller.index("\ndef show_status()", preservation_start)
+preservation = controller[preservation_start:preservation_end]
+for invariant in (
+    "require_no_pending()",
+    "require_state_runtime_and_gates()",
+    "preserves_empty_secondary_slot(state, runtime)",
+    "secondary_slot_preservation=passed",
+):
+    if invariant not in preservation:
+        fail(f"atestado de preservação D033 incompleto: {invariant}")
+if "require_blindou_healthy_and_fingerprint" in preservation:
+    fail("atestado de recuperação não pode confundir saúde do Blindou com isolamento do slot")
 if "OnCalendar=*-*-* *:*:30" not in metrics_timer or "AccuracySec=1s" not in metrics_timer:
     fail("timer de métricas do slot não possui offset determinístico")
 if "OnUnitActiveSec" in metrics_timer:
@@ -307,6 +322,7 @@ for invariant in (
     "workload_is_active",
     "namespace_gates_match",
     "saferwpp_required_namespaces_active",
+    "preserves_empty_secondary_slot",
     "STATE_HISTORY_MAX_FILES",
     "textfile_directory_metadata_is_safe",
 ):
@@ -316,6 +332,8 @@ if "apiadmin ALL=(root) NOPASSWD" not in sudoers:
     fail("sudoers não limita a identidade operacional")
 if re.search(r"secondary-slotctl\s+\*\s*(?:,|$)", sudoers, re.MULTILINE):
     fail("sudoers contém execução totalmente aberta")
+if "/usr/local/sbin/secondary-slotctl verify-preservation-for-blindou-resume" not in sudoers:
+    fail("sudoers não libera somente o atestado D033 de retomada")
 if "python3 \"$VERIFIER_SOURCE\"" not in bootstrap:
     fail("bootstrap não executa o verificador offline")
 if "promtool check config" not in bootstrap or "visudo -cf" not in bootstrap:
@@ -394,6 +412,8 @@ for invariant in (
     "StrictHostKeyChecking=yes",
     '$remotePreflight.Replace("`r`n", "`n").Replace("`r", "`n")',
     "run_slot_gate verify",
+    "verify-preservation-for-blindou-resume",
+    "secondary_slot_bootstrap=blindou-resume-preservation-only",
     "blindou-deployctl status",
     "blindou-hostctl verify",
     "Invoke-SecondarySlotSudoBootstrap",
@@ -433,6 +453,7 @@ test_result = subprocess.run(
     capture_output=True,
     text=True,
     encoding="utf-8",
+    errors="replace",
     timeout=60,
 )
 if test_result.returncode != 0:

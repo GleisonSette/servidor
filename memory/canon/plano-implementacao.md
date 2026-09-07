@@ -259,11 +259,14 @@ descreve somente o estado do repositório; até instalação do controlador,
 release assinada, backup, migrations e recibos vivos, a produção continua na
 release e nas 12 migrations observadas anteriormente.
 
-A candidata Blindou `cd605c83b3e330d69f977dc2664b2e3fe0bbc203` passou no
-workflow hospedado `33975512382`, incluindo suíte Rust/PostgreSQL, imagens,
-scans e identidades. O orquestrador de prova foi alinhado ao estado D033 para
-usar o gate do slot `none`; release assinada, prova viva, backup, Secrets,
-migrations, workloads e ativação continuam pendentes nesta fotografia.
+A candidata Blindou inicial `cd605c83b3e330d69f977dc2664b2e3fe0bbc203` passou
+no workflow hospedado `33975512382`, mas sua atualização E5 falhou e deixou o
+backend não Ready. A candidata corretiva
+`2452e3b92af96c1b98a6123f7aa6905c335bfc26` passou no workflow hospedado
+`34075173891`, incluindo suíte Rust/PostgreSQL, imagens, scans e identidades.
+A D058 preserva o gate normal do slot e permite somente o rearme fechado D033,
+após nova prova de pull e backup offsite, para substituir o backend falho sem
+rollback; admissão V3 continua inativa nesta fotografia.
 
 Em 2026-09-06, a primeira entrada protegida foi recusada antes de persistir o
 material: `nounset` expandia o nome do arquivo na mesma declaração local que o

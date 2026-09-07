@@ -634,6 +634,27 @@ def state_matches_runtime(state: SlotState, runtime: RuntimeObservation) -> bool
     )
 
 
+def preserves_empty_secondary_slot(
+    state: SlotState, runtime: RuntimeObservation
+) -> bool:
+    """Atesta o estado D033, sem depender da saúde de quem será recuperado.
+
+    A função é deliberadamente mais estrita que a mera ausência de runtime:
+    a fonte de verdade e a observação precisam afirmar que APIWPP e SaferWPP
+    não ocupam a reserva. Quem a chama já deve ter validado integridade do
+    estado, gates de namespace e admissão.
+    """
+
+    return (
+        state.active_occupant == "none"
+        and state.apiwpp_workloads == 0
+        and state.saferwpp_workloads == 0
+        and runtime.apiwpp_state == "suspended"
+        and runtime.apiwpp_workloads == 0
+        and runtime.saferwpp_workloads == 0
+    )
+
+
 def runtime_is_fully_suspended(runtime: RuntimeObservation) -> bool:
     return (
         runtime.apiwpp_state == "suspended"

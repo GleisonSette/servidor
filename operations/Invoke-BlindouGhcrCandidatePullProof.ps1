@@ -4,7 +4,9 @@ param(
     [string]$ReleaseId = '1265c3be1e808d522887f38ff47e9a110533677a',
 
     [Parameter(Mandatory = $true)]
-    [string]$BundleDirectory
+    [string]$BundleDirectory,
+
+    [switch]$FailedUpdateResume
 )
 
 $ErrorActionPreference = 'Stop'
@@ -132,12 +134,20 @@ Invoke-BlindouSudoBootstrap `
     -RemoteRoot $remoteRoot
 
 Write-Host 'Validando a release e as quatro imagens privadas sem iniciar workloads.' -ForegroundColor Cyan
+$slotVerification = if ($FailedUpdateResume) {
+    Write-Host 'Usando exclusivamente o atestado D033: o backend falho será substituído nesta retomada.' `
+        -ForegroundColor Yellow
+    'sudo -n /usr/local/sbin/secondary-slotctl verify-preservation-for-blindou-resume'
+}
+else {
+    'sudo -n /usr/local/sbin/secondary-slotctl verify'
+}
 & ssh.exe @sshArgs $server (
     "sudo -n /usr/local/sbin/blindou-deployctl validate-release $ReleaseId && " +
     "sudo -n /usr/local/sbin/blindou-deployctl verify-ghcr-candidate-pull $ReleaseId && " +
     'sudo -n /usr/local/sbin/blindou-deployctl status && ' +
     'sudo -n /usr/local/sbin/blindou-hostctl verify && ' +
-    'sudo -n /usr/local/sbin/secondary-slotctl verify && ' +
+    "$slotVerification && " +
     "rm -f $remoteArchive"
 )
 if ($LASTEXITCODE -ne 0) {

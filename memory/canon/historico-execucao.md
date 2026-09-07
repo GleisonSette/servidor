@@ -2305,3 +2305,22 @@ preparada no repositório; o runtime ainda não foi alterado neste registro.
 - a instalação seguinte passou preflight e provas concorrentes, mas reativou o
   timer antes do `status` final e foi revertida ao colidir nessa janela; a ordem
   corrigida mantém o timer parado até todas as verificações terminarem.
+
+## 2026-09-07 - Rearme corretivo E5 preparado sem enfraquecer o slot
+
+Resultado: a dependência circular entre a saúde do backend falho e o gate do
+slot foi eliminada no controlador; nenhuma alteração no host foi executada por
+este registro.
+
+- o verificador normal continua exigindo o Blindou Ready; não houve relaxamento
+  da barreira que protege APIWPP e SaferWPP;
+- a nova leitura D033 aceita exclusivamente estado `none`, zero workloads nos
+  dois lados, admissão/gates íntegros e ausência de transição pendente, sem
+  consultar a saúde do componente que será recuperado;
+- `rearm-failed-update` vincula a exceção à atualização falha distinta, à
+  candidata corretiva, ao backend sem réplica Ready, à prova GHCR e ao backup
+  criptografado confirmado offsite com no máximo uma hora;
+- a retomada exige recibo root-only do rearme e continua sem rollback, sem
+  migration adicional e sem ativar novas admissões Dispatch V3;
+- a prova de pull GHCR tem opção explícita somente para essa retomada e usa a
+  leitura D033; no fluxo normal, ela conserva `secondary-slotctl verify`.
