@@ -142,9 +142,15 @@ $slotVerification = if ($FailedUpdateResume) {
 else {
     'sudo -n /usr/local/sbin/secondary-slotctl verify'
 }
+$pullVerification = if ($FailedUpdateResume) {
+    "sudo -n /usr/local/sbin/blindou-deployctl verify-ghcr-candidate-pull-for-failed-update-resume $ReleaseId"
+}
+else {
+    "sudo -n /usr/local/sbin/blindou-deployctl verify-ghcr-candidate-pull $ReleaseId"
+}
 & ssh.exe @sshArgs $server (
     "sudo -n /usr/local/sbin/blindou-deployctl validate-release $ReleaseId && " +
-    "sudo -n /usr/local/sbin/blindou-deployctl verify-ghcr-candidate-pull $ReleaseId && " +
+    "$pullVerification && " +
     'sudo -n /usr/local/sbin/blindou-deployctl status && ' +
     'sudo -n /usr/local/sbin/blindou-hostctl verify && ' +
     "$slotVerification && " +

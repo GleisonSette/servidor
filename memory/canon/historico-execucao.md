@@ -2322,5 +2322,6 @@ este registro.
   criptografado confirmado offsite com no máximo uma hora;
 - a retomada exige recibo root-only do rearme e continua sem rollback, sem
   migration adicional e sem ativar novas admissões Dispatch V3;
-- a prova de pull GHCR tem opção explícita somente para essa retomada e usa a
-  leitura D033; no fluxo normal, ela conserva `secondary-slotctl verify`.
+- a prova de pull GHCR usa a ação explícita
+  `verify-ghcr-candidate-pull-for-failed-update-resume` somente nessa retomada;
+  no fluxo normal, ela conserva `secondary-slotctl verify`.

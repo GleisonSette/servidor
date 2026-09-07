@@ -1260,9 +1260,11 @@ Blindou porque ele é exatamente o componente em recuperação. O bootstrap só 
 aceita após a falha literal do verificador normal; qualquer outra falha continua
 fechada.
 
-`rearm-failed-update` exige essa prova, o backend ainda anotado com a release
-falha e sem réplica Ready, release anterior segura, candidata corretiva no
-cache com prova GHCR, Dispatch V3 `prepared` e inativo, host/dados/material
+`verify-ghcr-candidate-pull-for-failed-update-resume` repete a prova integral
+das quatro imagens, mas troca somente o preflight normal pelo host e atestado
+D033. `rearm-failed-update` exige essa prova, o backend ainda anotado com a
+release falha e sem réplica Ready, release anterior segura, candidata corretiva
+no cache, Dispatch V3 `prepared` e inativo, host/dados/material
 íntegros e backup criptografado confirmado offsite há no máximo uma hora. Só
 então grava os recibos root-only do gate e do rearme. `resume-failed-update`
 exige o recibo correspondente e preserva o estado parcial em nova falha; não

@@ -935,10 +935,24 @@ ghcr_pull_latest_proof_is_secure() {
 }
 
 verify_ghcr_candidate_pull() {
+  require_platform_preconditions
+  verify_ghcr_candidate_pull_after_preconditions "$1"
+}
+
+verify_ghcr_candidate_pull_for_failed_update_resume() {
+  require_root_and_host
+  /usr/local/sbin/blindou-hostctl verify >/dev/null \
+    || fail 'contenção temporária do host não passou'
+  verify_secondary_slot_resume_preservation
+  [[ -d "$FOUNDATION_DIR" && ! -L "$FOUNDATION_DIR" ]] \
+    || fail 'bundle root-owned da fundação está ausente'
+  verify_ghcr_candidate_pull_after_preconditions "$1"
+}
+
+verify_ghcr_candidate_pull_after_preconditions() {
   local release_id="$1" token receipt latest_tmp
   local -a images=()
   [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
-  require_platform_preconditions
   verify_ghcr_pull_credential >/dev/null
   mapfile -t images < <(cached_release_ghcr_images "$release_id")
   [[ "${#images[@]}" -eq 4 ]] \
@@ -4913,6 +4927,11 @@ case "${1:-}" in
   verify-ghcr-candidate-pull)
     [[ $# -eq 2 ]] || fail 'usage: blindou-deployctl verify-ghcr-candidate-pull RELEASE_ID'
     verify_ghcr_candidate_pull "$2"
+    ;;
+  verify-ghcr-candidate-pull-for-failed-update-resume)
+    [[ $# -eq 2 ]] \
+      || fail 'uso: blindou-deployctl verify-ghcr-candidate-pull-for-failed-update-resume RELEASE_ID'
+    verify_ghcr_candidate_pull_for_failed_update_resume "$2"
     ;;
   provision-ghcr-pull-credential)
     [[ $# -eq 2 ]] || fail 'usage: blindou-deployctl provision-ghcr-pull-credential CONFIRMATION'

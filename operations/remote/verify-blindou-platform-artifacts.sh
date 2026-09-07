@@ -206,6 +206,7 @@ grep -Fq 'sudo -n /usr/local/sbin/secondary-slotctl verify' "$PULL_PROOF_SCRIPT"
   || fail 'prova GHCR não preserva o estado canônico do slot secundário'
 grep -Fq '[switch]$FailedUpdateResume' "$PULL_PROOF_SCRIPT" \
   && grep -Fq 'verify-preservation-for-blindou-resume' "$PULL_PROOF_SCRIPT" \
+  && grep -Fq 'verify-ghcr-candidate-pull-for-failed-update-resume' "$PULL_PROOF_SCRIPT" \
   && grep -Fq 'Usando exclusivamente o atestado D033' "$PULL_PROOF_SCRIPT" \
   || fail 'prova GHCR não limita a exceção D033 à retomada explícita'
 if grep -Fq 'sudo -n /usr/local/sbin/apiwpp-deployctl verify' "$PULL_PROOF_SCRIPT"; then
@@ -883,6 +884,19 @@ resume_failed_update_function="$(sed -n '/^resume_failed_update()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 rearm_failed_update_function="$(sed -n '/^rearm_failed_update()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
+resume_pull_function="$(sed -n '/^verify_ghcr_candidate_pull_for_failed_update_resume()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+normal_pull_function="$(sed -n '/^verify_ghcr_candidate_pull()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+grep -Fq 'verify-ghcr-candidate-pull-for-failed-update-resume)' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'require_platform_preconditions' <<<"$normal_pull_function" \
+  && grep -Fq 'require_root_and_host' <<<"$resume_pull_function" \
+  && grep -Fq '/usr/local/sbin/blindou-hostctl verify' <<<"$resume_pull_function" \
+  && grep -Fq 'verify_secondary_slot_resume_preservation' <<<"$resume_pull_function" \
+  && grep -Fq 'bundle root-owned da fundação está ausente' <<<"$resume_pull_function" \
+  && ! grep -Fq 'require_platform_preconditions' <<<"$resume_pull_function" \
+  || fail 'prova GHCR da retomada não isola estritamente o backend falho'
 grep -Fq 'resume-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'FAILED_UPDATE_RESUME_CONFIRMATION' \
     <<<"$resume_failed_update_function" \
@@ -940,6 +954,8 @@ grep -Fq "SELECT to_regclass('public.dispatch_owner_controls_v3') IS NOT NULL" \
   || fail 'rollback V1 referencia tabela Dispatch V3 ausente no mesmo statement'
 grep -Fq 'diagnose-failed-update *' "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   && grep -Fq 'recover-failed-update * * blindou-failed-update-recovery' \
+    "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  && grep -Fq 'verify-ghcr-candidate-pull-for-failed-update-resume *' \
     "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   && grep -Fq 'rearm-failed-update * blindou-failed-update-rearm' \
     "${REMOTE_DIR}/blindou-deployctl.sudoers" \
