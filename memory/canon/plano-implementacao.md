@@ -418,6 +418,16 @@ a D070 aprovada substitui essa exigência por prova do formato canônico sem
 estado `prepared`, o backend parcial, os dois campos R2 ausentes e a verificação
 normal do slot depois do rollout.
 
+Execução D070 em 2026-09-07: o controlador instalado confirmou o formato
+canônico e todas as demais provas da recuperação parcial, mas a única tentativa
+de ativação parou em uma verificação normal aninhada do slot secundário. Essa
+verificação ainda requer o backend Ready, condição impossível antes de a
+recuperação do Secret R2 terminar. O estado permanece `prepared`, o recibo
+`active` não existe e não houve nova tentativa, migration ou rollback. Uma
+correção específica deve remover somente essa dependência circular, preservando
+o atestado D033 estrito, a reconciliação fechada e a verificação normal depois
+de o backend ficar Ready.
+
 Ordem obrigatória da extensão:
 
 1. validar, publicar e instalar o controlador D055 sem alterar o runtime por

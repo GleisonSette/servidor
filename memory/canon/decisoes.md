@@ -1514,7 +1514,7 @@ Kubernetes bruto; não escreve, reinicia, aplica migration, altera admissão nem
 substitui o gate D033. A ativação continua bloqueada até o diagnóstico provar
 integralmente a combinação D068 ou até uma decisão corretiva específica.
 
-## Resolvida D070 - Formato canônico do recibo `prepared` na ativação
+## Parcialmente resolvida D070 - Formato canônico do recibo `prepared` na ativação
 
 A D069 executada em 2026-09-07 comprovou que o único predicado falso da D068 é
 `dispatch_v3_state_prepared_match`. O estado está seguro e `prepared`, mas o
@@ -1530,3 +1530,12 @@ root-only, erro literal do slot, D033, modo parcial ativo, backend exatamente
 não Ready, ausência conjunta dos dois campos R2 e verificação normal do slot
 após o rollout. A alternativa de reescrever manualmente o recibo é proibida,
 pois introduziria uma mutação de estado fora do provisionamento fechado.
+
+Na execução instalada em 2026-09-07, todas essas provas passaram, mas a
+ativação atingiu uma chamada aninhada que reaplica a verificação normal D033
+antes de o backend recuperar os dois campos R2. Como essa verificação exige o
+backend Ready, ela cria uma dependência circular e a tentativa foi recusada sem
+recibo `active`. O estado permanece `prepared`. Qualquer correção posterior
+deve limitar-se a permitir o atestado D033 de retomada somente nessa combinação
+já comprovada, conservar a verificação normal após o backend Ready e exigir
+autorização explícita antes de nova ativação.

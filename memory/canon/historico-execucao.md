@@ -2572,8 +2572,10 @@ Resultado: o diagnóstico fechado foi instalado no commit
 
 ## 2026-09-07 - D070 corrige o formato do recibo preparado
 
-Resultado: a correção D070 foi preparada no repositório; o host ainda não foi
-alterado por esta entrada.
+Resultado: a correção D070 foi instalada no controlador fechado e o diagnóstico
+confirmou todas as pré-condições da recuperação parcial. A ativação foi tentada
+uma vez, mas permaneceu bloqueada; o recibo continua `prepared` e não há
+recibo `active`.
 
 - a D069 provou que o recibo `prepared` canônico não contém `release_id`;
 - a nova prova exige arquivo root-only de quatro linhas, schema, estado,
@@ -2582,3 +2584,9 @@ alterado por esta entrada.
   exigidas; nenhum recibo é reescrito;
 - o diagnóstico D069 passa a reportar o booleano do formato canônico antes de
   qualquer nova tentativa de ativação.
+- a tentativa alcançou uma verificação normal do slot secundário que ainda
+  exige o backend Ready; como o backend segue sem os campos R2, ela recusou a
+  sequência antes de concluir a recuperação;
+- o diagnóstico fechado posterior confirmou `dispatch_v3_state=prepared`, a
+  ausência conjunta dos dois nomes R2 no Secret de núcleo e o backend em
+  `CrashLoopBackOff`; nenhuma migration, rollback ou nova ativação foi feita.
