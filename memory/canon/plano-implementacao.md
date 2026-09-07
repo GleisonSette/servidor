@@ -394,6 +394,14 @@ obrigatório, e a verificação normal retorna antes do recibo final. Não há b
 para outro erro, Secret parcial, migration, provider, rollback ou ativação já
 concluída.
 
+Execução D068 em 2026-09-07: o controlador foi publicado e instalado no commit
+`436bfebaebc47b9fe836d755f6d6c10e421f384a`, mas a ativação autorizada recusou
+antes de qualquer escrita porque a elegibilidade interna retornou falsa. O
+diagnóstico fechado confirma o backend com uma réplica atualizada, nenhuma
+Ready e o erro R2 previsto; como o controlador não expõe qual das demais provas
+falhou, o próximo trabalho precisa ser uma leitura diagnóstica fechada. Não
+repetir a ativação nem flexibilizar a D033 antes dessa evidência.
+
 Ordem obrigatória da extensão:
 
 1. validar, publicar e instalar o controlador D055 sem alterar o runtime por

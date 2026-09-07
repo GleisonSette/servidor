@@ -578,6 +578,13 @@ próprio continuam gates bloqueantes. Nenhum estado runtime foi alterado.
   dois campos R2 do Secret comum estão ausentes e o backend não está Ready.
   A retomada permanece limitada a essa combinação, recompõe o Secret e exige o
   gate normal do slot antes de persistir qualquer ativação.
+- O controlador D068 foi instalado no commit
+  `436bfebaebc47b9fe836d755f6d6c10e421f384a`. A primeira execução autorizada
+  recusou a exceção antes de escrever material, pois uma das provas internas
+  não retornou elegível. O diagnóstico fechado confirmou o backend com uma
+  réplica atualizada, nenhuma Ready e o erro público de configuração R2; a
+  causa da outra prova ainda não é observável pelo controlador e nenhuma
+  repetição foi feita.
 
 ## Estado dos repositórios relacionados
 

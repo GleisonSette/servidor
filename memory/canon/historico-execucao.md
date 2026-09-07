@@ -2535,3 +2535,21 @@ admissão ocorreu por este registro.
 - o arquivo de runtime e o ponteiro de release também precisam ser root-only;
 - depois do rollout, o controlador repete o gate normal do slot antes de
   persistir o recibo `active`; qualquer outro estado continua falhando fechado.
+
+## 2026-09-07 - Controlador D068 instalado; ativação recusada sem mutação
+
+Resultado: o controlador D068 foi instalado autenticadamente no commit
+`436bfebaebc47b9fe836d755f6d6c10e421f384a`; a ativação autorizada recusou a
+exceção antes de reconciliar Secret, reiniciar workload ou escrever recibo.
+
+- o status prévio confirmou a release
+  `5e35ca7bd81a4a03e8c8e2b566b2d26c08c8af2a`, 14 migrations, backup/offsite,
+  prova GHCR e estado V3 `prepared`;
+- o diagnóstico fechado mostrou `blindou-backend` observado na geração 26,
+  uma réplica atualizada, nenhuma Ready e `CrashLoopBackOff` por
+  `DISPATCH_V3_R2_ACCOUNT_ID` ausente;
+- Debezium, authority e sender continuaram Ready; logs históricos de reinício
+  transitório não foram tratados como causa atual;
+- a elegibilidade D068 ainda não informa qual outra prova interna retornou
+  falsa. Não houve repetição, relaxamento de D033, alteração de Secret,
+  migration, rollback ou nova admissão.
