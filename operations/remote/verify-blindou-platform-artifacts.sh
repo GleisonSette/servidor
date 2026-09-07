@@ -895,6 +895,7 @@ grep -Fq 'activate-marketplaces-runtime * blindou-marketplaces-runtime' \
   || fail 'sudoers não limita Marketplaces ao contrato fechado'
 grep -Fq 'provision-dispatch-v3-secrets)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'verify-dispatch-v3)' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'diagnose-dispatch-v3-activation-preconditions)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'activate-dispatch-v3-runtime)' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'operações fechadas do Dispatch V3 ausentes'
 grep -Fq 'diagnose-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
@@ -1203,6 +1204,8 @@ grep -Fq 'local name="$1" value="$2" path' "${REMOTE_DIR}/blindou-deployctl" \
 grep -Fq 'provision-dispatch-v3-secrets blindou-dispatch-v3-secrets' \
   "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   && grep -Fq 'verify-dispatch-v3' "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  && grep -Fq 'diagnose-dispatch-v3-activation-preconditions *' \
+    "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   && grep -Fq 'activate-dispatch-v3-runtime * blindou-dispatch-v3-active' \
     "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   || fail 'sudoers não limita as operações Dispatch V3'
@@ -1222,6 +1225,8 @@ dispatch_v3_activation_preconditions_function="$(sed -n '/^require_dispatch_v3_a
 dispatch_v3_activation_recovery_function="$(sed -n '/^dispatch_v3_activation_r2_recovery_is_eligible()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 dispatch_v3_activation_backend_recovery_function="$(sed -n '/^dispatch_v3_activation_backend_is_unready()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+dispatch_v3_activation_diagnosis_function="$(sed -n '/^diagnose_dispatch_v3_activation_preconditions()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 grep -Fq 'require_dispatch_v3_activation_preconditions "$release_id"' \
     <<<"$dispatch_v3_activation_function" \
@@ -1247,6 +1252,18 @@ grep -Fq 'require_dispatch_v3_activation_preconditions "$release_id"' \
   && grep -Fq 'verify_secondary_slot_preservation' \
     <<<"$dispatch_v3_activation_function" \
   || fail 'exceção D068 da ativação Dispatch V3 não está estritamente delimitada'
+grep -Fq 'require_root_and_host' <<<"$dispatch_v3_activation_diagnosis_function" \
+  && grep -Fq 'dispatch_v3_activation_diagnosis=read-only' \
+    <<<"$dispatch_v3_activation_diagnosis_function" \
+  && grep -Fq 'core_r2_account_absence_proven' \
+    <<<"$dispatch_v3_activation_diagnosis_function" \
+  && grep -Fq 'core_r2_bucket_absence_proven' \
+    <<<"$dispatch_v3_activation_diagnosis_function" \
+  && grep -Fq 'd068_recovery_eligible' \
+    <<<"$dispatch_v3_activation_diagnosis_function" \
+  && ! grep -Eq 'printf[^[:cntrl:]]*core_keys' \
+    <<<"$dispatch_v3_activation_diagnosis_function" \
+  || fail 'diagnóstico D069 da ativação Dispatch V3 não é estritamente somente leitura'
 grep -Fq 'DISPATCH_V3_JETSTREAM_SOURCE' \
   "${REMOTE_DIR}/bootstrap-blindou-deployctl.sh" \
   || fail 'bootstrap não instala o provisionador JetStream do Dispatch V3'

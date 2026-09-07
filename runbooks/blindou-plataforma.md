@@ -557,6 +557,20 @@ erro continuam recusados. A leitura ainda exige slot vazio, sem transição e co
 a admissão íntegra. Depois da reconciliação e do rollout, a verificação normal
 do slot é obrigatória antes de gravar o recibo `active`.
 
+Se a ativação recusar essa exceção, não a repetir e não inspecionar Secret,
+ConfigMap ou Kubernetes por acesso genérico. O único diagnóstico permitido é:
+
+```bash
+sudo -n /usr/local/sbin/blindou-deployctl \
+  diagnose-dispatch-v3-activation-preconditions <release-id-sha40>
+```
+
+Ele é somente leitura, exige host válido e emite somente booleanos para a
+release, recibo, proteção do arquivo de runtime, modo V3, estado do backend e
+ausência comprovada dos dois nomes R2. A saída nunca contém valores de Secret,
+endpoint, chave, conteúdo de configuração ou material de credencial. Uma prova
+falsa bloqueia nova ativação até correção e autorização específicas.
+
 Depois da prova integral da candidata e antes dos gates de release, preparar
 somente as chaves internas e os Secrets técnicos:
 

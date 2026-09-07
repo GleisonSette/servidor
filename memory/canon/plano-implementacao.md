@@ -402,6 +402,12 @@ Ready e o erro R2 previsto; como o controlador não expõe qual das demais prova
 falhou, o próximo trabalho precisa ser uma leitura diagnóstica fechada. Não
 repetir a ativação nem flexibilizar a D033 antes dessa evidência.
 
+Atualização D069 em 2026-09-07: a leitura fechada autorizada expõe somente
+booleanos das provas D068 para a release informada. Ela deve ser instalada e
+executada antes de qualquer nova ativação; `false` em qualquer campo preserva o
+estado parcial e exige correção/decisão separada. O diagnóstico não recebe
+valores, não materializa Secret e não oferece interface Kubernetes genérica.
+
 Ordem obrigatória da extensão:
 
 1. validar, publicar e instalar o controlador D055 sem alterar o runtime por

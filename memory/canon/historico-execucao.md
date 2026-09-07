@@ -2553,3 +2553,16 @@ exceção antes de reconciliar Secret, reiniciar workload ou escrever recibo.
 - a elegibilidade D068 ainda não informa qual outra prova interna retornou
   falsa. Não houve repetição, relaxamento de D033, alteração de Secret,
   migration, rollback ou nova admissão.
+
+## 2026-09-07 - D069 prepara diagnóstico somente leitura da retomada V3
+
+Resultado: o diagnóstico fechado foi preparado no repositório; o host ainda não
+foi alterado por esta entrada.
+
+- a interface aceita apenas uma release SHA-40 e verifica root restrito e host;
+- ela emite somente booleanos das provas de release, recibo, runtime, backend
+  e ausência comprovada dos nomes R2, sem imprimir valores ou material bruto;
+- sudoers o classifica como leitura e os testes estáticos recusam ausência de
+  gate, saída de `core_keys` ou regressão da D068;
+- nenhuma ativação será repetida antes de a leitura instalada apontar o
+  predicado divergente.

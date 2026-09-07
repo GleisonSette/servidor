@@ -335,6 +335,61 @@ dispatch_v3_activation_r2_recovery_is_eligible() {
     && ! grep -Fxq DISPATCH_V3_R2_BUCKET <<<"$core_keys"
 }
 
+diagnose_dispatch_v3_activation_preconditions() {
+  local release_id="$1" core_keys=''
+  local current_release_secure_match=false dispatch_v3_state_prepared_match=false
+  local runtime_config_secure=false runtime_mode_active=false
+  local backend_exactly_unready=false core_secret_keys_readable=false
+  local core_r2_account_absence_proven=false core_r2_bucket_absence_proven=false
+  [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
+  require_root_and_host
+
+  if [[ -f "$CURRENT_RELEASE" && ! -L "$CURRENT_RELEASE" \
+      && "$(stat -c '%U:%G:%a' "$CURRENT_RELEASE")" == 'root:root:600' \
+      && "$(<"$CURRENT_RELEASE")" == "$release_id" ]]; then
+    current_release_secure_match=true
+  fi
+  if [[ -f "$DISPATCH_V3_STATE" && ! -L "$DISPATCH_V3_STATE" \
+      && "$(stat -c '%U:%G:%a' "$DISPATCH_V3_STATE")" == 'root:root:600' ]] \
+      && grep -Fxq 'state=prepared' "$DISPATCH_V3_STATE" \
+      && grep -Fxq "release_id=${release_id}" "$DISPATCH_V3_STATE"; then
+    dispatch_v3_state_prepared_match=true
+  fi
+  if runtime_secret_file_is_secure "$RUNTIME_CONFIG_FILE"; then
+    runtime_config_secure=true
+    if grep -Fxq 'DISPATCH_V3_MODE=active' "$RUNTIME_CONFIG_FILE"; then
+      runtime_mode_active=true
+    fi
+  fi
+  if dispatch_v3_activation_backend_is_unready; then
+    backend_exactly_unready=true
+  fi
+  if core_keys="$(kube -n "$APP_NAMESPACE" get secret blindou-core-secrets \
+      -o go-template='{{range $key, $value := .data}}{{printf "%s\\n" $key}}{{end}}' 2>/dev/null)"; then
+    core_secret_keys_readable=true
+    if ! grep -Fxq DISPATCH_V3_R2_ACCOUNT_ID <<<"$core_keys"; then
+      core_r2_account_absence_proven=true
+    fi
+    if ! grep -Fxq DISPATCH_V3_R2_BUCKET <<<"$core_keys"; then
+      core_r2_bucket_absence_proven=true
+    fi
+  fi
+  printf 'dispatch_v3_activation_diagnosis=read-only\n'
+  printf 'current_release_secure_match=%s\n' "$current_release_secure_match"
+  printf 'dispatch_v3_state_prepared_match=%s\n' "$dispatch_v3_state_prepared_match"
+  printf 'runtime_config_secure=%s\n' "$runtime_config_secure"
+  printf 'runtime_mode_active=%s\n' "$runtime_mode_active"
+  printf 'backend_exactly_unready=%s\n' "$backend_exactly_unready"
+  printf 'core_secret_keys_readable=%s\n' "$core_secret_keys_readable"
+  printf 'core_r2_account_absence_proven=%s\n' "$core_r2_account_absence_proven"
+  printf 'core_r2_bucket_absence_proven=%s\n' "$core_r2_bucket_absence_proven"
+  if dispatch_v3_activation_r2_recovery_is_eligible "$release_id"; then
+    printf 'd068_recovery_eligible=true\n'
+  else
+    printf 'd068_recovery_eligible=false\n'
+  fi
+}
+
 require_dispatch_v3_activation_preconditions() {
   local release_id="$1" receipt='' error_file status=0 attempt
   require_root_and_host
@@ -5762,6 +5817,11 @@ case "${1:-}" in
   verify-dispatch-v3)
     [[ $# -eq 1 ]] || fail 'uso: blindou-deployctl verify-dispatch-v3'
     verify_dispatch_v3_runtime
+    ;;
+  diagnose-dispatch-v3-activation-preconditions)
+    [[ $# -eq 2 ]] \
+      || fail 'uso: blindou-deployctl diagnose-dispatch-v3-activation-preconditions RELEASE_ID'
+    diagnose_dispatch_v3_activation_preconditions "$2"
     ;;
   diagnose-failed-update)
     [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl diagnose-failed-update RELEASE_ID'

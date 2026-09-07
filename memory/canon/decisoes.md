@@ -1496,3 +1496,20 @@ Depois de reconciliar o material e aguardar o backend, a ativação exige
 novamente `secondary-slotctl verify` normal antes de gravar `state=active`.
 Assim, D033 continua uma leitura limitada de recuperação e não se torna bypass
 de slot, de Secret, de migration, de provider, de rollback ou de admissão.
+
+## Resolvida D069 - Diagnóstico fechado das provas da retomada V3
+
+Em 2026-09-07, a primeira execução da D068 recusou antes de qualquer escrita,
+mas o erro público não identificou qual predicado da elegibilidade retornou
+falso. Repetir, enfraquecer a D033 ou usar acesso administrativo genérico para
+ler ConfigMap ou Secret violaria o isolamento. O usuário autorizou uma leitura
+fechada para tornar a recusa verificável sem revelar material protegido.
+
+`diagnose-dispatch-v3-activation-preconditions RELEASE_ID` exige somente root
+restrito, hostname e release de formato válido. Ele emite exclusivamente
+booleanos sobre: ponteiro e recibo root-only, modo V3, backend parcial, leitura
+dos nomes do Secret e ausência comprovada dos dois campos R2. Não imprime
+valores de Secret, arquivo de runtime, endpoint, chave, configuração ou estado
+Kubernetes bruto; não escreve, reinicia, aplica migration, altera admissão nem
+substitui o gate D033. A ativação continua bloqueada até o diagnóstico provar
+integralmente a combinação D068 ou até uma decisão corretiva específica.
