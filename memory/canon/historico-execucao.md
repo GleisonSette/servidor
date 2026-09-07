@@ -2348,3 +2348,6 @@ executada por este registro.
 - a revalidação R2 do rearme também permanece normal por padrão e só usa D033
   dentro dessa operação fechada, após host, candidata, falha e recibo já
   comprovados.
+- o aplicador normal conserva seus gates; somente `resume-failed-update`
+  propaga a origem fechada pelos checks internos antes de o backend corretivo
+  existir, e retorna ao verificador normal depois do rollout.

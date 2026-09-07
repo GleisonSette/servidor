@@ -1310,3 +1310,10 @@ A verificação R2 conserva o preflight normal por padrão. Somente a chamada
 interna do rearme com origem `failed-update` troca esse preflight pelo host e
 atestado D033 já exigidos pelo rearme; a mesma sonda autenticada de R2 e o
 recibo continuam obrigatórios. A interface read-only não aceita essa origem.
+
+O aplicador da release também preserva o preflight normal por padrão. A chamada
+interna de `resume-failed-update` propaga exclusivamente a origem
+`failed-update` pelos gates de dados e pela recriação do Secret de pull GHCR;
+eles continuam exigindo o recibo do rearme, a prova GHCR, o host, D033 e todos
+os demais contratos. Depois de os workloads ficarem Ready, a verificação normal
+do slot volta a ser obrigatória.

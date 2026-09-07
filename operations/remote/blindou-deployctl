@@ -3971,8 +3971,10 @@ reset_additional_superadmin_password() {
 }
 
 require_release_gates() {
-  local release_id="$1"
-  verify_data_foundation >/dev/null
+  local release_id="$1" origin="${2:-operator}"
+  [[ "$origin" == 'operator' || "$origin" == 'failed-update' ]] \
+    || fail 'origem dos gates de release inválida'
+  verify_data_foundation "$origin" >/dev/null
   for namespace in "$APP_NAMESPACE" "$EDGE_NAMESPACE"; do
     [[ "$(namespace_label "$namespace" 'platform\.servidor\.local/deployment-gate')" == 'passed' ]] \
       || fail "gate do namespace ${namespace} não está passed"
@@ -3985,7 +3987,7 @@ require_release_gates() {
     || fail 'recibo do gate de release ausente ou inseguro'
   grep -Fxq "release_id=${release_id}" "$RELEASE_GATE_RECEIPT" \
     || fail 'recibo do gate não corresponde à release'
-  ensure_ghcr_pull_secret
+  ensure_ghcr_pull_secret "$origin"
   verify_runtime_material
 }
 
@@ -4528,9 +4530,11 @@ reconcile_production_capacity_budget() {
 }
 
 apply_cached_release() {
-  local release_id="$1" rendered="${RELEASE_CACHE}/${release_id}/rendered"
+  local release_id="$1" origin="${2:-operator}" rendered="${RELEASE_CACHE}/${release_id}/rendered"
+  [[ "$origin" == 'operator' || "$origin" == 'failed-update' ]] \
+    || fail 'origem da aplicação da release inválida'
   [[ -d "$rendered" && ! -L "$rendered" ]] || fail 'release não está validada no cache root-owned'
-  require_release_gates "$release_id"
+  require_release_gates "$release_id" "$origin"
   kube -n "$APP_NAMESPACE" annotate configmap blindou-runtime-config \
     "blindou.io/release=${release_id}" --overwrite >/dev/null
   kube apply -f "$rendered/00-platform.yaml" >/dev/null
@@ -4552,7 +4556,7 @@ apply_cached_release() {
     activate_dispatch_v3_database
     provision_dispatch_v3_jetstream "$rendered"
   fi
-  verify_data_foundation >/dev/null
+  verify_data_foundation "$origin" >/dev/null
   if [[ -f "$rendered/71-dispatch-v3-workloads.yaml" ]]; then
     kube apply -f "$rendered/71-dispatch-v3-workloads.yaml" >/dev/null
   fi
@@ -4824,7 +4828,7 @@ resume_failed_update() {
   set +e
   (
     set -Eeuo pipefail
-    apply_cached_release "$release_id"
+    apply_cached_release "$release_id" failed-update
   )
   apply_status=$?
   set -e

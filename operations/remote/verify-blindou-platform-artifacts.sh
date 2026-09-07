@@ -692,7 +692,8 @@ capacity_budget_function="$(sed -n '/^reconcile_production_capacity_budget()/,/^
   "${REMOTE_DIR}/blindou-deployctl")"
 grep -Fq 'prepare_redirector_database_role' <<<"$apply_release_function" \
   && grep -Fq 'reconcile_redirector_database_role' <<<"$apply_cached_release_function" \
-  && grep -Fq 'verify_data_foundation >/dev/null' <<<"$apply_cached_release_function" \
+  && grep -Fq 'verify_data_foundation "$origin" >/dev/null' \
+    <<<"$apply_cached_release_function" \
   || fail 'release não prepara, finaliza e verifica o papel do redirector ao redor da migration'
 grep -Fq "readonly PRODUCTION_CPU_LIMIT_BUDGET='12'" \
     "${REMOTE_DIR}/blindou-deployctl" \
@@ -884,6 +885,10 @@ resume_failed_update_function="$(sed -n '/^resume_failed_update()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 rearm_failed_update_function="$(sed -n '/^rearm_failed_update()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
+release_gates_function="$(sed -n '/^require_release_gates()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+cached_release_function="$(sed -n '/^apply_cached_release()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
 r2_credential_verification_function="$(sed -n '/^verify_r2_runtime_credential()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 failed_update_backup_function="$(sed -n '/^backup_database_for_failed_update()/,/^}/p' \
@@ -912,12 +917,24 @@ grep -Fq 'resume-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
     <<<"$resume_failed_update_function" \
   && grep -Fq 'dispatch_v3_slot_repair_receipt_matches' \
     <<<"$resume_failed_update_function" \
+  && grep -Fq 'apply_cached_release "$release_id" failed-update' \
+    <<<"$resume_failed_update_function" \
   && grep -Fq 'apply_cached_release "$release_id"' \
     <<<"$resume_failed_update_function" \
   && grep -Fq 'estado parcial preservado e nenhum rollback foi executado' \
     <<<"$resume_failed_update_function" \
   && ! grep -Fq 'rollback_release' <<<"$resume_failed_update_function" \
   || fail 'retomada fechada não preserva falha parcial sem rollback'
+grep -Fq "[[ \"\$origin\" == 'operator' || \"\$origin\" == 'failed-update' ]]" \
+    <<<"$release_gates_function" \
+  && grep -Fq 'verify_data_foundation "$origin" >/dev/null' \
+    <<<"$release_gates_function" \
+  && grep -Fq 'ensure_ghcr_pull_secret "$origin"' <<<"$release_gates_function" \
+  && grep -Fq 'require_release_gates "$release_id" "$origin"' \
+    <<<"$cached_release_function" \
+  && grep -Fq 'verify_data_foundation "$origin" >/dev/null' \
+    <<<"$cached_release_function" \
+  || fail 'aplicação corretiva não propaga a exceção D033 pelos gates internos'
 grep -Fq 'rearm-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'FAILED_UPDATE_REARM_CONFIRMATION' <<<"$rearm_failed_update_function" \
   && grep -Fq 'verify_secondary_slot_resume_preservation' <<<"$rearm_failed_update_function" \
