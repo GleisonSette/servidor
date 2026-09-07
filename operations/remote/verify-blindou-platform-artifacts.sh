@@ -884,6 +884,8 @@ resume_failed_update_function="$(sed -n '/^resume_failed_update()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 rearm_failed_update_function="$(sed -n '/^rearm_failed_update()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
+slot_repair_function="$(sed -n '/^repair_dispatch_v3_logical_slot()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
 resume_pull_function="$(sed -n '/^verify_ghcr_candidate_pull_for_failed_update_resume()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 normal_pull_function="$(sed -n '/^verify_ghcr_candidate_pull()/,/^}/p' \
@@ -904,6 +906,8 @@ grep -Fq 'verify-ghcr-candidate-pull-for-failed-update-resume)' \
 grep -Fq 'resume-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'FAILED_UPDATE_RESUME_CONFIRMATION' \
     <<<"$resume_failed_update_function" \
+  && grep -Fq 'dispatch_v3_slot_repair_receipt_matches' \
+    <<<"$resume_failed_update_function" \
   && grep -Fq 'apply_cached_release "$release_id"' \
     <<<"$resume_failed_update_function" \
   && grep -Fq 'estado parcial preservado e nenhum rollback foi executado' \
@@ -915,10 +919,35 @@ grep -Fq 'rearm-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'verify_secondary_slot_resume_preservation' <<<"$rearm_failed_update_function" \
   && grep -Fq 'verify_latest_backup >/dev/null' <<<"$rearm_failed_update_function" \
   && grep -Fq 'ghcr_pull_latest_proof_is_secure' <<<"$rearm_failed_update_function" \
+  && grep -Fq 'dispatch_v3_slot_repair_receipt_matches' \
+    <<<"$rearm_failed_update_function" \
   && grep -Fq 'backend não comprova a falha conhecida' <<<"$rearm_failed_update_function" \
   && grep -Fq 'failed-update-rearm' <<<"$rearm_failed_update_function" \
   && ! grep -Fq 'rollback_release' <<<"$rearm_failed_update_function" \
   || fail 'rearme fechado não vincula falha, backup e preservação do slot'
+grep -Fq 'repair-dispatch-v3-logical-slot)' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'DISPATCH_V3_SLOT_REPAIR_CONFIRMATION' <<<"$slot_repair_function" \
+  && grep -Fq 'verify_secondary_slot_resume_preservation' <<<"$slot_repair_function" \
+  && grep -Fq 'verify_data_foundation failed-update-slot-invalidated' \
+    <<<"$slot_repair_function" \
+  && grep -Fq 'dispatch_owner_controls_v3 WHERE engine_version=3' \
+    <<<"$slot_repair_function" \
+  && grep -Fq 'dispatch_outbox_v3' <<<"$slot_repair_function" \
+  && grep -Fq 'scale statefulset/blindou-debezium-v3 --replicas=0' \
+    <<<"$slot_repair_function" \
+  && grep -Fq "pg_drop_replication_slot('blindou_dispatch_v3_outbox_slot')" \
+    <<<"$slot_repair_function" \
+  && grep -Fq "SELECT count(*) FROM pg_replication_slots WHERE slot_name='blindou_dispatch_v3_outbox_slot'" \
+    <<<"$slot_repair_function" \
+  && grep -Fq "pg_create_logical_replication_slot('blindou_dispatch_v3_outbox_slot','pgoutput')" \
+    <<<"$slot_repair_function" \
+  && grep -Fq 'verify_dispatch_v3_database_contract invalidated' \
+    <<<"$slot_repair_function" \
+  && grep -Fq 'verify_dispatch_v3_database_contract valid' \
+    <<<"$slot_repair_function" \
+  && ! grep -Fq 'activate_dispatch_v3_runtime' <<<"$slot_repair_function" \
+  && ! grep -Fq 'rollback_release' <<<"$slot_repair_function" \
+  || fail 'reparo fechado do slot lógico Dispatch V3 está incompleto'
 grep -Fq 'verify-preservation-for-blindou-resume' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'secondary_slot_preservation=passed occupant=none' \
     "${REMOTE_DIR}/blindou-deployctl" \
@@ -962,6 +991,8 @@ grep -Fq 'diagnose-failed-update *' "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   && grep -Fq 'verify-ghcr-candidate-pull-for-failed-update-resume *' \
     "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   && grep -Fq 'rearm-failed-update * blindou-failed-update-rearm' \
+    "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  && grep -Fq 'repair-dispatch-v3-logical-slot * blindou-dispatch-v3-slot-repair' \
     "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   && grep -Fq 'resume-failed-update * blindou-failed-update-resume' \
     "${REMOTE_DIR}/blindou-deployctl.sudoers" \

@@ -1271,3 +1271,29 @@ exige o recibo correspondente e preserva o estado parcial em nova falha; não
 executa rollback. Após sucesso, a verificação normal do slot volta a ser
 obrigatória. A decisão não autoriza migration adicional, Secret, ativação de
 admissões V3, mudança de ocupante, rollback ou outro workload.
+
+## Resolvida D059 - Reparo fechado do slot lógico V3 invalidado
+
+Em 2026-09-07, o preflight do backup corretivo da E5 detectou que o slot lógico
+`blindou_dispatch_v3_outbox_slot` existia, mas tinha `invalidation_reason` e,
+por isso, o contrato de dados recusava corretamente um novo backup e a
+retomada. Como a admissão V3 ainda está inativa e não há clientes, o usuário
+autorizou o reparo somente depois de provar ausência de owner, fato, manifesto,
+payload, journal, callback, projeção, comando, referência R2 e evento de
+outbox V3.
+
+A ação root-only `repair-dispatch-v3-logical-slot` exige a contenção do host,
+o atestado D033 do slot secundário, release anterior segura, backend ainda
+anotado com a tentativa falha e sem réplica Ready, cache e prova GHCR da
+candidata corretiva, material V3 `prepared` e `DISPATCH_V3_MODE` inativo. Ela
+aceita exclusivamente o slot lógico `pgoutput` invalidado do database Blindou,
+escala apenas o StatefulSet `blindou-debezium-v3` da release falha para zero e
+espera seus Pods desaparecerem. Só então remove e recria esse mesmo slot,
+revalida publication, papéis e slot e grava recibo root-only vinculado às três
+releases e às contagens zero.
+
+O reparo preserva o Debezium em zero; apenas a retomada corretiva já autorizada
+reaplica o manifesto assinado e pode recriá-lo. Rearme e retomada exigem o
+recibo D059 correspondente. Se qualquer prova, escala ou criação falhar, o
+controlador não ativa admissão nem executa rollback, Secret, migration,
+operação em outro projeto ou reinício automático.

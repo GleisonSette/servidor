@@ -80,6 +80,7 @@ readonly DISPATCH_V3_PROVIDER_ENDPOINT_FILE="${DISPATCH_V3_SECRET_DIR}/provider-
 readonly DISPATCH_V3_STREAM_INCARNATION_FILE="${DISPATCH_V3_SECRET_DIR}/stream-incarnation"
 readonly DISPATCH_V3_STATE="${STATE_ROOT}/dispatch-v3.state"
 readonly DISPATCH_V3_NATS_REPAIR_RECEIPT="${STATE_ROOT}/dispatch-v3-nats-repair.state"
+readonly DISPATCH_V3_SLOT_REPAIR_RECEIPT="${STATE_ROOT}/dispatch-v3-slot-repair.state"
 readonly FAILED_UPDATE_RESUME_RECEIPT="${STATE_ROOT}/failed-update-resume.state"
 readonly FAILED_UPDATE_REARM_RECEIPT="${STATE_ROOT}/failed-update-rearm.state"
 readonly DISPATCH_V3_EXPECTED_DEBEZIUM_IMAGE='ghcr.io/gleisonsette/blindou-debezium@sha256:04da6c9bfe2276985d8c30e5444b395a63467111225750c06d15d908c8595e08'
@@ -112,6 +113,7 @@ readonly OFFSITE_BACKUP_CONFIRMATION='blindou-offsite-backup'
 readonly RELEASE_GATES_CONFIRMATION='blindou-release-gates'
 readonly DISPATCH_V3_SECRETS_CONFIRMATION='blindou-dispatch-v3-secrets'
 readonly DISPATCH_V3_NATS_REPAIR_CONFIRMATION='blindou-dispatch-v3-nats-credentials'
+readonly DISPATCH_V3_SLOT_REPAIR_CONFIRMATION='blindou-dispatch-v3-slot-repair'
 readonly DISPATCH_V3_ACTIVATION_CONFIRMATION='blindou-dispatch-v3-active'
 readonly FAILED_UPDATE_RECOVERY_CONFIRMATION='blindou-failed-update-recovery'
 readonly FAILED_UPDATE_RESUME_CONFIRMATION='blindou-failed-update-resume'
@@ -193,6 +195,7 @@ cleanup() {
       "${DISPATCH_V3_RESOLVER_PKI_DIR}"/*.csr|"${DISPATCH_V3_RESOLVER_PKI_DIR}"/*.ext|\
       "${DISPATCH_V3_STATE}.tmp"|/var/tmp/blindou-dispatch-v3-*|\
       "${DISPATCH_V3_NATS_REPAIR_RECEIPT}.tmp"|\
+      "${DISPATCH_V3_SLOT_REPAIR_RECEIPT}.tmp"|\
       "${FAILED_UPDATE_RECOVERY_RECEIPT}.tmp"|\
       "${FAILED_UPDATE_RESUME_RECEIPT}.tmp"|\
       "${FAILED_UPDATE_REARM_RECEIPT}.tmp"|\
@@ -1882,8 +1885,12 @@ write_database_urls() {
 
 verify_data_foundation() {
   local origin="${1:-operator}"
-  [[ "$origin" == 'operator' || "$origin" == 'failed-update' ]] \
+  local dispatch_v3_slot_state='valid'
+  [[ "$origin" == 'operator' || "$origin" == 'failed-update' \
+      || "$origin" == 'failed-update-slot-invalidated' ]] \
     || fail 'origem da verificação de dados inválida'
+  [[ "$origin" != 'failed-update-slot-invalidated' ]] \
+    || dispatch_v3_slot_state='invalidated'
   require_root_and_host
   local hba_rule_count hba_diagnostic redirector_contract expected_hba_rules=4 login_summary='quatro logins'
   [[ -f "$DATABASE_CREDENTIALS" && "$(stat -c '%U:%G:%a' "$DATABASE_CREDENTIALS")" == 'root:root:600' ]] \
@@ -1940,7 +1947,7 @@ verify_data_foundation() {
         && "$(postgres_query -d postgres -Atqc "SELECT pg_size_bytes(current_setting('max_slot_wal_keep_size'))")" == '4294967296' ]] \
       || fail 'orçamento de logical decoding do Dispatch V3 divergiu'
     if dispatch_v3_expand_migration_applied; then
-      verify_dispatch_v3_database_contract
+      verify_dispatch_v3_database_contract "$dispatch_v3_slot_state"
     else
       [[ "$(postgres_query -d postgres -Atqc \
         "SELECT count(*) FROM pg_roles WHERE rolname IN ('blindou_dispatch_authority_login','blindou_debezium_login')")" == '0' ]] \
@@ -3960,6 +3967,12 @@ wait_migration_job() {
 }
 
 verify_dispatch_v3_database_contract() {
+  local slot_state="${1:-valid}" slot_invalidation_predicate
+  case "$slot_state" in
+    valid) slot_invalidation_predicate='invalidation_reason IS NULL' ;;
+    invalidated) slot_invalidation_predicate='invalidation_reason IS NOT NULL' ;;
+    *) fail 'estado esperado do slot Dispatch V3 inválido' ;;
+  esac
   dispatch_v3_expand_migration_applied && dispatch_v3_registry_migration_applied \
     || fail 'migrations 0013/0014 do Dispatch V3 não estão aplicadas'
   [[ "$(postgres_query -d postgres -Atqc \
@@ -3978,11 +3991,142 @@ verify_dispatch_v3_database_contract() {
     "SELECT count(*) FROM pg_auth_members membership JOIN pg_roles parent ON parent.oid=membership.roleid JOIN pg_roles member ON member.oid=membership.member WHERE member.rolname IN ('blindou_dispatch_authority_login','blindou_debezium_login')")" == '3' ]] \
     || fail 'logins dedicados do Dispatch V3 receberam membership adicional'
   [[ "$(postgres_query -d blindou -Atqc \
-    "SELECT count(*) FROM pg_replication_slots WHERE slot_name='blindou_dispatch_v3_outbox_slot' AND slot_type='logical' AND plugin='pgoutput' AND database='blindou' AND invalidation_reason IS NULL")" == '1' ]] \
-    || fail 'replication slot Dispatch V3 inválido'
+    "SELECT count(*) FROM pg_replication_slots WHERE slot_name='blindou_dispatch_v3_outbox_slot' AND slot_type='logical' AND plugin='pgoutput' AND database='blindou' AND ${slot_invalidation_predicate}")" == '1' ]] \
+    || fail "replication slot Dispatch V3 não corresponde ao estado esperado: ${slot_state}"
   [[ "$(postgres_query -d blindou -Atqc \
     "SELECT count(*) FROM pg_publication publication WHERE publication.pubname='blindou_dispatch_v3_outbox_pub' AND publication.pubinsert AND NOT publication.pubupdate AND NOT publication.pubdelete AND NOT publication.pubtruncate AND (SELECT count(*) FROM pg_publication_tables table_map WHERE table_map.pubname=publication.pubname)=1 AND EXISTS (SELECT 1 FROM pg_publication_tables table_map WHERE table_map.pubname=publication.pubname AND table_map.schemaname='public' AND table_map.tablename='dispatch_outbox_v3')")" == '1' ]] \
     || fail 'publication INSERT-only do Dispatch V3 inválida'
+}
+
+dispatch_v3_slot_repair_receipt_matches() {
+  local release_id="$1" failed_release="$2" previous_release="$3"
+  [[ -f "$DISPATCH_V3_SLOT_REPAIR_RECEIPT" \
+      && ! -L "$DISPATCH_V3_SLOT_REPAIR_RECEIPT" \
+      && "$(stat -c '%U:%G:%a' "$DISPATCH_V3_SLOT_REPAIR_RECEIPT")" == 'root:root:600' ]] \
+    || return 1
+  [[ "$(read_field schema "$DISPATCH_V3_SLOT_REPAIR_RECEIPT")" == '1' \
+      && "$(read_field state "$DISPATCH_V3_SLOT_REPAIR_RECEIPT")" == 'repaired' \
+      && "$(read_field release_id "$DISPATCH_V3_SLOT_REPAIR_RECEIPT")" == "$release_id" \
+      && "$(read_field failed_release "$DISPATCH_V3_SLOT_REPAIR_RECEIPT")" == "$failed_release" \
+      && "$(read_field previous_release "$DISPATCH_V3_SLOT_REPAIR_RECEIPT")" == "$previous_release" \
+      && "$(read_field v3_rows "$DISPATCH_V3_SLOT_REPAIR_RECEIPT")" == '0' \
+      && "$(read_field outbox_rows "$DISPATCH_V3_SLOT_REPAIR_RECEIPT")" == '0' ]]
+}
+
+repair_dispatch_v3_logical_slot() {
+  local release_id="$1" confirmation="$2" previous_release failed_release
+  local observed_failed_release observed_ready_replicas desired_replicas pods
+  local v3_rows outbox_rows attempt
+  [[ "$confirmation" == "$DISPATCH_V3_SLOT_REPAIR_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${DISPATCH_V3_SLOT_REPAIR_CONFIRMATION}"
+  [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
+  require_root_and_host
+  /usr/local/sbin/blindou-hostctl verify >/dev/null \
+    || fail 'contenção temporária do host não passou'
+  verify_secondary_slot_resume_preservation
+  [[ -f "$CURRENT_RELEASE" && ! -L "$CURRENT_RELEASE" \
+      && "$(stat -c '%U:%G:%a' "$CURRENT_RELEASE")" == 'root:root:600' ]] \
+    || fail 'release corrente anterior está ausente ou insegura'
+  previous_release="$(<"$CURRENT_RELEASE")"
+  [[ "$previous_release" =~ $RELEASE_PATTERN && "$previous_release" != "$release_id" ]] \
+    || fail 'release anterior não pode coincidir com o reparo'
+  [[ -f "$RELEASE_GATE_RECEIPT" && ! -L "$RELEASE_GATE_RECEIPT" \
+      && "$(stat -c '%U:%G:%a' "$RELEASE_GATE_RECEIPT")" == 'root:root:600' ]] \
+    || fail 'recibo da atualização falha está ausente ou inseguro'
+  failed_release="$(read_field release_id "$RELEASE_GATE_RECEIPT")" \
+    || fail 'recibo da atualização falha não possui release_id único'
+  [[ "$failed_release" =~ $RELEASE_PATTERN \
+      && "$failed_release" != "$previous_release" \
+      && "$failed_release" != "$release_id" ]] \
+    || fail 'recibo não comprova uma atualização falha distinta do reparo'
+  [[ -d "${RELEASE_CACHE}/${failed_release}/rendered" \
+      && -f "${RELEASE_CACHE}/${failed_release}/rendered/71-dispatch-v3-workloads.yaml" \
+      && ! -L "${RELEASE_CACHE}/${failed_release}/rendered" ]] \
+    || fail 'atualização falha não possui cache Dispatch V3 root-owned'
+  observed_failed_release="$(kube -n "$APP_NAMESPACE" get deployment blindou-backend \
+    -o 'jsonpath={.spec.template.metadata.annotations.blindou\.io/release}')"
+  observed_ready_replicas="$(kube -n "$APP_NAMESPACE" get deployment blindou-backend \
+    -o 'jsonpath={.status.readyReplicas}')"
+  [[ "$observed_failed_release" == "$failed_release" \
+      && "$observed_ready_replicas" != '1' ]] \
+    || fail 'backend não comprova a falha conhecida que permite reparar o slot'
+  [[ -d "${RELEASE_CACHE}/${release_id}/rendered" \
+      && -f "${RELEASE_CACHE}/${release_id}/rendered/71-dispatch-v3-workloads.yaml" \
+      && ! -L "${RELEASE_CACHE}/${release_id}/rendered" ]] \
+    || fail 'release corretiva não está no cache Dispatch V3 root-owned'
+  ghcr_pull_latest_proof_is_secure \
+    || fail 'ponteiro do recibo GHCR da candidata corretiva está ausente ou inseguro'
+  [[ "$(<"$GHCR_PULL_PROOF_LATEST")" == "$release_id" ]] \
+    || fail 'prova GHCR não corresponde à release corretiva'
+  [[ -f "$DISPATCH_V3_STATE" && ! -L "$DISPATCH_V3_STATE" \
+      && "$(stat -c '%U:%G:%a' "$DISPATCH_V3_STATE")" == 'root:root:600' \
+      && "$(sed -n 's/^state=//p' "$DISPATCH_V3_STATE")" == 'prepared' ]] \
+    || fail 'reparo exige Dispatch V3 preparado e ainda inativo'
+  ! grep -Fxq 'DISPATCH_V3_MODE=active' "$RUNTIME_CONFIG_FILE" \
+    || fail 'reparo recusado com admissão Dispatch V3 ativa'
+  verify_runtime_material
+  verify_data_foundation failed-update-slot-invalidated >/dev/null
+  v3_rows="$(postgres_query -d blindou -Atqc "
+    SELECT
+      (SELECT count(*) FROM public.dispatch_owner_controls_v3 WHERE engine_version=3)
+      + (SELECT count(*) FROM public.dispatch_owner_payloads_v3)
+      + (SELECT count(*) FROM public.dispatch_manifests_v3)
+      + (SELECT count(*) FROM public.dispatch_manifest_pages_v3)
+      + (SELECT count(*) FROM public.dispatch_lanes_v3)
+      + (SELECT count(*) FROM public.dispatch_delivery_facts_v3)
+      + (SELECT count(*) FROM public.dispatch_effect_journal_v3)
+      + (SELECT count(*) FROM public.dispatch_callback_inbox_v3)
+      + (SELECT count(*) FROM public.dispatch_owner_rollups_v3)
+      + (SELECT count(*) FROM public.dispatch_projection_dirty_v3)
+      + (SELECT count(*) FROM public.dispatch_operator_commands_v3)
+      + (SELECT count(*) FROM public.dispatch_r2_references_v3)")"
+  outbox_rows="$(postgres_query -d blindou -Atqc \
+    'SELECT count(*) FROM public.dispatch_outbox_v3')"
+  [[ "$v3_rows" == '0' && "$outbox_rows" == '0' ]] \
+    || fail 'reparo do slot recusado: há owners ou estado durável V3, ou eventos na outbox'
+  desired_replicas="$(kube -n "$APP_NAMESPACE" get statefulset blindou-debezium-v3 \
+    -o 'jsonpath={.spec.replicas}')"
+  [[ "$desired_replicas" == '0' || "$desired_replicas" == '1' ]] \
+    || fail 'réplicas do StatefulSet Debezium não correspondem ao contrato fechado'
+  [[ "$(kube -n "$APP_NAMESPACE" get statefulset blindou-debezium-v3 \
+    -o 'jsonpath={.metadata.labels.app\.kubernetes\.io/name}')" == 'blindou-debezium-v3' ]] \
+    || fail 'StatefulSet Debezium não corresponde à identidade fechada'
+  [[ "$(kube -n "$APP_NAMESPACE" get statefulset blindou-debezium-v3 \
+    -o 'jsonpath={.spec.template.metadata.annotations.blindou\.io/release}')" == "$failed_release" ]] \
+    || fail 'StatefulSet Debezium não corresponde à atualização falha conhecida'
+  if [[ "$desired_replicas" == '1' ]]; then
+    kube -n "$APP_NAMESPACE" scale statefulset/blindou-debezium-v3 --replicas=0 >/dev/null
+  fi
+  for attempt in {1..150}; do
+    pods="$(kube -n "$APP_NAMESPACE" get pods \
+      -l 'app.kubernetes.io/name=blindou-debezium-v3' -o name)"
+    [[ -z "$pods" ]] && break
+    [[ "$attempt" != '150' ]] \
+      || fail 'Debezium não encerrou em cinco minutos; slot não foi recriado'
+    sleep 2
+  done
+  verify_dispatch_v3_database_contract invalidated
+  postgres_query -d blindou -Atqc \
+    "SELECT pg_drop_replication_slot('blindou_dispatch_v3_outbox_slot')" >/dev/null
+  [[ "$(postgres_query -d blindou -Atqc \
+    "SELECT count(*) FROM pg_replication_slots WHERE slot_name='blindou_dispatch_v3_outbox_slot'")" == '0' ]] \
+    || fail 'remoção do slot lógico inválido não foi confirmada'
+  [[ "$(postgres_query -d blindou -Atqc \
+    "SELECT slot_name FROM pg_create_logical_replication_slot('blindou_dispatch_v3_outbox_slot','pgoutput')")" == 'blindou_dispatch_v3_outbox_slot' ]] \
+    || fail 'criação do novo slot lógico não foi confirmada'
+  verify_dispatch_v3_database_contract valid
+  {
+    printf 'schema=1\nstate=repaired\nrelease_id=%s\n' "$release_id"
+    printf 'failed_release=%s\nprevious_release=%s\n' "$failed_release" "$previous_release"
+    printf 'debezium_replicas_before=%s\nv3_rows=%s\noutbox_rows=%s\n' \
+      "$desired_replicas" "$v3_rows" "$outbox_rows"
+    printf 'repaired_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } >"${DISPATCH_V3_SLOT_REPAIR_RECEIPT}.tmp"
+  cleanup_paths+=("${DISPATCH_V3_SLOT_REPAIR_RECEIPT}.tmp")
+  install -o root -g root -m 0600 \
+    "${DISPATCH_V3_SLOT_REPAIR_RECEIPT}.tmp" "$DISPATCH_V3_SLOT_REPAIR_RECEIPT"
+  rm -f -- "${DISPATCH_V3_SLOT_REPAIR_RECEIPT}.tmp"
+  pass 'slot lógico inválido foi recriado com Debezium parado; admissão Dispatch V3 permanece inativa'
 }
 
 activate_dispatch_v3_database() {
@@ -4501,6 +4645,8 @@ rearm_failed_update() {
     || fail 'ponteiro do recibo GHCR da candidata corretiva está ausente ou inseguro'
   [[ "$(<"$GHCR_PULL_PROOF_LATEST")" == "$release_id" ]] \
     || fail 'prova GHCR não corresponde à release corretiva'
+  dispatch_v3_slot_repair_receipt_matches "$release_id" "$failed_release" "$previous_release" \
+    || fail 'recibo do reparo fechado do slot lógico está ausente ou não corresponde à retomada'
   [[ -f "$DISPATCH_V3_STATE" && ! -L "$DISPATCH_V3_STATE" \
       && "$(stat -c '%U:%G:%a' "$DISPATCH_V3_STATE")" == 'root:root:600' \
       && "$(sed -n 's/^state=//p' "$DISPATCH_V3_STATE")" == 'prepared' ]] \
@@ -4564,7 +4710,7 @@ rearm_failed_update() {
 }
 
 resume_failed_update() {
-  local release_id="$1" confirmation="$2" previous_release apply_status=0
+  local release_id="$1" confirmation="$2" previous_release failed_release apply_status=0
   [[ "$confirmation" == "$FAILED_UPDATE_RESUME_CONFIRMATION" ]] \
     || fail "confirmação exigida: ${FAILED_UPDATE_RESUME_CONFIRMATION}"
   [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
@@ -4586,6 +4732,12 @@ resume_failed_update() {
   grep -Fxq 'state=armed' "$FAILED_UPDATE_REARM_RECEIPT" \
     && grep -Fxq "release_id=${release_id}" "$FAILED_UPDATE_REARM_RECEIPT" \
     || fail 'recibo do rearme não corresponde à release a retomar'
+  failed_release="$(read_field failed_release "$FAILED_UPDATE_REARM_RECEIPT")" \
+    || fail 'recibo do rearme não possui release falha única'
+  [[ "$failed_release" =~ $RELEASE_PATTERN ]] \
+    || fail 'recibo do rearme possui release falha inválida'
+  dispatch_v3_slot_repair_receipt_matches "$release_id" "$failed_release" "$previous_release" \
+    || fail 'recibo do reparo fechado do slot lógico está ausente ou não corresponde à retomada'
   [[ -d "${RELEASE_CACHE}/${release_id}/rendered" \
       && ! -L "${RELEASE_CACHE}/${release_id}/rendered" ]] \
     || fail 'release a retomar não está no cache fechado'
@@ -4950,6 +5102,11 @@ case "${1:-}" in
       || fail 'uso: blindou-deployctl repair-dispatch-v3-nats-credentials CONFIRMAÇÃO'
     repair_dispatch_v3_nats_credentials "$2"
     ;;
+  repair-dispatch-v3-logical-slot)
+    [[ $# -eq 3 ]] \
+      || fail 'uso: blindou-deployctl repair-dispatch-v3-logical-slot RELEASE_ID CONFIRMAÇÃO'
+    repair_dispatch_v3_logical_slot "$2" "$3"
+    ;;
   provision-pagarme-credential)
     [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl provision-pagarme-credential CONFIRMAÇÃO'
     provision_pagarme_credential "$2"
@@ -5095,6 +5252,6 @@ case "${1:-}" in
     metrics
     ;;
   *)
-    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-r2-runtime-credential|verify-pagarme-credential|verify-pagarme-plans|verify-marketplaces-runtime|verify-dispatch-v3|diagnose-failed-update RELEASE_ID|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|provision-r2-runtime-credential CONFIRMAÇÃO|provision-dispatch-v3-secrets CONFIRMAÇÃO|repair-dispatch-v3-nats-credentials CONFIRMAÇÃO|provision-pagarme-credential CONFIRMAÇÃO|rotate-pagarme-webhook-secret CONFIRMAÇÃO|provision-pagarme-plans CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|export-latest-backup|provision-runtime-secrets CONFIRMAÇÃO|provision-ui-review-runtime CONFIRMAÇÃO|activate-pagarme-runtime RELEASE_ID CONFIRMAÇÃO|activate-marketplaces-runtime RELEASE_ID CONFIRMAÇÃO|activate-dispatch-v3-runtime RELEASE_ID CONFIRMAÇÃO|confirm-alert-delivery CONFIRMAÇÃO|confirm-offsite-backup BACKUP_ID SHA256 CONFIRMAÇÃO|activate-release-gates RELEASE_ID CONFIRMAÇÃO|validate-release RELEASE_ID|apply RELEASE_ID|recover-failed-update RELEASE_FALHA RELEASE_ANTERIOR CONFIRMAÇÃO|rearm-failed-update RELEASE_ID CONFIRMAÇÃO|resume-failed-update RELEASE_ID CONFIRMAÇÃO|bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO|bootstrap-additional-superadmin RELEASE_ID IDENTIDADE CONFIRMAÇÃO|reset-additional-superadmin-password RELEASE_ID IDENTIDADE CONFIRMAÇÃO|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
+    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-r2-runtime-credential|verify-pagarme-credential|verify-pagarme-plans|verify-marketplaces-runtime|verify-dispatch-v3|diagnose-failed-update RELEASE_ID|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|provision-r2-runtime-credential CONFIRMAÇÃO|provision-dispatch-v3-secrets CONFIRMAÇÃO|repair-dispatch-v3-nats-credentials CONFIRMAÇÃO|repair-dispatch-v3-logical-slot RELEASE_ID CONFIRMAÇÃO|provision-pagarme-credential CONFIRMAÇÃO|rotate-pagarme-webhook-secret CONFIRMAÇÃO|provision-pagarme-plans CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|export-latest-backup|provision-runtime-secrets CONFIRMAÇÃO|provision-ui-review-runtime CONFIRMAÇÃO|activate-pagarme-runtime RELEASE_ID CONFIRMAÇÃO|activate-marketplaces-runtime RELEASE_ID CONFIRMAÇÃO|activate-dispatch-v3-runtime RELEASE_ID CONFIRMAÇÃO|confirm-alert-delivery CONFIRMAÇÃO|confirm-offsite-backup BACKUP_ID SHA256 CONFIRMAÇÃO|activate-release-gates RELEASE_ID CONFIRMAÇÃO|validate-release RELEASE_ID|apply RELEASE_ID|recover-failed-update RELEASE_FALHA RELEASE_ANTERIOR CONFIRMAÇÃO|rearm-failed-update RELEASE_ID CONFIRMAÇÃO|resume-failed-update RELEASE_ID CONFIRMAÇÃO|bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO|bootstrap-additional-superadmin RELEASE_ID IDENTIDADE CONFIRMAÇÃO|reset-additional-superadmin-password RELEASE_ID IDENTIDADE CONFIRMAÇÃO|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
     ;;
 esac

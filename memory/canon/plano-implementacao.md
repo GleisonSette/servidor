@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-plano-implementacao
   source_path: memory/canon/plano-implementacao.md
   generated_from: plano aprovado pelo usuário em 2026-08-15
-  updated_at: 2026-09-02
+  updated_at: 2026-09-07
   status: canonical
 
 ## Regra de continuidade
@@ -267,6 +267,12 @@ backend não Ready. A candidata corretiva
 A D058 preserva o gate normal do slot e permite somente o rearme fechado D033,
 após nova prova de pull e backup offsite, para substituir o backend falho sem
 rollback; admissão V3 continua inativa nesta fotografia.
+
+A D059 cobre somente a anomalia observada do slot lógico V3 invalidado antes da
+retomada: o controlador interrompe apenas o StatefulSet Debezium identificado
+da release falha, prova que não há estado V3 nem evento de outbox e recria o
+slot. Ele não reinicia o Debezium, não libera admissões e exige recibo root-only
+vinculado à candidata corretiva antes do rearme e da retomada.
 
 Em 2026-09-06, a primeira entrada protegida foi recusada antes de persistir o
 material: `nounset` expandia o nome do arquivo na mesma declaração local que o

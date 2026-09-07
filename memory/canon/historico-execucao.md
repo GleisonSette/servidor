@@ -2325,3 +2325,20 @@ este registro.
 - a prova de pull GHCR usa a ação explícita
   `verify-ghcr-candidate-pull-for-failed-update-resume` somente nessa retomada;
   no fluxo normal, ela conserva `secondary-slotctl verify`.
+
+## 2026-09-07 - Reparo fechado do slot lógico V3 preparado
+
+Resultado: o controlador passou a tratar a invalidação observada do slot V3
+sem abrir uma rota geral de banco ou Kubernetes; nenhuma mudança no host foi
+executada por este registro.
+
+- a ação aceita somente a candidata corretiva já provada, a tentativa falha
+  anotada no backend e o estado V3 preparado e inativo;
+- antes de alterar o slot, ela exige D033, contenção do host, o contrato de
+  dados com o slot explicitamente invalidado e zero em todas as relações
+  duráveis V3 e na outbox;
+- apenas o StatefulSet Debezium de identidade e release exatas pode ser
+  escalado para zero; ele permanece parado depois do reparo;
+- a remoção e recriação cobrem exclusivamente
+  `blindou_dispatch_v3_outbox_slot` com `pgoutput`, e o recibo root-only passa
+  a ser pré-requisito do rearme e da retomada, sem ativar admissões nem rollback.
