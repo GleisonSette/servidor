@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-decisoes
   source_path: memory/canon/decisoes.md
   generated_from: decisões do usuário e limites observados do laboratório
-  updated_at: 2026-09-06
+  updated_at: 2026-09-07
   status: canonical
 
 ## Resolvida D001 - Projetos admitidos pela plataforma
@@ -1317,3 +1317,30 @@ interna de `resume-failed-update` propaga exclusivamente a origem
 eles continuam exigindo o recibo do rearme, a prova GHCR, o host, D033 e todos
 os demais contratos. Depois de os workloads ficarem Ready, a verificação normal
 do slot volta a ser obrigatória.
+
+## Resolvida D060 - Sucessora forward-only da atualização E5 parcial
+
+Em 2026-09-07, o diagnóstico sanitizado da retomada da candidata
+`2452e3b92af96c1b98a6123f7aa6905c335bfc26` identificou duas causas exatas,
+mantendo `DISPATCH_V3_MODE` inativo e sem estado V3: o arquivo PKCS#12 criado
+somente com `openssl -export -nokeys` não continha uma `trustedCertEntry`
+aceita pela JVM do Debezium, e os Pods authority/sender, UID/GID `10001`, não
+tinham o grupo de leitura dos Secrets `0440`.
+
+A D060 não altera imagens, migration, release anterior, provider, admission ou
+o banco. Ela introduz uma sucessora assinada, que deve conservar exatamente os
+digests de todas as imagens já validadas. O controlador gera no cofre root-only
+um JKS mínimo com uma única CA pública do NATS, valida PEM, DER, checksum JKS,
+o certificado TLS NATS e a igualdade do conteúdo antes de recriar somente a
+chave homônima do Secret Debezium. Os dois Pods Rust recebem exclusivamente
+`fsGroup: 10001` e `fsGroupChangePolicy: OnRootMismatch`; continuam não
+privilegiados, com filesystem somente leitura e Secrets `0440`.
+
+As operações `rearm-failed-update-successor` e
+`resume-failed-update-successor` são distintas e limitadas por sudoers. Elas
+exigem cadeia D058/D059, host e atestado D033, candidata e prova GHCR,
+igualdade dos digests, zero em todas as relações/outbox V3, estado preparado e
+inativo, backup criptografado novo e recibo offsite correspondente com no máximo
+uma hora. Qualquer falha preserva o estado parcial, não chama rollback e não
+ativa admissões. A mudança permanece apenas no repositório até uma candidata,
+bundle, prova e operação explicitamente autorizados.

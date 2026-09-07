@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-historico-execucao
   source_path: memory/canon/historico-execucao.md
   generated_from: auditorias e implementações autorizadas no laboratório
-  updated_at: 2026-09-02
+  updated_at: 2026-09-07
   status: canonical
 
 ## Regra de registro
@@ -2351,6 +2351,27 @@ executada por este registro.
 - o aplicador normal conserva seus gates; somente `resume-failed-update`
   propaga a origem fechada pelos checks internos antes de o backend corretivo
   existir, e retorna ao verificador normal depois do rollout.
+
+## 2026-09-07 - Sucessora D060 da retomada parcial E5 preparada
+
+Resultado: a correção dos dois contratos de runtime foi implementada e passou
+nos gates offline; nenhum Secret, bundle, workload, migration, admissão ou
+release do host foi alterado por este registro.
+
+- o diagnóstico fechado apontou truststore Java sem âncora confiável no
+  Debezium e permissão negada para os Secrets `0440` de authority/sender;
+- o controlador passa a gerar e verificar um JKS determinístico de uma única CA
+  pública do NATS, sem chave privada, senha operacional ou instalação de JDK;
+- a sucessora exige que todos os digests renderizados sejam idênticos à
+  candidata parcial, além de D033, D059, estado/outbox V3 zerados, backup novo
+  e offsite confirmado por no máximo uma hora;
+- a interface sudo permanece fechada a dois comandos novos, cada um com sua
+  confirmação literal; ambos preservam o estado parcial em falha e não expõem
+  rota de rollback ou ativação;
+- `bash -n`, compilação e recusas do gerador JKS, testes do slot, verificador de
+  release, renderização completa dos manifests e
+  `blindou_platform_artifacts=passed` foram executados sem Docker, WSL, banco
+  operacional ou segredo.
 - o diagnóstico fechado da atualização passa a observar, além do backend, os
   três workloads V3 de nomes, containers e seletores fixos, limitando eventos e
   logs sanitizados sem expor uma interface Kubernetes genérica.

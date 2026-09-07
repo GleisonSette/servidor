@@ -14,6 +14,7 @@ readonly VERIFIER_SOURCE="${SOURCE_DIRECTORY}/blindou-release-verify.py"
 readonly GHCR_PULL_VERIFIER_SOURCE="${SOURCE_DIRECTORY}/blindou-ghcr-pull-verify.py"
 readonly PAGARME_PLAN_PROVISIONER_SOURCE="${SOURCE_DIRECTORY}/blindou-pagarme-plans.py"
 readonly DISPATCH_V3_JETSTREAM_SOURCE="${SOURCE_DIRECTORY}/blindou-dispatch-v3-jetstream.py"
+readonly DISPATCH_V3_TRUSTSTORE_SOURCE="${SOURCE_DIRECTORY}/blindou-dispatch-v3-truststore.py"
 readonly METRICS_SOURCE="${SOURCE_DIRECTORY}/blindou-platform-metrics"
 readonly METRICS_SERVICE_SOURCE="${SOURCE_DIRECTORY}/blindou-platform-metrics.service"
 readonly METRICS_TIMER_SOURCE="${SOURCE_DIRECTORY}/blindou-platform-metrics.timer"
@@ -40,7 +41,7 @@ fail() {
 for source in \
   "$CONTROLLER_SOURCE" "$EMERGENCY_CONTROLLER_SOURCE" "$VERIFIER_SOURCE" \
   "$GHCR_PULL_VERIFIER_SOURCE" "$PAGARME_PLAN_PROVISIONER_SOURCE" \
-  "$DISPATCH_V3_JETSTREAM_SOURCE" "$METRICS_SOURCE" \
+  "$DISPATCH_V3_JETSTREAM_SOURCE" "$DISPATCH_V3_TRUSTSTORE_SOURCE" "$METRICS_SOURCE" \
   "$METRICS_SERVICE_SOURCE" "$METRICS_TIMER_SOURCE" "$SUDOERS_SOURCE" \
   "$SIGNERS_SOURCE" "$RECIPIENT_SOURCE" "$SERVICE_POLICY_SOURCE" \
   "${PLATFORM_SOURCE}/00-namespaces.yaml" \
@@ -70,6 +71,13 @@ compile(source, sys.argv[1], "exec")
 PY
 python3 "$PAGARME_PLAN_PROVISIONER_SOURCE" --mode self-test >/dev/null
 python3 - "$DISPATCH_V3_JETSTREAM_SOURCE" <<'PY'
+from pathlib import Path
+import sys
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+compile(source, sys.argv[1], "exec")
+PY
+python3 - "$DISPATCH_V3_TRUSTSTORE_SOURCE" <<'PY'
 from pathlib import Path
 import sys
 
@@ -113,6 +121,8 @@ install -o root -g root -m 0755 "$PAGARME_PLAN_PROVISIONER_SOURCE" \
   "${LIBRARY_TARGET}/blindou-pagarme-plans.py"
 install -o root -g root -m 0755 "$DISPATCH_V3_JETSTREAM_SOURCE" \
   "${LIBRARY_TARGET}/blindou-dispatch-v3-jetstream.py"
+install -o root -g root -m 0755 "$DISPATCH_V3_TRUSTSTORE_SOURCE" \
+  "${LIBRARY_TARGET}/blindou-dispatch-v3-truststore.py"
 install -o root -g root -m 0755 "$METRICS_SOURCE" "$METRICS_TARGET"
 install -o root -g root -m 0644 \
   "${PLATFORM_SOURCE}/00-namespaces.yaml" "${FOUNDATION_TARGET}/00-namespaces.yaml"

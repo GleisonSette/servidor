@@ -19,6 +19,8 @@ readonly MARKETPLACES_ACTIVATION_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-Bl
 readonly PAGARME_PLAN_PROVISIONER="${REMOTE_DIR}/blindou-pagarme-plans.py"
 readonly DISPATCH_V3_JETSTREAM_PROVISIONER="${REMOTE_DIR}/blindou-dispatch-v3-jetstream.py"
 readonly DISPATCH_V3_JETSTREAM_TEST="${REMOTE_DIR}/test-blindou-dispatch-v3-jetstream.py"
+readonly DISPATCH_V3_TRUSTSTORE_GENERATOR="${REMOTE_DIR}/blindou-dispatch-v3-truststore.py"
+readonly DISPATCH_V3_TRUSTSTORE_TEST="${REMOTE_DIR}/test-blindou-dispatch-v3-truststore.py"
 readonly EMERGENCY_CONTROLLER="${REMOTE_DIR}/blindou-release-emergencyctl"
 
 fail() {
@@ -78,6 +80,17 @@ source = Path(sys.argv[1]).read_text(encoding="utf-8")
 compile(source, sys.argv[1], "exec")
 PY
 python3 "$DISPATCH_V3_JETSTREAM_TEST"
+[[ -f "$DISPATCH_V3_TRUSTSTORE_GENERATOR" && ! -L "$DISPATCH_V3_TRUSTSTORE_GENERATOR" \
+    && -f "$DISPATCH_V3_TRUSTSTORE_TEST" && ! -L "$DISPATCH_V3_TRUSTSTORE_TEST" ]] \
+  || fail 'gerador ou teste JKS do Dispatch V3 ausente ou simbólico'
+python3 - "$DISPATCH_V3_TRUSTSTORE_GENERATOR" <<'PY'
+from pathlib import Path
+import sys
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+compile(source, sys.argv[1], "exec")
+PY
+python3 "$DISPATCH_V3_TRUSTSTORE_TEST"
 [[ -f "$EMERGENCY_CONTROLLER" && ! -L "$EMERGENCY_CONTROLLER" ]] \
   || fail 'controlador fechado de contenção emergencial ausente ou simbólico'
 bash -n "$EMERGENCY_CONTROLLER"
@@ -712,6 +725,14 @@ grep -Fq 'set +e' <<<"$apply_release_function" \
 if grep -Fq 'if ! apply_cached_release' <<<"$apply_release_function"; then
   fail 'apply ainda suprime errexit no corpo da release'
 fi
+grep -Fq "\"\$origin\" == 'failed-update-successor'" <<<"$apply_cached_release_function" \
+  && grep -Fq 'rearm-failed-update-successor)' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'resume-failed-update-successor)' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'rearm-failed-update-successor * blindou-failed-update-successor-rearm' \
+    "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  && grep -Fq 'resume-failed-update-successor * blindou-failed-update-successor-resume' \
+    "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  || fail 'retomada sucessora D084 não está limitada pelo controlador e sudoers fechados'
 migration_wait_function="$(sed -n '/^wait_migration_job()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 grep -Fq 'deadline=$((SECONDS + 600))' <<<"$migration_wait_function" \
@@ -885,6 +906,12 @@ resume_failed_update_function="$(sed -n '/^resume_failed_update()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 rearm_failed_update_function="$(sed -n '/^rearm_failed_update()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
+rearm_failed_update_successor_function="$(sed -n '/^rearm_failed_update_successor()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+resume_failed_update_successor_function="$(sed -n '/^resume_failed_update_successor()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+successor_image_comparison_function="$(sed -n '/^cached_release_images_match()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
 release_gates_function="$(sed -n '/^require_release_gates()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 cached_release_function="$(sed -n '/^apply_cached_release()/,/^}/p' \
@@ -925,8 +952,7 @@ grep -Fq 'resume-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
     <<<"$resume_failed_update_function" \
   && ! grep -Fq 'rollback_release' <<<"$resume_failed_update_function" \
   || fail 'retomada fechada não preserva falha parcial sem rollback'
-grep -Fq "[[ \"\$origin\" == 'operator' || \"\$origin\" == 'failed-update' ]]" \
-    <<<"$release_gates_function" \
+grep -Fq 'failed-update-successor' <<<"$release_gates_function" \
   && grep -Fq 'verify_data_foundation "$origin" >/dev/null' \
     <<<"$release_gates_function" \
   && grep -Fq 'ensure_ghcr_pull_secret "$origin"' <<<"$release_gates_function" \
@@ -935,6 +961,41 @@ grep -Fq "[[ \"\$origin\" == 'operator' || \"\$origin\" == 'failed-update' ]]" \
   && grep -Fq 'verify_data_foundation "$origin" >/dev/null' \
     <<<"$cached_release_function" \
   || fail 'aplicação corretiva não propaga a exceção D033 pelos gates internos'
+grep -Fq 'rearm-failed-update-successor)' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'resume-failed-update-successor)' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'FAILED_UPDATE_SUCCESSOR_REARM_CONFIRMATION' \
+    <<<"$rearm_failed_update_successor_function" \
+  && grep -Fq 'verify_secondary_slot_resume_preservation' \
+    <<<"$rearm_failed_update_successor_function" \
+  && grep -Fq 'dispatch_v3_slot_repair_receipt_matches' \
+    <<<"$rearm_failed_update_successor_function" \
+  && grep -Fq 'cached_release_images_match' <<<"$rearm_failed_update_successor_function" \
+  && grep -Fq 'dispatch_v3_state_is_empty' <<<"$rearm_failed_update_successor_function" \
+  && grep -Fq 'fresh_offsite_backup_is_confirmed' \
+    <<<"$rearm_failed_update_successor_function" \
+  && grep -Fq 'generate_dispatch_v3_nats_truststore' \
+    <<<"$rearm_failed_update_successor_function" \
+  && grep -Fq 'verify_dispatch_v3_kubernetes_material' \
+    <<<"$rearm_failed_update_successor_function" \
+  && ! grep -Fq 'rollback_release' <<<"$rearm_failed_update_successor_function" \
+  && grep -Fq 'FAILED_UPDATE_SUCCESSOR_RESUME_CONFIRMATION' \
+    <<<"$resume_failed_update_successor_function" \
+  && grep -Fq 'dispatch_v3_state_is_empty' <<<"$resume_failed_update_successor_function" \
+  && grep -Fq 'fresh_offsite_backup_is_confirmed' \
+    <<<"$resume_failed_update_successor_function" \
+  && grep -Fq 'apply_cached_release "$release_id" failed-update-successor' \
+    <<<"$resume_failed_update_successor_function" \
+  && ! grep -Fq 'rollback_release' <<<"$resume_failed_update_successor_function" \
+  && ! grep -Fq 'activate_dispatch_v3_runtime' <<<"$resume_failed_update_successor_function" \
+  && grep -Fq '40-workloads.yaml' <<<"$successor_image_comparison_function" \
+  && grep -Fq '60-cloudflared.yaml' <<<"$successor_image_comparison_function" \
+  && grep -Fq '71-dispatch-v3-workloads.yaml' <<<"$successor_image_comparison_function" \
+  && grep -Fq '"@sha256:"' <<<"$successor_image_comparison_function" \
+  && grep -Fq 'rearm-failed-update-successor * blindou-failed-update-successor-rearm' \
+    "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  && grep -Fq 'resume-failed-update-successor * blindou-failed-update-successor-resume' \
+    "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  || fail 'D084 não preserva cadeia, backups, imagens, inatividade e ausência de rollback'
 grep -Fq 'rearm-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'FAILED_UPDATE_REARM_CONFIRMATION' <<<"$rearm_failed_update_function" \
   && grep -Fq 'verify_secondary_slot_resume_preservation' <<<"$rearm_failed_update_function" \
@@ -1085,6 +1146,13 @@ grep -Fq 'provision-dispatch-v3-secrets blindou-dispatch-v3-secrets' \
 grep -Fq 'DISPATCH_V3_JETSTREAM_SOURCE' \
   "${REMOTE_DIR}/bootstrap-blindou-deployctl.sh" \
   || fail 'bootstrap não instala o provisionador JetStream do Dispatch V3'
+grep -Fq 'DISPATCH_V3_TRUSTSTORE_SOURCE' \
+  "${REMOTE_DIR}/bootstrap-blindou-deployctl.sh" \
+  && grep -Fq 'blindou-dispatch-v3-truststore.py' "$DEPLOY_BOOTSTRAP_SCRIPT" \
+  && grep -Fq 'DISPATCH_V3_TRUSTSTORE_GENERATOR' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'nats-truststore.jks' "${REMOTE_DIR}/blindou-deployctl" \
+  && ! grep -Fq 'openssl pkcs12 -export -nokeys' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'truststore JKS do Dispatch V3 não fecha geração e bootstrap'
 grep -Fq '"sources"' "$DISPATCH_V3_JETSTREAM_PROVISIONER" \
   && grep -Fq '"allow_msg_schedules"' "$DISPATCH_V3_JETSTREAM_PROVISIONER" \
   && grep -Fq '"--verify-only"' "$DISPATCH_V3_JETSTREAM_PROVISIONER" \

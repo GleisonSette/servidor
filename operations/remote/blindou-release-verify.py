@@ -351,6 +351,48 @@ def validate_documents(documents: list[dict[str, Any]], release_id: str) -> None
                 }
                 if images != {EXPECTED_DEBEZIUM_IMAGE}:
                     fail("digest Debezium diverge da candidata aprovada")
+                debezium = next(
+                    (container for container in containers if container.get("name") == "debezium"),
+                    None,
+                )
+                environment = {
+                    item.get("name"): item.get("value")
+                    for item in (debezium or {}).get("env", [])
+                }
+                if environment.get("JAVA_TOOL_OPTIONS") != (
+                    "-Djavax.net.ssl.trustStore=/var/run/blindou/nats/truststore.jks "
+                    "-Djavax.net.ssl.trustStoreType=JKS "
+                    "-Djavax.net.ssl.trustStorePassword=changeit"
+                ):
+                    fail("Debezium não fixa truststore JKS da CA NATS")
+                truststore = next(
+                    (
+                        volume
+                        for volume in pod_spec.get("volumes", []) or []
+                        if volume.get("name") == "nats-truststore"
+                    ),
+                    None,
+                )
+                if truststore != {
+                    "name": "nats-truststore",
+                    "secret": {
+                        "secretName": "blindou-debezium-v3",
+                        "defaultMode": 288,
+                        "items": [{"key": "nats-truststore.jks", "path": "truststore.jks"}],
+                    },
+                }:
+                    fail("volume JKS Debezium diverge do contrato fechado")
+            if name in {"blindou-dispatch-authority-v3", "blindou-dispatch-sender-v3"}:
+                expected_security = {
+                    "runAsNonRoot": True,
+                    "runAsUser": 10001,
+                    "runAsGroup": 10001,
+                    "fsGroup": 10001,
+                    "fsGroupChangePolicy": "OnRootMismatch",
+                    "seccompProfile": {"type": "RuntimeDefault"},
+                }
+                if pod_spec.get("securityContext") != expected_security:
+                    fail(f"grupo de leitura de Secret diverge em {resource}")
             if name == "blindou-dispatch-sender-v3":
                 mounted_secrets = {
                     volume.get("secret", {}).get("secretName")

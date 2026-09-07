@@ -323,6 +323,16 @@ somente esse ciclo read-only sob lock ocupado, limpar o estado histórico,
 revalidar o host, retomar `cd605c83...` ainda em `prepared` e somente então
 executar a ativação separada.
 
+Atualização D060 em 2026-09-07: a retomada posterior da candidata
+`2452e3b92af96c1b98a6123f7aa6905c335bfc26` chegou ao backend Ready, mas o
+diagnóstico fechado revelou truststore PKCS#12 sem âncora Java e permissão
+insuficiente nos Secrets dos dois workers V3. A única continuação permitida é
+uma candidata sucessora assinada, com todos os digests preservados, que substitui
+o truststore por JKS de CA pública e adiciona o `fsGroup` estritamente necessário.
+Antes de aplicá-la, o controlador exige D033/D059, zero de estado/outbox V3,
+backup novo/offsite há no máximo uma hora e admissão ainda inativa. Não há
+rollback, migration nova, alteração de UAZAPI ou ativação nesta etapa.
+
 Ordem obrigatória da extensão:
 
 1. validar, publicar e instalar o controlador D055 sem alterar o runtime por
