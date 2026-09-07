@@ -1224,7 +1224,9 @@ Somente a ação read-only `metrics` passa a encerrar com sucesso e preservar a
 de uma coleta executada. Qualquer erro de arquivo, ownership, K3s, estado,
 admissão ou observação do runtime continua falhando fechado.
 
-O bootstrap comprova a exceção sob uma trava real, exige o recibo exato,
+O bootstrap pausa o timer durante a troca atômica, aguarda uma coleta anterior
+liberar o lock, comprova a exceção sob uma trava real, exige o recibo exato,
 executa uma coleta normal e limpa o estado `failed` histórico antes de reativar
-o timer. O offset no segundo 30 permanece como redução de colisões, não como
-garantia de exclusão mútua.
+o timer. Em falha da instalação, o estado anterior de enablement e atividade do
+timer é restaurado. O offset no segundo 30 permanece como redução de colisões,
+não como garantia de exclusão mútua.

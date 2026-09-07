@@ -326,6 +326,8 @@ for invariant in (
     'locked_metrics_output="$("$CONTROLLER_TARGET" metrics 2>&1)"',
     "flock --exclusive",
     "coleta concorrente de métricas tratou lock ocupado como falha",
+    "systemctl stop secondary-slot-metrics.timer",
+    "coleta anterior de métricas não liberou o lock em trinta segundos",
     "--property=ExecMainStatus",
     "systemctl reset-failed secondary-slot-metrics.service",
     "coleta de métricas não liberou o lock em trinta segundos",

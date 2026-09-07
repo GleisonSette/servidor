@@ -2291,3 +2291,7 @@ preparada no repositório; o runtime ainda não foi alterado neste registro.
   fechados;
 - o bootstrap passa a provar contenção sob trava real, executar coleta normal e
   limpar o estado `failed` histórico antes de habilitar o timer.
+- a primeira instalação D057 foi revertida pelo próprio bootstrap porque uma
+  checagem final ainda colidiu com o timer preexistente; a correção seguinte
+  pausa o timer durante a troca e restaura seu estado anterior se a instalação
+  falhar.

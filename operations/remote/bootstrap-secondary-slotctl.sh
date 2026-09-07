@@ -85,16 +85,20 @@ rollback_bootstrap() {
     done <"$backup_manifest"
     cp --archive --no-dereference \
       "${backup_directory}/prometheus.yml" "$PROMETHEUS_CONFIG"
+    systemctl daemon-reload >/dev/null 2>&1 || true
     if [[ "$timer_was_enabled" == false ]]; then
       systemctl disable secondary-slot-metrics.timer >/dev/null 2>&1 || true
+    else
+      systemctl enable secondary-slot-metrics.timer >/dev/null 2>&1 || true
     fi
     if [[ "$timer_was_active" == false ]]; then
       systemctl stop secondary-slot-metrics.timer >/dev/null 2>&1 || true
+    else
+      systemctl start secondary-slot-metrics.timer >/dev/null 2>&1 || true
     fi
     if [[ "$lock_was_present" == false ]]; then
       rm -f -- /run/lock/servidor-local-secondary-slot.lock
     fi
-    systemctl daemon-reload >/dev/null 2>&1 || true
     systemctl reset-failed secondary-slot-metrics.service \
       secondary-slot-metrics.timer >/dev/null 2>&1 || true
     visudo -cf "$SUDOERS_TARGET" >/dev/null 2>&1 || true
@@ -129,6 +133,17 @@ cp --archive --no-dereference "$PROMETHEUS_CONFIG" \
   "${backup_directory}/prometheus.yml"
 rollback_needed=true
 trap rollback_bootstrap EXIT
+
+systemctl stop secondary-slot-metrics.timer
+for _ in {1..30}; do
+  if ! systemctl is-active --quiet secondary-slot-metrics.service; then
+    break
+  fi
+  sleep 1
+done
+if systemctl is-active --quiet secondary-slot-metrics.service; then
+  fail 'coleta anterior de métricas não liberou o lock em trinta segundos'
+fi
 
 install -d -o root -g root -m 0755 "$LIBRARY_TARGET"
 install -d -o root -g prometheus -m 0750 /etc/prometheus/rules
