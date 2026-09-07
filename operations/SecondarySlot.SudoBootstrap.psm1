@@ -80,7 +80,7 @@ readonly bootstrap_lock='/run/lock/servidor-local-platform-bootstrap.lock'
 
 [[ "${EUID}" -eq 0 ]] || fail 'execute como root'
 [[ "$(hostname)" == apiwpp ]] || fail 'hostname inesperado'
-for command in chmod chown cut find flock install mktemp mv python3 rm sha256sum stat; do
+for command in chmod chown cut find flock install mktemp mv python3 rm sha256sum sleep stat systemctl; do
   command -v "$command" >/dev/null || fail "dependência ausente: ${command}"
 done
 [[ -f "$source_archive" && ! -L "$source_archive" ]] \
@@ -93,6 +93,30 @@ exec 9>"$bootstrap_lock"
 chmod 0600 "$bootstrap_lock"
 flock -n 9 || fail 'outro bootstrap de plataforma está em andamento'
 
+preflight_timer_was_active=false
+systemctl is-active --quiet secondary-slot-metrics.timer \
+  && preflight_timer_was_active=true
+restore_preflight_timer() {
+  local result="$?"
+  trap - EXIT
+  if [[ "$result" -ne 0 && "$preflight_timer_was_active" == true ]]; then
+    systemctl reset-failed secondary-slot-metrics.service \
+      secondary-slot-metrics.timer >/dev/null 2>&1 || true
+    systemctl start secondary-slot-metrics.timer >/dev/null 2>&1 || true
+  fi
+  exit "$result"
+}
+trap restore_preflight_timer EXIT
+systemctl stop secondary-slot-metrics.timer
+for _ in {1..30}; do
+  if ! systemctl is-active --quiet secondary-slot-metrics.service; then
+    break
+  fi
+  sleep 1
+done
+if systemctl is-active --quiet secondary-slot-metrics.service; then
+  fail 'coleta anterior de métricas não liberou o lock em trinta segundos'
+fi
 systemctl reset-failed secondary-slot-metrics.service >/dev/null 2>&1 || true
 systemctl reset-failed secondary-slot-metrics.timer >/dev/null 2>&1 || true
 if systemctl is-failed --quiet secondary-slot-metrics.service \
@@ -249,6 +273,7 @@ done
 python3 "$verifier"
 /bin/bash -n "$bootstrap"
 "$bootstrap"
+trap - EXIT
 printf 'secondary_slot_root_bootstrap=passed commit=%s sha256=%s\n' \
   "$git_commit" "$expected_sha256"
 '@

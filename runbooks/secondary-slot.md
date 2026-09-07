@@ -79,8 +79,10 @@ instante, somente `secondary-slotctl metrics` encerra com sucesso e registra
 `secondary_slot_metrics=skipped reason=lock-busy`; ele preserva a última
 métrica válida. Transições, `status` e `verify` continuam falhando fechados
 quando encontram a mesma contenção. O bootstrap prova os dois caminhos sob
-trava real, pausa o timer durante a troca atômica e limpa qualquer estado
-`failed` histórico da unit antes de reativá-lo.
+trava real; tanto o invólucro autenticado quanto o instalador pausam o timer nas
+respectivas janelas, aguardam a coleta corrente e restauram sua atividade em
+falha. Ao concluir, o instalador limpa qualquer estado `failed` histórico da
+unit antes de reativar o timer.
 
 ## Ordem APIWPP para SaferWPP
 

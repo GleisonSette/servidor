@@ -2295,3 +2295,6 @@ preparada no repositório; o runtime ainda não foi alterado neste registro.
   checagem final ainda colidiu com o timer preexistente; a correção seguinte
   pausa o timer durante a troca e restaura seu estado anterior se a instalação
   falhar.
+- a tentativa seguinte foi recusada ainda no preflight do invólucro
+  autenticado pelo mesmo lock do controlador antigo; o invólucro passa a
+  pausar e restaurar o timer antes de verificar a versão instalada.

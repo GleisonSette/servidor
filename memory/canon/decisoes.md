@@ -1227,6 +1227,8 @@ admissão ou observação do runtime continua falhando fechado.
 O bootstrap pausa o timer durante a troca atômica, aguarda uma coleta anterior
 liberar o lock, comprova a exceção sob uma trava real, exige o recibo exato,
 executa uma coleta normal e limpa o estado `failed` histórico antes de reativar
-o timer. Em falha da instalação, o estado anterior de enablement e atividade do
-timer é restaurado. O offset no segundo 30 permanece como redução de colisões,
-não como garantia de exclusão mútua.
+o timer. O invólucro autenticado aplica a mesma pausa antes do preflight feito
+com o controlador ainda instalado. Em falha de qualquer lado da instalação, o
+estado anterior de enablement e atividade do timer é restaurado. O offset no
+segundo 30 permanece como redução de colisões, não como garantia de exclusão
+mútua.
