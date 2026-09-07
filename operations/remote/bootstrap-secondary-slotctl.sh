@@ -228,7 +228,6 @@ fi
     == success ]] || fail 'coleta inicial de métricas falhou'
 systemctl reset-failed secondary-slot-metrics.service \
   secondary-slot-metrics.timer >/dev/null
-systemctl enable --now secondary-slot-metrics.timer >/dev/null
 systemctl reload prometheus.service
 for _ in {1..30}; do
   if ! systemctl is-active --quiet secondary-slot-metrics.service; then
@@ -240,5 +239,6 @@ if systemctl is-active --quiet secondary-slot-metrics.service; then
   fail 'coleta de métricas não liberou o lock em trinta segundos'
 fi
 sudo -u apiadmin sudo -n "$CONTROLLER_TARGET" status >/dev/null
+systemctl enable --now secondary-slot-metrics.timer >/dev/null
 rollback_needed=false
 printf 'secondary_slotctl_bootstrap=installed backup=%s\n' "$backup_directory"

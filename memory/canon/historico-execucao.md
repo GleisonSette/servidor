@@ -2302,3 +2302,6 @@ preparada no repositório; o runtime ainda não foi alterado neste registro.
   encontrou sua própria coleta periódica; o fluxo passa a repetir por até um
   minuto somente para o código 2 e a mensagem exata desse lock, sem tolerar
   outro erro.
+- a instalação seguinte passou preflight e provas concorrentes, mas reativou o
+  timer antes do `status` final e foi revertida ao colidir nessa janela; a ordem
+  corrigida mantém o timer parado até todas as verificações terminarem.

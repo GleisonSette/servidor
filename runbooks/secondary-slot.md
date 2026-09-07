@@ -82,7 +82,8 @@ quando encontram a mesma contenção. O bootstrap prova os dois caminhos sob
 trava real; tanto o invólucro autenticado quanto o instalador pausam o timer nas
 respectivas janelas, aguardam a coleta corrente e restauram sua atividade em
 falha. Ao concluir, o instalador limpa qualquer estado `failed` histórico da
-unit antes de reativar o timer.
+unit, conclui as provas de `status` e somente então reativa o timer como último
+ato.
 
 Como o preflight também consulta o controlador Blindou, ele e a verificação
 posterior repetem por no máximo um minuto apenas diante do código e da mensagem

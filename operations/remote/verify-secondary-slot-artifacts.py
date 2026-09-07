@@ -328,6 +328,7 @@ for invariant in (
     "coleta concorrente de métricas tratou lock ocupado como falha",
     "systemctl stop secondary-slot-metrics.timer",
     "coleta anterior de métricas não liberou o lock em trinta segundos",
+    'sudo -u apiadmin sudo -n "$CONTROLLER_TARGET" status >/dev/null\nsystemctl enable --now secondary-slot-metrics.timer',
     "--property=ExecMainStatus",
     "systemctl reset-failed secondary-slot-metrics.service",
     "coleta de métricas não liberou o lock em trinta segundos",

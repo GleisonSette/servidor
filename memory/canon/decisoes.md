@@ -1237,3 +1237,8 @@ O preflight e a verificação posterior repetem por no máximo um minuto somente
 quando o código e a saída correspondem exatamente aos locks transitórios já
 classificados dos controladores Blindou ou do slot. Qualquer outra falha é
 recusada na primeira tentativa.
+
+Durante a instalação interna, todas as provas de `status` são concluídas com o
+timer pausado. A reativação é o último ato antes do recibo de sucesso, eliminando
+a janela em que o próprio bootstrap poderia disputar o lock que acabara de
+validar.
