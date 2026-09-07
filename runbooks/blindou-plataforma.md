@@ -547,12 +547,15 @@ root-only e não são expostas pelo controlador.
 
 Se uma primeira ativação deixar somente esse par ausente e o backend ficar não
 Ready, a repetição não desliga o gate geral. A D068 aceita a leitura D033 do
-slot somente quando o recibo ainda for `prepared`, a release corrente coincidir,
-o arquivo root-only já declarar `DISPATCH_V3_MODE=active`, os dois campos R2
+slot somente quando o recibo root-only for o formato canônico `prepared` —
+schema, encarnação atual do stream, data UTC e sem `release_id` —, a release
+corrente root-only coincidir, o arquivo root-only já declarar
+`DISPATCH_V3_MODE=active`, os dois campos R2
 estiverem simultaneamente ausentes e o Deployment do backend tiver exatamente
 uma réplica atualizada, porém nenhuma Ready. Esse é o único estado parcial
 possível depois de a ativação gravar a configuração e antes do recibo `active`;
-estado `active`, Secret parcial, backend saudável, release divergente ou outro
+estado `active`, recibo `prepared` fora do formato, Secret parcial, backend
+saudável, release divergente ou outro
 erro continuam recusados. A leitura ainda exige slot vazio, sem transição e com
 a admissão íntegra. Depois da reconciliação e do rollout, a verificação normal
 do slot é obrigatória antes de gravar o recibo `active`.
@@ -566,8 +569,8 @@ sudo -n /usr/local/sbin/blindou-deployctl \
 ```
 
 Ele é somente leitura, exige host válido e emite somente booleanos para a
-release, recibo, proteção do arquivo de runtime, modo V3, estado do backend e
-ausência comprovada dos dois nomes R2. A saída nunca contém valores de Secret,
+release, formato canônico do recibo, proteção do arquivo de runtime, modo V3,
+estado do backend e ausência comprovada dos dois nomes R2. A saída nunca contém valores de Secret,
 endpoint, chave, conteúdo de configuração ou material de credencial. Uma prova
 falsa bloqueia nova ativação até correção e autorização específicas.
 

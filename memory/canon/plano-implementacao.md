@@ -386,10 +386,11 @@ Atualização D067 em 2026-09-07: como o backend não Ready bloqueia a própria
 repetição D066 no gate normal do slot, a ativação recebeu uma exceção D033 de
 uso único e verificável. A condição inicial de modo inativo foi corrigida pela
 D068 ainda em 2026-09-07: a ativação já grava `DISPATCH_V3_MODE=active` antes
-do rollout final, mas só registra `state=active` depois dele. A exceção agora
-só aceita essa configuração parcial exata: mesma release, recibo `prepared`,
-arquivo root-only, os dois campos R2 simultaneamente ausentes e backend com uma
-réplica atualizada, porém nenhuma Ready. O slot vazio e íntegro segue
+do rollout final, mas só registra `state=active` depois dele. A D070 corrigiu
+o vínculo impossível do recibo: a exceção aceita a release corrente root-only
+e o formato `prepared` canônico, sem `release_id`, com a encarnação do stream
+igual ao cofre. Os dois campos R2 permanecem simultaneamente ausentes e o
+backend deve ter uma réplica atualizada, porém nenhuma Ready. O slot vazio e íntegro segue
 obrigatório, e a verificação normal retorna antes do recibo final. Não há bypass
 para outro erro, Secret parcial, migration, provider, rollback ou ativação já
 concluída.
@@ -412,8 +413,8 @@ Resultado D069 em 2026-09-07: a leitura instalada confirmou todas as provas
 materiais da D068, exceto a igualdade do `release_id` no recibo `prepared`.
 Essa igualdade é impossível: `provision-dispatch-v3-secrets` cria o recibo com
 estado, encarnação e data, sem `release_id`. Antes de qualquer nova ativação,
-a D070 precisa de decisão explícita para substituir essa exigência por prova do
-formato canônico sem `release_id`, preservando a release corrente root-only, o
+a D070 aprovada substitui essa exigência por prova do formato canônico sem
+`release_id`, preservando a release corrente root-only, o
 estado `prepared`, o backend parcial, os dois campos R2 ausentes e a verificação
 normal do slot depois do rollout.
 

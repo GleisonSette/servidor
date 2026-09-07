@@ -2569,3 +2569,16 @@ Resultado: o diagnóstico fechado foi instalado no commit
   gate, saída de `core_keys` ou regressão da D068;
 - nenhuma ativação foi repetida. A D070 depende de decisão para substituir a
   igualdade impossível pelo formato canônico sem `release_id`.
+
+## 2026-09-07 - D070 corrige o formato do recibo preparado
+
+Resultado: a correção D070 foi preparada no repositório; o host ainda não foi
+alterado por esta entrada.
+
+- a D069 provou que o recibo `prepared` canônico não contém `release_id`;
+- a nova prova exige arquivo root-only de quatro linhas, schema, estado,
+  encarnação UUID igual ao cofre e data UTC, além da ausência de `release_id`;
+- a release corrente root-only e todas as barreiras parciais D068 permanecem
+  exigidas; nenhum recibo é reescrito;
+- o diagnóstico D069 passa a reportar o booleano do formato canônico antes de
+  qualquer nova tentativa de ativação.

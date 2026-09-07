@@ -315,16 +315,30 @@ dispatch_v3_activation_backend_is_unready() {
   (( observed >= generation ))
 }
 
+dispatch_v3_prepared_state_is_canonical() {
+  local prepared_at stream_incarnation line_count
+  [[ -f "$DISPATCH_V3_STATE" && ! -L "$DISPATCH_V3_STATE" \
+      && "$(stat -c '%U:%G:%a' "$DISPATCH_V3_STATE")" == 'root:root:600' ]] \
+    || return 1
+  dispatch_v3_file_is_secure "$DISPATCH_V3_STREAM_INCARNATION_FILE" || return 1
+  stream_incarnation="$(<"$DISPATCH_V3_STREAM_INCARNATION_FILE")"
+  [[ "$stream_incarnation" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] \
+    || return 1
+  line_count="$(wc -l <"$DISPATCH_V3_STATE")"
+  [[ "$line_count" == '4' ]] || return 1
+  grep -Fxq 'schema=1' "$DISPATCH_V3_STATE" \
+    && grep -Fxq 'state=prepared' "$DISPATCH_V3_STATE" \
+    && grep -Fxq "stream_incarnation=${stream_incarnation}" "$DISPATCH_V3_STATE" \
+    && grep -Eq '^prepared_at_utc=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' "$DISPATCH_V3_STATE" \
+    && ! grep -q '^release_id=' "$DISPATCH_V3_STATE"
+}
+
 dispatch_v3_activation_r2_recovery_is_eligible() {
   local release_id="$1" core_keys
   [[ -f "$CURRENT_RELEASE" && ! -L "$CURRENT_RELEASE" \
       && "$(stat -c '%U:%G:%a' "$CURRENT_RELEASE")" == 'root:root:600' \
       && "$(<"$CURRENT_RELEASE")" == "$release_id" ]] || return 1
-  [[ -f "$DISPATCH_V3_STATE" && ! -L "$DISPATCH_V3_STATE" \
-      && "$(stat -c '%U:%G:%a' "$DISPATCH_V3_STATE")" == 'root:root:600' ]] \
-    || return 1
-  grep -Fxq 'state=prepared' "$DISPATCH_V3_STATE" || return 1
-  grep -Fxq "release_id=${release_id}" "$DISPATCH_V3_STATE" || return 1
+  dispatch_v3_prepared_state_is_canonical || return 1
   runtime_secret_file_is_secure "$RUNTIME_CONFIG_FILE" || return 1
   grep -Fxq 'DISPATCH_V3_MODE=active' "$RUNTIME_CONFIG_FILE" || return 1
   dispatch_v3_activation_backend_is_unready || return 1
@@ -337,7 +351,7 @@ dispatch_v3_activation_r2_recovery_is_eligible() {
 
 diagnose_dispatch_v3_activation_preconditions() {
   local release_id="$1" core_keys=''
-  local current_release_secure_match=false dispatch_v3_state_prepared_match=false
+  local current_release_secure_match=false dispatch_v3_state_prepared_canonical=false
   local runtime_config_secure=false runtime_mode_active=false
   local backend_exactly_unready=false core_secret_keys_readable=false
   local core_r2_account_absence_proven=false core_r2_bucket_absence_proven=false
@@ -349,11 +363,8 @@ diagnose_dispatch_v3_activation_preconditions() {
       && "$(<"$CURRENT_RELEASE")" == "$release_id" ]]; then
     current_release_secure_match=true
   fi
-  if [[ -f "$DISPATCH_V3_STATE" && ! -L "$DISPATCH_V3_STATE" \
-      && "$(stat -c '%U:%G:%a' "$DISPATCH_V3_STATE")" == 'root:root:600' ]] \
-      && grep -Fxq 'state=prepared' "$DISPATCH_V3_STATE" \
-      && grep -Fxq "release_id=${release_id}" "$DISPATCH_V3_STATE"; then
-    dispatch_v3_state_prepared_match=true
+  if dispatch_v3_prepared_state_is_canonical; then
+    dispatch_v3_state_prepared_canonical=true
   fi
   if runtime_secret_file_is_secure "$RUNTIME_CONFIG_FILE"; then
     runtime_config_secure=true
@@ -376,7 +387,7 @@ diagnose_dispatch_v3_activation_preconditions() {
   fi
   printf 'dispatch_v3_activation_diagnosis=read-only\n'
   printf 'current_release_secure_match=%s\n' "$current_release_secure_match"
-  printf 'dispatch_v3_state_prepared_match=%s\n' "$dispatch_v3_state_prepared_match"
+  printf 'dispatch_v3_state_prepared_canonical=%s\n' "$dispatch_v3_state_prepared_canonical"
   printf 'runtime_config_secure=%s\n' "$runtime_config_secure"
   printf 'runtime_mode_active=%s\n' "$runtime_mode_active"
   printf 'backend_exactly_unready=%s\n' "$backend_exactly_unready"
@@ -4774,6 +4785,8 @@ activate_dispatch_v3_runtime() {
   fi
   grep -Fxq 'state=prepared' "$DISPATCH_V3_STATE" \
     || fail 'Dispatch V3 não está no estado preparado'
+  dispatch_v3_prepared_state_is_canonical \
+    || fail 'recibo preparado do Dispatch V3 diverge do formato canônico'
   create_runtime_kubernetes_material
   verify_runtime_material
   verify_dispatch_v3_kubernetes_material

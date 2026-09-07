@@ -1226,6 +1226,8 @@ dispatch_v3_activation_recovery_function="$(sed -n '/^dispatch_v3_activation_r2_
   "${REMOTE_DIR}/blindou-deployctl")"
 dispatch_v3_activation_backend_recovery_function="$(sed -n '/^dispatch_v3_activation_backend_is_unready()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
+dispatch_v3_prepared_state_function="$(sed -n '/^dispatch_v3_prepared_state_is_canonical()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
 dispatch_v3_activation_diagnosis_function="$(sed -n '/^diagnose_dispatch_v3_activation_preconditions()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 grep -Fq 'require_dispatch_v3_activation_preconditions "$release_id"' \
@@ -1236,12 +1238,13 @@ grep -Fq 'require_dispatch_v3_activation_preconditions "$release_id"' \
     <<<"$dispatch_v3_activation_preconditions_function" \
   && ! grep -Fq 'require_platform_preconditions' \
     <<<"$dispatch_v3_activation_preconditions_function" \
-  && grep -Fq 'state=prepared' <<<"$dispatch_v3_activation_recovery_function" \
   && grep -Fq "grep -Fxq 'DISPATCH_V3_MODE=active' \"\$RUNTIME_CONFIG_FILE\" || return 1" \
     <<<"$dispatch_v3_activation_recovery_function" \
   && grep -Fq 'DISPATCH_V3_R2_ACCOUNT_ID' <<<"$dispatch_v3_activation_recovery_function" \
   && grep -Fq 'DISPATCH_V3_R2_BUCKET' <<<"$dispatch_v3_activation_recovery_function" \
   && grep -Fq 'runtime_secret_file_is_secure "$RUNTIME_CONFIG_FILE"' \
+    <<<"$dispatch_v3_activation_recovery_function" \
+  && grep -Fq 'dispatch_v3_prepared_state_is_canonical || return 1' \
     <<<"$dispatch_v3_activation_recovery_function" \
   && grep -Fq 'dispatch_v3_activation_backend_is_unready || return 1' \
     <<<"$dispatch_v3_activation_recovery_function" \
@@ -1249,11 +1252,17 @@ grep -Fq 'require_dispatch_v3_activation_preconditions "$release_id"' \
   && grep -Fq '"$desired" == '\''1'\''' <<<"$dispatch_v3_activation_backend_recovery_function" \
   && grep -Fq '"$updated" == '\''1'\''' <<<"$dispatch_v3_activation_backend_recovery_function" \
   && grep -Fq '"$ready" != '\''1'\''' <<<"$dispatch_v3_activation_backend_recovery_function" \
+  && grep -Fq 'stream_incarnation=${stream_incarnation}' \
+    <<<"$dispatch_v3_prepared_state_function" \
+  && grep -Fq "! grep -q '^release_id=' \"\$DISPATCH_V3_STATE\"" \
+    <<<"$dispatch_v3_prepared_state_function" \
   && grep -Fq 'verify_secondary_slot_preservation' \
     <<<"$dispatch_v3_activation_function" \
-  || fail 'exceção D068 da ativação Dispatch V3 não está estritamente delimitada'
+  || fail 'exceção D070 da ativação Dispatch V3 não está estritamente delimitada'
 grep -Fq 'require_root_and_host' <<<"$dispatch_v3_activation_diagnosis_function" \
   && grep -Fq 'dispatch_v3_activation_diagnosis=read-only' \
+    <<<"$dispatch_v3_activation_diagnosis_function" \
+  && grep -Fq 'dispatch_v3_state_prepared_canonical' \
     <<<"$dispatch_v3_activation_diagnosis_function" \
   && grep -Fq 'core_r2_account_absence_proven' \
     <<<"$dispatch_v3_activation_diagnosis_function" \
