@@ -304,9 +304,12 @@ ao backend, mas a quota histórica de 10 CPU recusou o Pod: o estado estável co
 V3 declara 10,35 CPU de limites. Por D056, o controlador foi preparado para
 reconciliar somente esse teto para 12 e retomar a mesma release assinada por
 uma operação fechada sem rollback automático. A API anterior voltou a responder
-durante a recuperação parcial; o próximo passo continua sendo instalar esse
-controlador, renovar backup/gate se necessário, retomar `cd605c83...` ainda em
-`prepared` e somente então executar a ativação separada.
+durante a recuperação parcial. O gate seguinte encontrou somente a unit de
+métricas do slot marcada como falha por uma contenção legítima durante uma
+verificação longa. Por D057, o próximo passo é instalar a coleta que ignora
+somente esse ciclo read-only sob lock ocupado, limpar o estado histórico,
+revalidar o host, retomar `cd605c83...` ainda em `prepared` e somente então
+executar a ativação separada.
 
 Ordem obrigatória da extensão:
 

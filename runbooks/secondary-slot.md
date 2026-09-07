@@ -2,9 +2,9 @@
 
 ## Estado desta implementação
 
-O contrato está implementado declarativamente neste repositório. Ele ainda não
-foi instalado nem inicializado no servidor. O APIWPP continua ativo, o
-SaferWPP continua sem workloads e nenhum recurso do Blindou foi alterado.
+O contrato está instalado e inicializado no servidor. O slot está sem ocupante,
+com APIWPP e SaferWPP sem workloads, e o Blindou permanece o serviço sempre
+ativo protegido pelos gates compartilhados.
 
 O escritor exclusivo é `/usr/local/sbin/secondary-slotctl`. Ele mantém o
 atestado `root:root` `0600` em
@@ -74,7 +74,12 @@ workloads SaferWPP.
 O coletor do slot executa no segundo 30 de cada minuto. Esse offset o separa do
 coletor da plataforma Blindou, que também consulta o atestado do slot. Remover
 o offset recria uma disputa determinística pelo lock e deixa a unit em
-`failed`, bloqueando corretamente os gates do host.
+contenção recorrente. Se uma operação legítima ainda possuir a trava nesse
+instante, somente `secondary-slotctl metrics` encerra com sucesso e registra
+`secondary_slot_metrics=skipped reason=lock-busy`; ele preserva a última
+métrica válida. Transições, `status` e `verify` continuam falhando fechados
+quando encontram a mesma contenção. O bootstrap prova os dois caminhos sob
+trava real e limpa qualquer estado `failed` histórico da unit.
 
 ## Ordem APIWPP para SaferWPP
 

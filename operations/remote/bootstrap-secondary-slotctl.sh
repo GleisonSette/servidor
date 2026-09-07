@@ -34,7 +34,7 @@ fail() {
 
 [[ "${EUID}" -eq 0 ]] || fail 'execute como root'
 [[ "$(hostname)" == "$EXPECTED_HOSTNAME" ]] || fail 'hostname inesperado'
-for command in python3 visudo promtool systemd-analyze systemd-tmpfiles k3s install cp diff sha256sum sleep sudo systemctl tr; do
+for command in python3 visudo promtool systemd-analyze systemd-tmpfiles k3s install cp diff flock sha256sum sleep sudo systemctl tr; do
   command -v "$command" >/dev/null || fail "dependência ausente: ${command}"
 done
 for source in \
@@ -191,6 +191,18 @@ systemctl daemon-reload
 if ! direct_metrics_output="$("$CONTROLLER_TARGET" metrics 2>&1)"; then
   fail "coleta direta de métricas falhou: ${direct_metrics_output}"
 fi
+exec {metrics_lock_fd}<>/run/lock/servidor-local-secondary-slot.lock
+flock --exclusive "$metrics_lock_fd"
+set +e
+locked_metrics_output="$("$CONTROLLER_TARGET" metrics 2>&1)"
+locked_metrics_status="$?"
+set -e
+flock --unlock "$metrics_lock_fd"
+exec {metrics_lock_fd}>&-
+[[ "$locked_metrics_status" -eq 0 ]] \
+  || fail 'coleta concorrente de métricas tratou lock ocupado como falha'
+[[ "$locked_metrics_output" == 'secondary_slot_metrics=skipped reason=lock-busy' ]] \
+  || fail 'coleta concorrente de métricas não retornou o recibo esperado'
 if ! systemctl start --wait secondary-slot-metrics.service; then
   unit_result="$(systemctl show secondary-slot-metrics.service \
     --property=Result --property=ExecMainCode --property=ExecMainStatus \
@@ -199,6 +211,8 @@ if ! systemctl start --wait secondary-slot-metrics.service; then
 fi
 [[ "$(systemctl show secondary-slot-metrics.service --property=Result --value)" \
     == success ]] || fail 'coleta inicial de métricas falhou'
+systemctl reset-failed secondary-slot-metrics.service \
+  secondary-slot-metrics.timer >/dev/null
 systemctl enable --now secondary-slot-metrics.timer >/dev/null
 systemctl reload prometheus.service
 for _ in {1..30}; do

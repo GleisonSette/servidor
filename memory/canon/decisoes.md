@@ -1209,3 +1209,22 @@ a aplicação idempotente e grava recibo próprio. Se falhar, mantém o ponteiro
 release anterior, preserva o estado parcial para diagnóstico e não chama
 rollback; a ativação de admissões continua sendo a ação separada
 `activate-dispatch-v3-runtime`.
+
+## Resolvida D057 - Coleta de métricas não transforma lock ocupado em falha
+
+Em 2026-09-06, o gate anterior à retomada E5 encontrou somente
+`secondary-slot-metrics.service` em estado `failed`. O journal provou que a
+coleta coincidiu com uma verificação longa e recebeu a contenção transitória do
+lock compartilhado; não houve drift, split-brain nem falha do slot.
+
+O lock continua não bloqueante e estrito para transições, `status` e `verify`.
+Somente a ação read-only `metrics` passa a encerrar com sucesso e preservar a
+última métrica válida quando a trava já estiver ocupada. O recibo explícito
+`secondary_slot_metrics=skipped reason=lock-busy` diferencia o ciclo ignorado
+de uma coleta executada. Qualquer erro de arquivo, ownership, K3s, estado,
+admissão ou observação do runtime continua falhando fechado.
+
+O bootstrap comprova a exceção sob uma trava real, exige o recibo exato,
+executa uma coleta normal e limpa o estado `failed` histórico antes de reativar
+o timer. O offset no segundo 30 permanece como redução de colisões, não como
+garantia de exclusão mútua.

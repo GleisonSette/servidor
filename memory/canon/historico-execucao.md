@@ -2276,3 +2276,18 @@ registro.
 - `bash -n`, a suíte JetStream, os testes de pull e o gate integral
   `blindou_platform_artifacts=passed` concluíram sem Docker, WSL, banco ou
   segredo operacional.
+
+## 2026-09-06 - Contenção benigna do coletor do slot isolada
+
+Resultado: a causa do gate de host foi identificada e a correção D057 foi
+preparada no repositório; o runtime ainda não foi alterado neste registro.
+
+- `secondary-slot-metrics.service` era a única unit falha e seu journal mostrou
+  colisão com uma operação longa que já possuía o lock compartilhado;
+- nenhuma evidência indicou drift, split-brain ou falha do estado do slot;
+- somente a ação `metrics` passa a preservar a última amostra e retornar
+  sucesso com recibo explícito quando encontra a trava ocupada;
+- transições, `status`, `verify` e qualquer erro real continuam falhando
+  fechados;
+- o bootstrap passa a provar contenção sob trava real, executar coleta normal e
+  limpar o estado `failed` histórico antes de habilitar o timer.

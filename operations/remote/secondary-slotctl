@@ -104,6 +104,10 @@ runner = CommandRunner()
 kubernetes = Kubernetes(runner)
 
 
+class SlotLockBusy(ContractError):
+    """Indica contenção transitória do lock global, sem drift de estado."""
+
+
 def fail(message: str) -> None:
     raise ContractError(message)
 
@@ -145,7 +149,7 @@ def exclusive_slot_lock() -> Iterator[None]:
         try:
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
-            raise ContractError("outra operação do slot está em andamento") from error
+            raise SlotLockBusy("outra operação do slot está em andamento") from error
         yield
     finally:
         os.close(descriptor)
@@ -919,6 +923,15 @@ def main() -> int:
         require_root_host_and_runtime()
         with exclusive_slot_lock():
             return execute_locked(action, operation_id)
+    except SlotLockBusy:
+        if action == "metrics":
+            print("secondary_slot_metrics=skipped reason=lock-busy")
+            return 0
+        print(
+            "[secondary-slotctl] ERRO: outra operação do slot está em andamento",
+            file=sys.stderr,
+        )
+        return 1
     except ContractError as error:
         print(f"[secondary-slotctl] ERRO: {error}", file=sys.stderr)
         return 1

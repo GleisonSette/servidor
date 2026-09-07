@@ -292,6 +292,13 @@ if "OnCalendar=*-*-* *:*:30" not in metrics_timer or "AccuracySec=1s" not in met
 if "OnUnitActiveSec" in metrics_timer:
     fail("timer de métricas do slot voltou a colidir com o coletor Blindou")
 for invariant in (
+    "class SlotLockBusy(ContractError)",
+    'if action == "metrics"',
+    'secondary_slot_metrics=skipped reason=lock-busy',
+):
+    if invariant not in controller:
+        fail(f"tratamento de contenção benigna das métricas ausente: {invariant}")
+for invariant in (
     "STATE_KEYS",
     "parse_exact_key_values",
     "active_occupant",
@@ -316,6 +323,9 @@ if "promtool check config" not in bootstrap or "visudo -cf" not in bootstrap:
 for invariant in (
     "METRICS_TARGET='/var/lib/prometheus/node-exporter/secondary-slot.prom'",
     'direct_metrics_output="$("$CONTROLLER_TARGET" metrics 2>&1)"',
+    'locked_metrics_output="$("$CONTROLLER_TARGET" metrics 2>&1)"',
+    "flock --exclusive",
+    "coleta concorrente de métricas tratou lock ocupado como falha",
     "--property=ExecMainStatus",
     "systemctl reset-failed secondary-slot-metrics.service",
     "coleta de métricas não liberou o lock em trinta segundos",

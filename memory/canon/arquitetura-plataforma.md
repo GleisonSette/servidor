@@ -204,6 +204,13 @@ e depois de cada transição, o controlador verifica saúde e fingerprint estáv
 do Blindou, sem invocar seu controlador sob o lock global e sem alterar qualquer
 recurso Blindou.
 
+O coletor periódico tenta o mesmo lock sem espera. Por D057, apenas a ação
+read-only `metrics` preserva a última amostra e retorna um recibo de ciclo
+ignorado quando outra operação já possui a trava. Todas as operações de estado,
+`status` e `verify` continuam recusadas nessa situação; erros reais da coleta
+também continuam deixando a unit em falha. O timer no segundo 30 reduz a
+probabilidade da contenção, mas a correção independe de sincronização temporal.
+
 Cada repositório de aplicação possui `README-SERVIDOR-LOCAL.md` e uma referência
 obrigatória em `AGENTS.md`. O guia define ownership, comandos permitidos,
 proibições, verificação e escalonamento para a plataforma.
