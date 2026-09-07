@@ -585,6 +585,13 @@ próprio continuam gates bloqueantes. Nenhum estado runtime foi alterado.
   réplica atualizada, nenhuma Ready e o erro público de configuração R2; a
   causa da outra prova ainda não é observável pelo controlador e nenhuma
   repetição foi feita.
+- A D069 foi instalada no commit
+  `74eccd02c43b586d17d03e2b74c2ba2ada3c0257`. A leitura retornou `true` para
+  release corrente, arquivo de runtime, modo ativo, backend parcial e ausência
+  dos dois nomes R2; somente `dispatch_v3_state_prepared_match=false`. O
+  provisionamento válido cria `prepared` sem campo `release_id`; a D068 exige
+  um campo que esse contrato não produz. A ativação permanece bloqueada até
+  decisão corretiva explícita.
 
 ## Estado dos repositórios relacionados
 

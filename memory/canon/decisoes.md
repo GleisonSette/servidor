@@ -1513,3 +1513,20 @@ valores de Secret, arquivo de runtime, endpoint, chave, configuração ou estado
 Kubernetes bruto; não escreve, reinicia, aplica migration, altera admissão nem
 substitui o gate D033. A ativação continua bloqueada até o diagnóstico provar
 integralmente a combinação D068 ou até uma decisão corretiva específica.
+
+## Pendente D070 - Vínculo canônico do recibo `prepared` à ativação
+
+A D069 executada em 2026-09-07 comprovou que o único predicado falso da D068 é
+`dispatch_v3_state_prepared_match`. O estado está seguro e `prepared`, mas o
+provisionamento canônico não grava `release_id`: ele registra somente schema,
+encarnação do stream e data. Logo, a D068 atual exige uma igualdade que nenhum
+recibo `prepared` válido pode satisfazer.
+
+Manter a regra bloqueia a ativação indefinidamente. A recomendação é substituir
+somente essa igualdade pela prova inversa do contrato canônico — estado seguro
+`prepared` **sem** `release_id` — e conservar todas as demais provas: release
+corrente root-only, erro literal do slot, D033, modo parcial ativo, backend
+exatamente não Ready, ausência conjunta dos dois campos R2 e verificação normal
+do slot após o rollout. A alternativa de reescrever manualmente o recibo não é
+aceitável porque introduziria uma mutação de estado fora do provisionamento
+fechado. A decisão do usuário é necessária antes de implementar D070.

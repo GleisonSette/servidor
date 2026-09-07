@@ -408,6 +408,15 @@ executada antes de qualquer nova ativação; `false` em qualquer campo preserva 
 estado parcial e exige correção/decisão separada. O diagnóstico não recebe
 valores, não materializa Secret e não oferece interface Kubernetes genérica.
 
+Resultado D069 em 2026-09-07: a leitura instalada confirmou todas as provas
+materiais da D068, exceto a igualdade do `release_id` no recibo `prepared`.
+Essa igualdade é impossível: `provision-dispatch-v3-secrets` cria o recibo com
+estado, encarnação e data, sem `release_id`. Antes de qualquer nova ativação,
+a D070 precisa de decisão explícita para substituir essa exigência por prova do
+formato canônico sem `release_id`, preservando a release corrente root-only, o
+estado `prepared`, o backend parcial, os dois campos R2 ausentes e a verificação
+normal do slot depois do rollout.
+
 Ordem obrigatória da extensão:
 
 1. validar, publicar e instalar o controlador D055 sem alterar o runtime por

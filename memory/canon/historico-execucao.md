@@ -2554,15 +2554,18 @@ exceção antes de reconciliar Secret, reiniciar workload ou escrever recibo.
   falsa. Não houve repetição, relaxamento de D033, alteração de Secret,
   migration, rollback ou nova admissão.
 
-## 2026-09-07 - D069 prepara diagnóstico somente leitura da retomada V3
+## 2026-09-07 - D069 identifica recibo `prepared` sem release
 
-Resultado: o diagnóstico fechado foi preparado no repositório; o host ainda não
-foi alterado por esta entrada.
+Resultado: o diagnóstico fechado foi instalado no commit
+`74eccd02c43b586d17d03e2b74c2ba2ada3c0257` e executado sem escrita no host.
 
 - a interface aceita apenas uma release SHA-40 e verifica root restrito e host;
-- ela emite somente booleanos das provas de release, recibo, runtime, backend
-  e ausência comprovada dos nomes R2, sem imprimir valores ou material bruto;
+- ela retornou `true` para release, runtime, modo ativo, backend parcial e
+  ausência comprovada dos dois nomes R2, sem imprimir valores ou material
+  bruto;
+- somente `dispatch_v3_state_prepared_match` retornou `false`; a inspeção do
+  código provou que o recibo canônico `prepared` não possui `release_id`;
 - sudoers o classifica como leitura e os testes estáticos recusam ausência de
   gate, saída de `core_keys` ou regressão da D068;
-- nenhuma ativação será repetida antes de a leitura instalada apontar o
-  predicado divergente.
+- nenhuma ativação foi repetida. A D070 depende de decisão para substituir a
+  igualdade impossível pelo formato canônico sem `release_id`.
