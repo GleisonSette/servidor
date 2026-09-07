@@ -2375,3 +2375,19 @@ release do host foi alterado por este registro.
 - o diagnóstico fechado da atualização passa a observar, além do backend, os
   três workloads V3 de nomes, containers e seletores fixos, limitando eventos e
   logs sanitizados sem expor uma interface Kubernetes genérica.
+
+## 2026-09-07 - Contrato de assinatura E5 alinhado à candidata
+
+Resultado: a verificação de release passou a usar o principal canônico
+`blindou`, com a mesma chave pública Ed25519 já presente nas candidatas; nenhum
+host, Secret, bundle, workload, migration ou admissão foi alterado por este
+registro.
+
+- o principal anterior `blindou-local` era somente um rótulo divergente no
+  controlador e recusava a candidata corretamente assinada;
+- bootstrap, controlador, allowed signers e teste estático agora exigem apenas
+  `blindou`, sem ampliar a trust root nem aceitar identidade adicional;
+- o transportador da prova GHCR também leva o gerador JKS D060, fechando o
+  conjunto de fontes usado pelo bootstrap temporário da próxima operação;
+- a assinatura existente do bundle sucessor será verificada novamente contra
+  esse contrato antes de qualquer transferência ao servidor.

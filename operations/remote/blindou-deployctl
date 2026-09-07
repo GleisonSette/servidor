@@ -2257,7 +2257,7 @@ cache_release() {
   [[ "$(stat -c '%s' "$manifest")" -le 4096 \
       && "$(stat -c '%s' "$archive")" -le 52428800 ]] \
     || fail 'artefato de release excede o limite'
-  ssh-keygen -Y verify -f "$ALLOWED_SIGNERS" -I blindou-local -n blindou-deploy \
+  ssh-keygen -Y verify -f "$ALLOWED_SIGNERS" -I blindou -n blindou-deploy \
     -s "$signature" <"$manifest" >/dev/null \
     || fail 'assinatura da release não foi aceita'
   schema="$(read_field schema "$manifest")" || fail 'schema ausente'

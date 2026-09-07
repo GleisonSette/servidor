@@ -333,6 +333,11 @@ Antes de aplicá-la, o controlador exige D033/D059, zero de estado/outbox V3,
 backup novo/offsite há no máximo uma hora e admissão ainda inativa. Não há
 rollback, migration nova, alteração de UAZAPI ou ativação nesta etapa.
 
+Correção complementar D060: o controlador aceita exclusivamente o principal
+canônico `blindou` da mesma chave pública já usada para assinar as candidatas.
+O transportador de prova GHCR inclui o gerador JKS, para que o bootstrap remoto
+valide e instale o conjunto completo antes de qualquer operação fechada.
+
 Ordem obrigatória da extensão:
 
 1. validar, publicar e instalar o controlador D055 sem alterar o runtime por

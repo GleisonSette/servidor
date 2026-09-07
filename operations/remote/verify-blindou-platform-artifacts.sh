@@ -1149,10 +1149,22 @@ grep -Fq 'DISPATCH_V3_JETSTREAM_SOURCE' \
 grep -Fq 'DISPATCH_V3_TRUSTSTORE_SOURCE' \
   "${REMOTE_DIR}/bootstrap-blindou-deployctl.sh" \
   && grep -Fq 'blindou-dispatch-v3-truststore.py' "$DEPLOY_BOOTSTRAP_SCRIPT" \
+  && grep -Fq 'blindou-dispatch-v3-truststore.py' "$PULL_PROOF_SCRIPT" \
   && grep -Fq 'DISPATCH_V3_TRUSTSTORE_GENERATOR' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'nats-truststore.jks' "${REMOTE_DIR}/blindou-deployctl" \
   && ! grep -Fq 'openssl pkcs12 -export -nokeys' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'truststore JKS do Dispatch V3 não fecha geração e bootstrap'
+grep -Eq '^blindou[[:space:]]+ssh-ed25519[[:space:]]+[A-Za-z0-9+/=]+([[:space:]].*)?$' \
+  "${REMOTE_DIR}/blindou-release-allowed-signers" \
+  && grep -Fq -- '-I blindou -n blindou-deploy' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq "grep -Eq '^blindou[[:space:]]+ssh-ed25519" "${REMOTE_DIR}/bootstrap-blindou-deployctl.sh" \
+  || fail 'identidade canônica da assinatura Blindou diverge'
+if grep -Fq 'blindou-local' \
+    "${REMOTE_DIR}/blindou-release-allowed-signers" \
+    "${REMOTE_DIR}/blindou-deployctl" \
+    "${REMOTE_DIR}/bootstrap-blindou-deployctl.sh"; then
+  fail 'contrato de assinatura Blindou reteve a identidade local obsoleta'
+fi
 grep -Fq '"sources"' "$DISPATCH_V3_JETSTREAM_PROVISIONER" \
   && grep -Fq '"allow_msg_schedules"' "$DISPATCH_V3_JETSTREAM_PROVISIONER" \
   && grep -Fq '"--verify-only"' "$DISPATCH_V3_JETSTREAM_PROVISIONER" \

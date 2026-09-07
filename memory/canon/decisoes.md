@@ -1336,6 +1336,11 @@ chave homônima do Secret Debezium. Os dois Pods Rust recebem exclusivamente
 `fsGroup: 10001` e `fsGroupChangePolicy: OnRootMismatch`; continuam não
 privilegiados, com filesystem somente leitura e Secrets `0440`.
 
+O principal Ed25519 canônico da release Blindou é `blindou`. A chave pública
+permanece a mesma já usada pelas candidatas assinadas; a correção do rótulo
+anterior `blindou-local` no controlador não amplia a trust root, não troca a
+chave e não aceita assinatura adicional.
+
 As operações `rearm-failed-update-successor` e
 `resume-failed-update-successor` são distintas e limitadas por sudoers. Elas
 exigem cadeia D058/D059, host e atestado D033, candidata e prova GHCR,

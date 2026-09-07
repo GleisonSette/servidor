@@ -100,7 +100,7 @@ if any(doc.get("kind") == "Secret" for doc in documents):
 PY
 visudo -cf "$SUDOERS_SOURCE" >/dev/null
 [[ "$(wc -l <"$SIGNERS_SOURCE")" == '1' ]] || fail 'allowed_signers deve conter uma linha'
-grep -Eq '^blindou-local[[:space:]]+ssh-ed25519[[:space:]]+[A-Za-z0-9+/=]+([[:space:]].*)?$' \
+grep -Eq '^blindou[[:space:]]+ssh-ed25519[[:space:]]+[A-Za-z0-9+/=]+([[:space:]].*)?$' \
   "$SIGNERS_SOURCE" || fail 'allowed_signers inválido'
 openssl x509 -in "$RECIPIENT_SOURCE" -noout -purpose \
   | grep -Fq 'S/MIME encryption : Yes' \
