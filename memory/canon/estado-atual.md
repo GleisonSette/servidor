@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-estado-atual
   source_path: memory/canon/estado-atual.md
   generated_from: auditoria SSH, runtime K3s, Prometheus e repositórios locais
-  updated_at: 2026-09-02
+  updated_at: 2026-09-07
   status: canonical
 
 ## Escopo e data da evidência
@@ -555,6 +555,22 @@ próprio continuam gates bloqueantes. Nenhum estado runtime foi alterado.
 - Não existe nobreak com desligamento controlado.
 - O HDD e a interface de 100 Mb/s servem para validação funcional, não para
   afirmar capacidade de produção ou alta disponibilidade.
+
+## Dispatch V3 preparado e verificado em 2026-09-07
+
+- O controlador de slot instalado no commit de plataforma
+  `e63df6b5bde20ba6efa662b62e2d6756040b3994` distingue corretamente
+  StatefulSets `OnDelete` de `RollingUpdate`, preservando os requisitos de
+  geração observada, réplicas atualizadas e Ready.
+- A verificação autoritativa retornou `secondary_slot_verify=passed`, com
+  ocupante `none`, geração 2 e zero workloads nos dois membros do slot.
+- `blindou-deployctl verify-dispatch-v3` aprovou o Pod Debezium ordinal Ready
+  e a release `5e35ca7bd81a4a03e8c8e2b566b2d26c08c8af2a`. O motor Debezium está
+  em streaming PostgreSQL, conforme diagnóstico sanitizado anterior.
+- O estado continua `dispatch_v3_state=prepared`, com 14 migrations, material
+  de runtime, backup criptografado/offsite, R2 e a prova de pull presentes.
+  Nenhuma admissão nova foi ativada e não houve nova migration, Secret ou
+  rollback nesta confirmação.
 
 ## Estado dos repositórios relacionados
 

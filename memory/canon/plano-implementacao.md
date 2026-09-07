@@ -371,8 +371,9 @@ saúde de StatefulSet `RollingUpdate` e `OnDelete`. Ambos exigem geração
 observada, réplicas atualizadas e Ready; apenas `RollingUpdate` exige
 `currentReplicas`, pois em `OnDelete` ele pode descrever a revisão anterior
 depois da substituição explícita do Pod. A correção preserva todos os gates da
-retomada E5, não cria mutation operacional e será instalada antes de repetir a
-verificação normal que precede a continuidade preparada.
+retomada E5. O controlador foi instalado autenticadamente e a verificação
+normal passou; o Dispatch V3 permanece preparado e inativo, sem nova mutation,
+migration, Secret ou ativação.
 
 Ordem obrigatória da extensão:
 

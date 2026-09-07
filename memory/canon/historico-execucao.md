@@ -2473,3 +2473,19 @@ no controlador, sem executar alteração no host por este registro.
   `RollingUpdate`; estratégia desconhecida falha fechada;
 - a suíte acrescenta casos positivos e negativos para as duas estratégias; a
   instalação autenticada e a repetição do gate normal permanecem pendentes.
+
+## 2026-09-07 - Gate OnDelete do slot instalado e confirmado
+
+Resultado: o controlador D065 foi instalado por bootstrap autenticado e a
+continuidade E5 voltou a satisfazer a verificação normal, sem expandir o escopo
+operacional.
+
+- o bootstrap instalou o commit de plataforma
+  `e63df6b5bde20ba6efa662b62e2d6756040b3994` e preservou seu backup root-only;
+- `secondary_slot_verify=passed` confirmou ocupante `none`, geração 2 e zero
+  workloads de APIWPP e SaferWPP;
+- `verify-dispatch-v3` confirmou o Pod Debezium ordinal Ready e a aderência à
+  release `5e35ca7bd81a4a03e8c8e2b566b2d26c08c8af2a`;
+- o status autoritativo mantém 14 migrations, backup criptografado/offsite,
+  `dispatch_v3_state=prepared` e material de runtime presente. Não houve
+  migration nova, alteração de Secret, rollback ou ativação de admissões.
