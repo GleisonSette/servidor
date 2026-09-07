@@ -302,6 +302,62 @@ require_platform_preconditions() {
     || fail 'bundle root-owned da fundação está ausente'
 }
 
+dispatch_v3_activation_r2_recovery_is_eligible() {
+  local release_id="$1" core_keys
+  [[ -f "$CURRENT_RELEASE" && ! -L "$CURRENT_RELEASE" \
+      && "$(<"$CURRENT_RELEASE")" == "$release_id" ]] || return 1
+  [[ -f "$DISPATCH_V3_STATE" && ! -L "$DISPATCH_V3_STATE" \
+      && "$(stat -c '%U:%G:%a' "$DISPATCH_V3_STATE")" == 'root:root:600' ]] \
+    || return 1
+  grep -Fxq 'state=prepared' "$DISPATCH_V3_STATE" || return 1
+  grep -Fxq "release_id=${release_id}" "$DISPATCH_V3_STATE" || return 1
+  ! grep -Fxq 'DISPATCH_V3_MODE=active' "$RUNTIME_CONFIG_FILE" || return 1
+  core_keys="$(kube -n "$APP_NAMESPACE" get secret blindou-core-secrets \
+    -o go-template='{{range $key, $value := .data}}{{printf "%s\\n" $key}}{{end}}')" \
+    || return 1
+  ! grep -Fxq DISPATCH_V3_R2_ACCOUNT_ID <<<"$core_keys" \
+    && ! grep -Fxq DISPATCH_V3_R2_BUCKET <<<"$core_keys"
+}
+
+require_dispatch_v3_activation_preconditions() {
+  local release_id="$1" receipt='' error_file status=0 attempt
+  require_root_and_host
+  /usr/local/sbin/blindou-hostctl verify >/dev/null \
+    || fail 'contenção temporária do host não passou'
+  error_file="$(mktemp /var/tmp/blindou-dispatch-v3-activation-slot.XXXXXX)"
+  cleanup_paths+=("$error_file")
+  for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    set +e
+    receipt="$(/usr/local/sbin/secondary-slotctl verify 2>"$error_file")"
+    status=$?
+    set -e
+    if (( status == 0 )); then
+      grep -Eq '^secondary_slot_verify=passed occupant=none generation=[1-9][0-9]* apiwpp_workloads=0 saferwpp_workloads=0$' \
+        <<<"$receipt" \
+        || fail 'slot secundário diverge do estado D033: sem ocupante e sem workloads'
+      break
+    fi
+    if (( status == 1 )) \
+        && [[ "$(<"$error_file")" == '[secondary-slotctl] ERRO: outra operação do slot está em andamento' ]]; then
+      [[ "$attempt" != '12' ]] \
+        || fail 'slot secundário permaneceu ocupado por um minuto'
+      sleep 5
+      continue
+    fi
+    if (( status == 1 )) \
+        && [[ "$(<"$error_file")" == '[secondary-slotctl] ERRO: Blindou não está Ready em blindou-production' ]] \
+        && dispatch_v3_activation_r2_recovery_is_eligible "$release_id"; then
+      rm -f -- "$error_file"
+      verify_secondary_slot_resume_preservation
+      break
+    fi
+    cat "$error_file" >&2
+    fail 'slot secundário não passou no gate da ativação Dispatch V3'
+  done
+  [[ -d "$FOUNDATION_DIR" && ! -L "$FOUNDATION_DIR" ]] \
+    || fail 'bundle root-owned da fundação está ausente'
+}
+
 namespace_exists() {
   kube get namespace "$1" >/dev/null 2>&1
 }
@@ -4634,7 +4690,7 @@ activate_dispatch_v3_runtime() {
   [[ "$confirmation" == "$DISPATCH_V3_ACTIVATION_CONFIRMATION" ]] \
     || fail "confirmação exigida: ${DISPATCH_V3_ACTIVATION_CONFIRMATION}"
   [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release Dispatch V3 inválida'
-  require_platform_preconditions
+  require_dispatch_v3_activation_preconditions "$release_id"
   [[ -f "$CURRENT_RELEASE" && "$(<"$CURRENT_RELEASE")" == "$release_id" ]] \
     || fail 'release Dispatch V3 não é a release corrente'
   [[ -f "$DISPATCH_V3_STATE" && ! -L "$DISPATCH_V3_STATE" \

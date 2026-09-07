@@ -2504,3 +2504,17 @@ estado `prepared`; a correção D066 foi preparada no repositório.
 - a D066 inclui conta, bucket e as duas chaves no mesmo contrato verificado e
   faz a ativação reconciliar o material antes do rollout. Nenhuma nova
   credencial, migration, rollback ou admissão foi criada nesta tentativa.
+
+## 2026-09-07 - Retomada D066 delimitada pelo slot preparada
+
+Resultado: a correção D066 encontrou o gate normal legítimo contra o backend
+não Ready; a D067 restringe a continuidade ao defeito comprovado, sem mutação
+no host por este registro.
+
+- o gate normal recusou o backend indisponível antes de reescrever o material;
+- a D033 será usada somente após o erro exato do slot, a release corrente,
+  estado V3 `prepared`, modo inativo e ausência conjunta de conta e bucket R2;
+- a leitura D033 continua exigindo slot vazio, admissão íntegra e sem transição;
+- após reconciliar o material, o próprio fluxo retorna à verificação normal.
+  Nenhuma migration, rollback, provider ou admissão nova foi criada nesta
+  preparação.

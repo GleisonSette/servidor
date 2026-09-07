@@ -1457,3 +1457,18 @@ ativação reconcilia e valida esse material antes de tocar no banco ou aguardar
 workloads. Conta e bucket não são credenciais; as chaves continuam exclusivamente
 nos arquivos root-only e no Secret já delimitado. A ação não pede novo valor,
 não cria nova identidade nem altera migration, UAZAPI, provider ou rollback.
+
+## Resolvida D067 - Recuperação delimitada da ativação R2 preparada
+
+Depois da D066, o backend ainda não Ready impedia a repetição porque o gate
+normal do slot corretamente exige Blindou saudável antes de qualquer operação.
+A D033 já existe para provar a preservação do slot durante a recuperação do
+próprio Blindou, mas não pode tornar-se um bypass geral de ativação.
+
+A ativação só pode usar D033 depois do erro exato de Blindou não Ready e quando
+prova a release corrente, estado root-only `prepared`, admissão inativa e a
+ausência simultânea — não parcial — de `DISPATCH_V3_R2_ACCOUNT_ID` e
+`DISPATCH_V3_R2_BUCKET` no Secret comum. A D033 continua exigindo slot vazio,
+admissão íntegra e sem transição. A reconciliação repõe o material, e o gate
+normal volta a ser exigido no final. Qualquer outra falha, estado `active`,
+drift parcial, release divergente ou slot ocupado falha fechado.

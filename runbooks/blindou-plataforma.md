@@ -545,6 +545,14 @@ mas obrigatórios ao cliente de objetos do backend. A ativação em estado
 rollout; as chaves de acesso continuam vindo exclusivamente dos arquivos
 root-only e não são expostas pelo controlador.
 
+Se uma primeira ativação deixar somente esse par ausente e o backend ficar não
+Ready, a repetição não desliga o gate geral: ela aceita a leitura D033 do slot
+somente depois de provar a mesma release corrente, estado V3 `prepared`, modo
+de admissão inativo e ausência exata dos dois campos R2. A leitura ainda exige
+slot vazio, sem transição e com a admissão íntegra. Depois da reconciliação, a
+verificação normal do slot volta a ser obrigatória; qualquer outro backend não
+Ready, drift parcial ou modo ativo é recusado.
+
 Depois da prova integral da candidata e antes dos gates de release, preparar
 somente as chaves internas e os Secrets técnicos:
 

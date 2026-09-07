@@ -1215,6 +1215,25 @@ for required in \
   grep -Fq -- "$required" "${REMOTE_DIR}/blindou-deployctl" \
     || fail "ativação Dispatch V3 não reconcilia ${required}"
 done
+dispatch_v3_activation_function="$(sed -n '/^activate_dispatch_v3_runtime()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+dispatch_v3_activation_preconditions_function="$(sed -n '/^require_dispatch_v3_activation_preconditions()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+dispatch_v3_activation_recovery_function="$(sed -n '/^dispatch_v3_activation_r2_recovery_is_eligible()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+grep -Fq 'require_dispatch_v3_activation_preconditions "$release_id"' \
+    <<<"$dispatch_v3_activation_function" \
+  && grep -Fq 'Blindou não está Ready em blindou-production' \
+    <<<"$dispatch_v3_activation_preconditions_function" \
+  && grep -Fq 'verify_secondary_slot_resume_preservation' \
+    <<<"$dispatch_v3_activation_preconditions_function" \
+  && ! grep -Fq 'require_platform_preconditions' \
+    <<<"$dispatch_v3_activation_preconditions_function" \
+  && grep -Fq 'state=prepared' <<<"$dispatch_v3_activation_recovery_function" \
+  && grep -Fq 'DISPATCH_V3_MODE=active' <<<"$dispatch_v3_activation_recovery_function" \
+  && grep -Fq 'DISPATCH_V3_R2_ACCOUNT_ID' <<<"$dispatch_v3_activation_recovery_function" \
+  && grep -Fq 'DISPATCH_V3_R2_BUCKET' <<<"$dispatch_v3_activation_recovery_function" \
+  || fail 'exceção D067 da ativação Dispatch V3 não está estritamente delimitada'
 grep -Fq 'DISPATCH_V3_JETSTREAM_SOURCE' \
   "${REMOTE_DIR}/bootstrap-blindou-deployctl.sh" \
   || fail 'bootstrap não instala o provisionador JetStream do Dispatch V3'
