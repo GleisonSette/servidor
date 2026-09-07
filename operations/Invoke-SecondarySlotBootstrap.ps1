@@ -140,9 +140,47 @@ test "$(hostname)" = apiwpp
         -GitCommit $gitCommit
 
     $postInstall = @'
-sudo -n /usr/local/sbin/secondary-slotctl status
-sudo -n /usr/local/sbin/secondary-slotctl verify
-sudo -n /usr/local/sbin/blindou-deployctl status >/dev/null
+set -eu
+run_slot_gate() {
+  slot_action="$1"
+  slot_passed=false
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    set +e
+    slot_output="$(sudo -n /usr/local/sbin/secondary-slotctl "$slot_action" 2>&1)"
+    slot_code="$?"
+    set -e
+    if [ "$slot_code" -eq 0 ]; then
+      printf '%s\n' "$slot_output"
+      slot_passed=true
+      break
+    fi
+    if [ "$slot_code" -ne 1 ] || \
+        [ "$slot_output" != '[secondary-slotctl] ERRO: outra operação do slot está em andamento' ]; then
+      return "$slot_code"
+    fi
+    sleep 5
+  done
+  [ "$slot_passed" = true ]
+}
+blindou_status_passed=false
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  set +e
+  blindou_status_output="$(sudo -n /usr/local/sbin/blindou-deployctl status 2>&1)"
+  blindou_status_code="$?"
+  set -e
+  if [ "$blindou_status_code" -eq 0 ]; then
+    blindou_status_passed=true
+    break
+  fi
+  if [ "$blindou_status_code" -ne 2 ] || \
+      [ "$blindou_status_output" != '[blindou-deployctl] ERRO: outra operação Blindou está em andamento' ]; then
+    exit "$blindou_status_code"
+  fi
+  sleep 5
+done
+[ "$blindou_status_passed" = true ]
+run_slot_gate status
+run_slot_gate verify
 printf 'blindou_deployctl_status=passed\n'
 sudo -n /usr/local/sbin/blindou-hostctl verify
 '@

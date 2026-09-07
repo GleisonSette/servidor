@@ -1232,3 +1232,8 @@ com o controlador ainda instalado. Em falha de qualquer lado da instalação, o
 estado anterior de enablement e atividade do timer é restaurado. O offset no
 segundo 30 permanece como redução de colisões, não como garantia de exclusão
 mútua.
+
+O preflight e a verificação posterior repetem por no máximo um minuto somente
+quando o código e a saída correspondem exatamente aos locks transitórios já
+classificados dos controladores Blindou ou do slot. Qualquer outra falha é
+recusada na primeira tentativa.

@@ -125,7 +125,25 @@ if systemctl is-failed --quiet secondary-slot-metrics.service \
 fi
 /usr/local/sbin/secondary-slotctl verify >/dev/null
 /usr/local/sbin/blindou-hostctl verify >/dev/null
-/usr/local/sbin/blindou-deployctl status >/dev/null
+blindou_status_passed=false
+for _ in {1..12}; do
+  set +e
+  blindou_status_output="$(/usr/local/sbin/blindou-deployctl status 2>&1)"
+  blindou_status_code="$?"
+  set -e
+  if [[ "$blindou_status_code" -eq 0 ]]; then
+    blindou_status_passed=true
+    break
+  fi
+  if [[ "$blindou_status_code" -ne 2 \
+      || "$blindou_status_output" != \
+        '[blindou-deployctl] ERRO: outra operação Blindou está em andamento' ]]; then
+    fail 'Blindou não está íntegro no preflight'
+  fi
+  sleep 5
+done
+[[ "$blindou_status_passed" == true ]] \
+  || fail 'controlador Blindou permaneceu ocupado por um minuto'
 
 work_directory=''
 cleanup() {

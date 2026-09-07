@@ -366,6 +366,9 @@ for invariant in (
     "systemctl stop secondary-slot-metrics.timer",
     "coleta anterior de métricas não liberou o lock em trinta segundos",
     "trap restore_preflight_timer EXIT",
+    "blindou_status_passed=false",
+    "controlador Blindou permaneceu ocupado por um minuto",
+    "outra operação Blindou está em andamento",
     '$rootScript.Replace("`r`n", "`n").Replace("`r", "`n")',
     "C:\\github\\servidor\\.env",
     "verify-secondary-slot-artifacts.py",
@@ -389,11 +392,13 @@ for invariant in (
     "BatchMode=yes",
     "StrictHostKeyChecking=yes",
     '$remotePreflight.Replace("`r`n", "`n").Replace("`r", "`n")',
-    "secondary-slotctl verify",
+    "run_slot_gate verify",
     "blindou-deployctl status",
     "blindou-hostctl verify",
     "Invoke-SecondarySlotSudoBootstrap",
-    "secondary-slotctl status",
+    "run_slot_gate status",
+    "blindou_status_passed=false",
+    "outra operação Blindou está em andamento",
 ):
     if invariant not in orchestrator:
         fail(f"invariante ausente no orquestrador do bootstrap: {invariant}")

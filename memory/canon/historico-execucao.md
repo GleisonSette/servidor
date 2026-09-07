@@ -2298,3 +2298,7 @@ preparada no repositório; o runtime ainda não foi alterado neste registro.
 - a tentativa seguinte foi recusada ainda no preflight do invólucro
   autenticado pelo mesmo lock do controlador antigo; o invólucro passa a
   pausar e restaurar o timer antes de verificar a versão instalada.
+- com o timer do slot isolado, o preflight alcançou o controlador Blindou e
+  encontrou sua própria coleta periódica; o fluxo passa a repetir por até um
+  minuto somente para o código 2 e a mensagem exata desse lock, sem tolerar
+  outro erro.

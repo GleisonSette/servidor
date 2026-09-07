@@ -84,6 +84,10 @@ respectivas janelas, aguardam a coleta corrente e restauram sua atividade em
 falha. Ao concluir, o instalador limpa qualquer estado `failed` histórico da
 unit antes de reativar o timer.
 
+Como o preflight também consulta o controlador Blindou, ele e a verificação
+posterior repetem por no máximo um minuto apenas diante do código e da mensagem
+exatos de lock ocupado. Erro diferente não recebe retry.
+
 ## Ordem APIWPP para SaferWPP
 
 Os comandos do slot e do APIWPP usam o mesmo `operation_id`. O controlador
