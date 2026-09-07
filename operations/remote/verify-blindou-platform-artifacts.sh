@@ -888,6 +888,8 @@ resume_pull_function="$(sed -n '/^verify_ghcr_candidate_pull_for_failed_update_r
   "${REMOTE_DIR}/blindou-deployctl")"
 normal_pull_function="$(sed -n '/^verify_ghcr_candidate_pull()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
+pull_after_preconditions_function="$(sed -n '/^verify_ghcr_candidate_pull_after_preconditions()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
 grep -Fq 'verify-ghcr-candidate-pull-for-failed-update-resume)' \
     "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'require_platform_preconditions' <<<"$normal_pull_function" \
@@ -896,6 +898,8 @@ grep -Fq 'verify-ghcr-candidate-pull-for-failed-update-resume)' \
   && grep -Fq 'verify_secondary_slot_resume_preservation' <<<"$resume_pull_function" \
   && grep -Fq 'bundle root-owned da fundação está ausente' <<<"$resume_pull_function" \
   && ! grep -Fq 'require_platform_preconditions' <<<"$resume_pull_function" \
+  && grep -Fq 'verify_ghcr_pull_credential_material' <<<"$pull_after_preconditions_function" \
+  && ! grep -Fq 'verify_ghcr_pull_credential >/dev/null' <<<"$pull_after_preconditions_function" \
   || fail 'prova GHCR da retomada não isola estritamente o backend falho'
 grep -Fq 'resume-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'FAILED_UPDATE_RESUME_CONFIRMATION' \

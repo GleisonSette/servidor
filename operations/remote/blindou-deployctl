@@ -953,7 +953,7 @@ verify_ghcr_candidate_pull_after_preconditions() {
   local release_id="$1" token receipt latest_tmp
   local -a images=()
   [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
-  verify_ghcr_pull_credential >/dev/null
+  verify_ghcr_pull_credential_material
   mapfile -t images < <(cached_release_ghcr_images "$release_id")
   [[ "${#images[@]}" -eq 4 ]] \
     || fail 'release validada não contém exatamente as quatro imagens privadas'
