@@ -2408,3 +2408,20 @@ admissão foi alterado por este registro.
   não cria material Kubernetes e não abre rota de rollback ou ativação;
 - o envelope resultante continua exigindo exportação, hash/tamanho e recibo
   offsite antes do rearme da sucessora.
+
+## 2026-09-07 - Adoção OnDelete da sucessora E5 preparada
+
+Resultado: a causa da persistência do truststore PKCS#12 foi delimitada no
+controlador; esta entrada registra somente a correção offline, sem alteração
+do host, Secret, migration, admissão ou rollback.
+
+- o StatefulSet Debezium conservava explicitamente a estratégia `OnDelete`,
+  portanto o apply do template JKS não recriava o Pod já existente;
+- a continuação D062 permanece restrita a `failed-update-successor`, ao
+  template da sucessora e ao único ordinal `blindou-debezium-v3-0` anotado com
+  a release intermediária;
+- antes de excluir esse Pod, o controlador exige SHA novo no template,
+  estratégia `OnDelete` e exatamente uma réplica; qualquer divergência falha
+  fechada;
+- não há seletor amplo, exclusão do StatefulSet, PVC, stream, Secret,
+  migration, rollback ou ativação do Dispatch V3.

@@ -4784,11 +4784,41 @@ reconcile_production_capacity_budget() {
     || fail 'orçamento vivo do Blindou divergiu do perfil físico aprovado'
 }
 
+refresh_debezium_successor_on_delete() {
+  local release_id="$1" previous_release="$2" template_release update_strategy replicas pod_release
+  [[ "$release_id" =~ $RELEASE_PATTERN && "$previous_release" =~ $RELEASE_PATTERN \
+      && "$release_id" != "$previous_release" ]] \
+    || fail 'cadeia de release Debezium para atualização OnDelete é inválida'
+  template_release="$(kube -n "$APP_NAMESPACE" get statefulset blindou-debezium-v3 \
+    -o 'jsonpath={.spec.template.metadata.annotations.blindou\.io/release}')"
+  update_strategy="$(kube -n "$APP_NAMESPACE" get statefulset blindou-debezium-v3 \
+    -o 'jsonpath={.spec.updateStrategy.type}')"
+  replicas="$(kube -n "$APP_NAMESPACE" get statefulset blindou-debezium-v3 \
+    -o 'jsonpath={.spec.replicas}')"
+  [[ "$template_release" == "$release_id" && "$update_strategy" == 'OnDelete' \
+      && "$replicas" == '1' ]] \
+    || fail 'StatefulSet Debezium não está na atualização OnDelete esperada'
+  pod_release="$(kube -n "$APP_NAMESPACE" get pod blindou-debezium-v3-0 \
+    -o 'jsonpath={.metadata.annotations.blindou\.io/release}')"
+  [[ "$pod_release" == "$previous_release" ]] \
+    || fail 'Pod Debezium não corresponde à release parcial que pode ser substituída'
+  kube -n "$APP_NAMESPACE" delete pod blindou-debezium-v3-0 --wait=true >/dev/null
+}
+
 apply_cached_release() {
-  local release_id="$1" origin="${2:-operator}" rendered="${RELEASE_CACHE}/${release_id}/rendered"
+  local release_id="$1" origin="${2:-operator}" previous_dispatch_release="${3:-}"
+  local rendered="${RELEASE_CACHE}/${release_id}/rendered"
   [[ "$origin" == 'operator' || "$origin" == 'failed-update' \
       || "$origin" == 'failed-update-successor' ]] \
     || fail 'origem da aplicação da release inválida'
+  if [[ "$origin" == 'failed-update-successor' ]]; then
+    [[ "$previous_dispatch_release" =~ $RELEASE_PATTERN \
+        && "$previous_dispatch_release" != "$release_id" ]] \
+      || fail 'atualização sucessora exige a release parcial Debezium explícita'
+  else
+    [[ -z "$previous_dispatch_release" ]] \
+      || fail 'release parcial Debezium é exclusiva da atualização sucessora'
+  fi
   [[ -d "$rendered" && ! -L "$rendered" ]] || fail 'release não está validada no cache root-owned'
   require_release_gates "$release_id" "$origin"
   kube -n "$APP_NAMESPACE" annotate configmap blindou-runtime-config \
@@ -4815,6 +4845,9 @@ apply_cached_release() {
   verify_data_foundation "$origin" >/dev/null
   if [[ -f "$rendered/71-dispatch-v3-workloads.yaml" ]]; then
     kube apply -f "$rendered/71-dispatch-v3-workloads.yaml" >/dev/null
+    if [[ "$origin" == 'failed-update-successor' ]]; then
+      refresh_debezium_successor_on_delete "$release_id" "$previous_dispatch_release"
+    fi
   fi
   kube apply -f "$rendered/40-workloads.yaml" -l 'blindou.io/tier=app' >/dev/null
   kube apply -f "$rendered/workers" >/dev/null
@@ -5266,7 +5299,7 @@ resume_failed_update_successor() {
   set +e
   (
     set -Eeuo pipefail
-    apply_cached_release "$release_id" failed-update-successor
+    apply_cached_release "$release_id" failed-update-successor "$intermediate_release"
   )
   apply_status=$?
   set -e

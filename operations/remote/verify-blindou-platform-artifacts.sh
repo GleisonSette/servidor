@@ -916,6 +916,8 @@ release_gates_function="$(sed -n '/^require_release_gates()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 cached_release_function="$(sed -n '/^apply_cached_release()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
+refresh_debezium_successor_function="$(sed -n '/^refresh_debezium_successor_on_delete()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
 r2_credential_verification_function="$(sed -n '/^verify_r2_runtime_credential()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 failed_update_backup_function="$(sed -n '/^backup_database_for_failed_update()/,/^}/p' \
@@ -983,8 +985,17 @@ grep -Fq 'rearm-failed-update-successor)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'dispatch_v3_state_is_empty' <<<"$resume_failed_update_successor_function" \
   && grep -Fq 'fresh_offsite_backup_is_confirmed' \
     <<<"$resume_failed_update_successor_function" \
-  && grep -Fq 'apply_cached_release "$release_id" failed-update-successor' \
+  && grep -Fq 'apply_cached_release "$release_id" failed-update-successor "$intermediate_release"' \
     <<<"$resume_failed_update_successor_function" \
+  && grep -Fq 'refresh_debezium_successor_on_delete "$release_id" "$previous_dispatch_release"' \
+    <<<"$cached_release_function" \
+  && grep -Fq "update_strategy" <<<"$refresh_debezium_successor_function" \
+  && grep -Fq "'OnDelete'" <<<"$refresh_debezium_successor_function" \
+  && grep -Fq 'blindou-debezium-v3-0' <<<"$refresh_debezium_successor_function" \
+  && grep -Fq 'delete pod blindou-debezium-v3-0 --wait=true' \
+    <<<"$refresh_debezium_successor_function" \
+  && ! grep -Fq -- '--all' <<<"$refresh_debezium_successor_function" \
+  && ! grep -Fq 'delete statefulset' <<<"$refresh_debezium_successor_function" \
   && ! grep -Fq 'rollback_release' <<<"$resume_failed_update_successor_function" \
   && ! grep -Fq 'activate_dispatch_v3_runtime' <<<"$resume_failed_update_successor_function" \
   && grep -Fq '40-workloads.yaml' <<<"$successor_image_comparison_function" \
@@ -995,7 +1006,7 @@ grep -Fq 'rearm-failed-update-successor)' "${REMOTE_DIR}/blindou-deployctl" \
     "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   && grep -Fq 'resume-failed-update-successor * blindou-failed-update-successor-resume' \
     "${REMOTE_DIR}/blindou-deployctl.sudoers" \
-  || fail 'D084 não preserva cadeia, backups, imagens, inatividade e ausência de rollback'
+  || fail 'D062 não preserva cadeia, atualização OnDelete, backups, imagens, inatividade e ausência de rollback'
 grep -Fq 'rearm-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'FAILED_UPDATE_REARM_CONFIRMATION' <<<"$rearm_failed_update_function" \
   && grep -Fq 'verify_secondary_slot_resume_preservation' <<<"$rearm_failed_update_function" \

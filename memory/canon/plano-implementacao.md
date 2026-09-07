@@ -346,6 +346,13 @@ não altera runtime, admission, migration ou workload. A verificação de baseli
 permite unicamente a ausência temporária do JKS que o próprio rearme criará;
 todos os demais materiais V3 seguem obrigatórios.
 
+Atualização D062 em 2026-09-07: a sucessora D060 aplica o manifesto do
+Debezium, mas sua estratégia `OnDelete` preserva um Pod já existente. A
+retomada fechada passa a substituir somente `blindou-debezium-v3-0` depois de
+provar que o template é da sucessora, que há uma réplica e que o Pod ainda é a
+release intermediária. A operação não altera a estratégia do StatefulSet nem
+autoriza rollback, migration, Secret, admissão ou ativação.
+
 Ordem obrigatória da extensão:
 
 1. validar, publicar e instalar o controlador D055 sem alterar o runtime por

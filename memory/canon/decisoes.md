@@ -1369,3 +1369,20 @@ Até esse backup, a única diferença da verificação estrita é aceitar a aus�
 do `nats-truststore.jks`; todos os demais Secrets, ConfigMap, credenciais NATS
 e controles de runtime permanecem obrigatórios. O JKS é então criado e
 verificado pelo rearme D060 antes de qualquer workload ser reaplicado.
+
+## Resolvida D062 - Adoção explícita do template Debezium OnDelete na sucessora E5
+
+Em 2026-09-07, a retomada da sucessora D060 aplicou o template que troca o
+truststore para JKS, mas o Pod `blindou-debezium-v3-0` conservou a configuração
+PKCS#12 da release intermediária. A causa é a estratégia intencional
+`OnDelete` do StatefulSet: aplicar um template não substitui automaticamente um
+Pod existente.
+
+A decisão mantém `OnDelete`; não troca a estratégia global do StatefulSet. Só
+na continuação fechada `failed-update-successor`, depois de aplicar o manifesto
+`71`, o controlador confere o SHA novo no template, a estratégia `OnDelete`,
+uma única réplica e a anotação da release intermediária no Pod ordinal fixo.
+Somente então exclui esse único Pod, esperando a recriação pelo StatefulSet já
+validado. Não há seletor amplo, exclusão do StatefulSet, PVC, stream, Secret,
+migration, admissão, provider ou rollback. Qualquer divergência recusa antes da
+exclusão e preserva o estado parcial.
