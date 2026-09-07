@@ -3166,9 +3166,12 @@ verify_dispatch_v3_kubernetes_material_before_truststore() {
     [[ -z "$truststore_data" || "$truststore_data" == '<no value>' ]] \
       || fail 'baseline da sucessora exige truststore JKS ainda ausente'
   else
-    [[ -z "$truststore_data" || "$truststore_data" == '<no value>' \
-        || "$truststore_data" =~ ^[A-Za-z0-9+/=]{1,174764}$ ]] \
-      || fail 'truststore JKS existente não possui codificação limitada para rearme'
+    if [[ -n "$truststore_data" && "$truststore_data" != '<no value>' ]]; then
+      [[ "${#truststore_data}" -le 174764 ]] \
+        || fail 'truststore JKS existente excede o limite fechado para rearme'
+      printf '%s' "$truststore_data" | base64 -d >/dev/null \
+        || fail 'truststore JKS existente não possui Base64 válido para rearme'
+    fi
   fi
   [[ "$(kube -n "$APP_NAMESPACE" get configmap blindou-dispatch-v3-runtime \
     -o 'go-template={{len .data}}')" == '3' ]] \

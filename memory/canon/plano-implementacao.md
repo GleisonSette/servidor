@@ -360,6 +360,12 @@ estratégia. O rearme pode renovar somente esse JKS, sob todos os gates já
 exigidos e com V3 inativo; o backup D061 continua a exigir sua ausência antes
 do primeiro rearme. Não há nova migration, rollback, admission ou ativação.
 
+Atualização D064 em 2026-09-07: a validação do JKS preexistente no rearme usa
+tamanho limitado e decodificação Base64, em vez de um quantificador Bash não
+portátil. A chave continua sendo substituída somente pelo gerador validado e
+sob os gates D060/D061; não há acesso genérico a Secret nem alteração da ordem
+operacional.
+
 Ordem obrigatória da extensão:
 
 1. validar, publicar e instalar o controlador D055 sem alterar o runtime por

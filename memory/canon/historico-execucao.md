@@ -2444,3 +2444,17 @@ Secret, migration, admissão, provider ou rollback foi alterado por ela.
   exclusivamente sua condição `Ready`;
 - o diagnóstico fechado inclui logs da última execução, aplicando a mesma
   sanitização de credenciais, URLs e chaves.
+
+## 2026-09-07 - Validação portátil do rearme JKS preparada
+
+Resultado: a primeira tentativa de rearme D063 recusou antes de alterar o
+Secret porque o Bash do host não aceitou o quantificador alto usado para limitar
+Base64. A correção permanece offline neste registro.
+
+- a checagem passa a limitar o tamanho e a decodificar Base64 sem exibir o
+  conteúdo do JKS;
+- somente ausência ou conteúdo decodificável dentro do teto é aceito, e a
+  chave ainda será substituída pelo JKS verificado do gerador;
+- backup D061, cadeia D060, estado V3 inativo/vazio e os demais gates não foram
+  flexibilizados; nenhum Secret, migration, admissão ou rollback foi alterado
+  por esta preparação.

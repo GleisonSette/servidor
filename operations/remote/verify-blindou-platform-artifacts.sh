@@ -987,6 +987,8 @@ grep -Fq 'rearm-failed-update-successor)' "${REMOTE_DIR}/blindou-deployctl" \
     <<<"$rearm_failed_update_successor_function" \
   && grep -Fq 'verify_runtime_material pre-truststore-successor-rearm' \
     <<<"$rearm_failed_update_successor_function" \
+  && grep -Fq 'base64 -d >/dev/null' "${REMOTE_DIR}/blindou-deployctl" \
+  && ! grep -Fq '^[A-Za-z0-9+/=]{1,174764}$' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'generate_dispatch_v3_nats_truststore' \
     <<<"$rearm_failed_update_successor_function" \
   && grep -Fq 'verify_dispatch_v3_kubernetes_material' \

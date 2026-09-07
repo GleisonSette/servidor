@@ -1408,3 +1408,18 @@ Ele confirma a release no template e no Pod ordinal fixo e espera a condição
 fechado inclui a última execução do container, ainda sanitizada. A decisão não
 autoriza migration, ativação, alteração de estratégia, rollback, provider ou
 qualquer objeto além da continuação E5 já delimitada.
+
+## Resolvida D064 - Validação portátil do JKS preexistente no rearme E5
+
+A primeira execução D063 do rearme recusou antes de qualquer escrita porque o
+limite alto da expressão regular Base64 não é portátil para a implementação
+Bash do host. A validação passa a limitar o texto recebido do Secret pelo
+tamanho máximo do JKS e a decodificá-lo sem imprimir conteúdo. Ela aceita
+somente ausência ou Base64 decodificável dentro desse teto, pois o rearme
+imediatamente substitui a chave pelo JKS novamente verificado pelo gerador
+OpenJDK compatível.
+
+Isso não flexibiliza o backup D061, que ainda exige ausência do JKS, nem cria
+leitura, escrita ou seleção genérica de Secret. Todos os gates D060, o estado
+V3 inativo e vazio, a prova GHCR e o backup offsite recente continuam
+obrigatórios antes da substituição exata.
