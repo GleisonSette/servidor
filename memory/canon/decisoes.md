@@ -1466,9 +1466,33 @@ A D033 já existe para provar a preservação do slot durante a recuperação do
 próprio Blindou, mas não pode tornar-se um bypass geral de ativação.
 
 A ativação só pode usar D033 depois do erro exato de Blindou não Ready e quando
-prova a release corrente, estado root-only `prepared`, admissão inativa e a
-ausência simultânea — não parcial — de `DISPATCH_V3_R2_ACCOUNT_ID` e
+prova a release corrente, estado root-only `prepared` e a ausência simultânea
+— não parcial — de `DISPATCH_V3_R2_ACCOUNT_ID` e
 `DISPATCH_V3_R2_BUCKET` no Secret comum. A D033 continua exigindo slot vazio,
-admissão íntegra e sem transição. A reconciliação repõe o material, e o gate
-normal volta a ser exigido no final. Qualquer outra falha, estado `active`,
-drift parcial, release divergente ou slot ocupado falha fechado.
+admissão íntegra e sem transição. A condição sobre o modo de admissão foi
+substituída pela D068, pois a ordem real da ativação já grava o modo antes do
+recibo final. Qualquer outra falha, recibo `active`, drift parcial, release
+divergente ou slot ocupado falha fechado.
+
+## Resolvida D068 - Recuperação do estado parcial ativo sem recibo V3
+
+Em 2026-09-07, a revisão do fluxo de ativação confirmou que ele grava
+`DISPATCH_V3_MODE=active` antes de reconciliar o Secret comum, reiniciar o
+backend e gravar o recibo root-only `state=active`. A premissa de modo inativo
+da D067 não descrevia essa interrupção concreta e, se mantida, impediria a
+única recuperação capaz de restabelecer o backend. O usuário autorizou
+expressamente substituir somente essa premissa.
+
+A D033 pode ser usada exclusivamente após a mensagem literal de Blindou não
+Ready, para a release corrente root-only, com recibo `prepared`, configuração
+root-only contendo o modo `active`, ausência conjunta dos dois campos R2 e
+Deployment `blindou-backend` observado na geração corrente, com uma réplica
+atualizada e nenhuma Ready. Essa combinação prova que a ativação parou entre a
+configuração e o recibo; não autoriza um estado já ativo, uma credencial ou
+Secret parcialmente divergente, backend saudável, release diferente ou outro
+tipo de indisponibilidade.
+
+Depois de reconciliar o material e aguardar o backend, a ativação exige
+novamente `secondary-slotctl verify` normal antes de gravar `state=active`.
+Assim, D033 continua uma leitura limitada de recuperação e não se torna bypass
+de slot, de Secret, de migration, de provider, de rollback ou de admissão.

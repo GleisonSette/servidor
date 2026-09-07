@@ -546,12 +546,16 @@ rollout; as chaves de acesso continuam vindo exclusivamente dos arquivos
 root-only e não são expostas pelo controlador.
 
 Se uma primeira ativação deixar somente esse par ausente e o backend ficar não
-Ready, a repetição não desliga o gate geral: ela aceita a leitura D033 do slot
-somente depois de provar a mesma release corrente, estado V3 `prepared`, modo
-de admissão inativo e ausência exata dos dois campos R2. A leitura ainda exige
-slot vazio, sem transição e com a admissão íntegra. Depois da reconciliação, a
-verificação normal do slot volta a ser obrigatória; qualquer outro backend não
-Ready, drift parcial ou modo ativo é recusado.
+Ready, a repetição não desliga o gate geral. A D068 aceita a leitura D033 do
+slot somente quando o recibo ainda for `prepared`, a release corrente coincidir,
+o arquivo root-only já declarar `DISPATCH_V3_MODE=active`, os dois campos R2
+estiverem simultaneamente ausentes e o Deployment do backend tiver exatamente
+uma réplica atualizada, porém nenhuma Ready. Esse é o único estado parcial
+possível depois de a ativação gravar a configuração e antes do recibo `active`;
+estado `active`, Secret parcial, backend saudável, release divergente ou outro
+erro continuam recusados. A leitura ainda exige slot vazio, sem transição e com
+a admissão íntegra. Depois da reconciliação e do rollout, a verificação normal
+do slot é obrigatória antes de gravar o recibo `active`.
 
 Depois da prova integral da candidata e antes dos gates de release, preparar
 somente as chaves internas e os Secrets técnicos:

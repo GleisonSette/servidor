@@ -2512,9 +2512,26 @@ não Ready; a D067 restringe a continuidade ao defeito comprovado, sem mutação
 no host por este registro.
 
 - o gate normal recusou o backend indisponível antes de reescrever o material;
-- a D033 será usada somente após o erro exato do slot, a release corrente,
-  estado V3 `prepared`, modo inativo e ausência conjunta de conta e bucket R2;
+- a D067 inicialmente registrou modo inativo; a D068 substituiu essa única
+  premissa pelo modo ativo parcial que o fluxo efetivamente grava antes do
+  recibo final, sem mutação no host;
 - a leitura D033 continua exigindo slot vazio, admissão íntegra e sem transição;
 - após reconciliar o material, o próprio fluxo retorna à verificação normal.
   Nenhuma migration, rollback, provider ou admissão nova foi criada nesta
   preparação.
+
+## 2026-09-07 - D068 corrige a premissa do estado parcial da ativação V3
+
+Resultado: a regra D067 foi alinhada ao fluxo implementado e recebeu provas
+adicionais; nenhuma mutação de host, Secret, workload, migration, provider ou
+admissão ocorreu por este registro.
+
+- a inspeção do controlador confirmou que `DISPATCH_V3_MODE=active` é gravado
+  antes do Secret comum ser reconciliado, do rollout final do backend e do
+  recibo `state=active`;
+- a exceção D033 agora aceita somente esse modo parcial ativo, a mesma release
+  root-only em `prepared`, a ausência conjunta de conta e bucket R2 e um
+  backend de uma réplica atualizada, porém ainda sem Ready;
+- o arquivo de runtime e o ponteiro de release também precisam ser root-only;
+- depois do rollout, o controlador repete o gate normal do slot antes de
+  persistir o recibo `active`; qualquer outro estado continua falhando fechado.

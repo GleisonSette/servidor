@@ -573,6 +573,11 @@ próprio continuam gates bloqueantes. Nenhum estado runtime foi alterado.
   R2 de conta ausente, e a D066 está preparada para reconciliar o material
   existente antes da repetição. Nenhuma admissão nova, migration ou rollback
   foi ativado por essa tentativa.
+- A revisão D068 confirmou o estado parcial preciso: o arquivo de runtime já
+  contém `DISPATCH_V3_MODE=active`, mas não existe recibo `state=active`, os
+  dois campos R2 do Secret comum estão ausentes e o backend não está Ready.
+  A retomada permanece limitada a essa combinação, recompõe o Secret e exige o
+  gate normal do slot antes de persistir qualquer ativação.
 
 ## Estado dos repositórios relacionados
 

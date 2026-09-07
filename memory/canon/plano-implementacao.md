@@ -383,11 +383,16 @@ valida o conjunto antes de novo rollout. O estado autoritativo permanece
 `prepared`; nenhuma admissão está ativa até a repetição fechada da ativação.
 
 Atualização D067 em 2026-09-07: como o backend não Ready bloqueia a própria
-repetição D066 no gate normal do slot, a ativação recebe uma exceção D033 de
-uso único e verificável. Ela só é aceita para a mesma release `prepared`, modo
-inativo e ausência simultânea dos dois campos R2; o slot vazio e íntegro segue
-obrigatório e a verificação normal volta ao final. Não há bypass para outro
-erro, Secret parcial, migration, provider, rollback ou ativação já concluída.
+repetição D066 no gate normal do slot, a ativação recebeu uma exceção D033 de
+uso único e verificável. A condição inicial de modo inativo foi corrigida pela
+D068 ainda em 2026-09-07: a ativação já grava `DISPATCH_V3_MODE=active` antes
+do rollout final, mas só registra `state=active` depois dele. A exceção agora
+só aceita essa configuração parcial exata: mesma release, recibo `prepared`,
+arquivo root-only, os dois campos R2 simultaneamente ausentes e backend com uma
+réplica atualizada, porém nenhuma Ready. O slot vazio e íntegro segue
+obrigatório, e a verificação normal retorna antes do recibo final. Não há bypass
+para outro erro, Secret parcial, migration, provider, rollback ou ativação já
+concluída.
 
 Ordem obrigatória da extensão:
 
