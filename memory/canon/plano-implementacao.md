@@ -338,6 +338,12 @@ canônico `blindou` da mesma chave pública já usada para assinar as candidatas
 O transportador de prova GHCR inclui o gerador JKS, para que o bootstrap remoto
 valide e instale o conjunto completo antes de qualquer operação fechada.
 
+Atualização D061 em 2026-09-07: o backup normal recusa corretamente o backend
+parcial e o backup D059 não pode nomear sua própria candidata intermediária.
+Antes do rearme D060, `backup-database-for-failed-update-successor` exige toda
+a cadeia original e produz apenas o novo envelope CMS a ser confirmado offsite;
+não altera runtime, admission, migration ou workload.
+
 Ordem obrigatória da extensão:
 
 1. validar, publicar e instalar o controlador D055 sem alterar o runtime por

@@ -1121,9 +1121,21 @@ grep -Fq 'diagnose-failed-update *' "${REMOTE_DIR}/blindou-deployctl.sudoers" \
     "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   && grep -Fq 'backup-database-for-failed-update * blindou-failed-update-backup' \
     "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  && grep -Fq 'backup-database-for-failed-update-successor * blindou-failed-update-successor-backup' \
+    "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   && grep -Fq 'resume-failed-update * blindou-failed-update-resume' \
     "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   || fail 'sudoers não limita diagnóstico e recuperação de atualização'
+grep -Fq "readonly FAILED_UPDATE_SUCCESSOR_BACKUP_CONFIRMATION='blindou-failed-update-successor-backup'" \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'backup_database_for_failed_update_successor()' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'dispatch_v3_slot_repair_receipt_matches "$intermediate_release"' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'cached_release_images_match "$intermediate_release" "$release_id"' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'backup sucessor recusado: há estado durável V3 ou evento na outbox' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'backup fechado da sucessora D060 está incompleto'
 grep -Fq 'release anterior não permanece como autoridade corrente' \
   "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'recibo do gate não corresponde à release falha' \

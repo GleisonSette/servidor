@@ -1349,3 +1349,19 @@ inativo, backup criptografado novo e recibo offsite correspondente com no máxim
 uma hora. Qualquer falha preserva o estado parcial, não chama rollback e não
 ativa admissões. A mudança permanece apenas no repositório até uma candidata,
 bundle, prova e operação explicitamente autorizados.
+
+## Resolvida D061 - Backup fechado da sucessora D060
+
+O backup normal exige o Blindou íntegro e o backup corretivo D059 exige que a
+release indicada seja distinta da falha original. Nenhum deles pode gerar o
+backup novo que D060 exige quando a candidata intermediária já falhou
+parcialmente e uma sucessora preserva seus digests. A operação limitada
+`backup-database-for-failed-update-successor` resolve somente essa lacuna.
+
+Ela exige a cadeia completa D033/D058/D059/D060: release anterior segura,
+rearme original, recibo da falha parcial, cache e prova GHCR da sucessora,
+igualdade de todos os digests, Dispatch V3 preparado e inativo, zero de estado
+e outbox V3, dados, material R2 e os dois namespaces no gate `passed`. Só então
+gera o mesmo dump lógico cifrado CMS, cujo envelope deve ser copiado, conferir
+por hash e confirmado offsite antes de qualquer rearme da sucessora. Não cria
+Secret, migration, workload, admissão, rollback ou rota de backup genérica.

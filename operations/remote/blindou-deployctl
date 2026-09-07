@@ -109,6 +109,7 @@ readonly DATA_CONFIRMATION='blindou-data-foundation'
 readonly DATA_ROLLBACK_CONFIRMATION='blindou-empty-data-foundation'
 readonly BACKUP_CONFIRMATION='blindou-database-backup'
 readonly FAILED_UPDATE_BACKUP_CONFIRMATION='blindou-failed-update-backup'
+readonly FAILED_UPDATE_SUCCESSOR_BACKUP_CONFIRMATION='blindou-failed-update-successor-backup'
 readonly ROLLBACK_CONFIRMATION='blindou-signed-rollback'
 readonly RUNTIME_SECRETS_CONFIRMATION='blindou-runtime-secrets'
 readonly UI_REVIEW_RUNTIME_CONFIRMATION='blindou-ui-review-runtime'
@@ -2193,6 +2194,74 @@ backup_database_for_failed_update() {
   verify_runtime_material
   verify_data_foundation failed-update >/dev/null
   create_encrypted_database_backup
+}
+
+backup_database_for_failed_update_successor() {
+  local release_id="$1" confirmation="$2" previous_release failed_release intermediate_release
+  local app_gate edge_gate
+  [[ "$confirmation" == "$FAILED_UPDATE_SUCCESSOR_BACKUP_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${FAILED_UPDATE_SUCCESSOR_BACKUP_CONFIRMATION}"
+  [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release sucessora inválida'
+  require_root_and_host
+  /usr/local/sbin/blindou-hostctl verify >/dev/null \
+    || fail 'contenção temporária do host não passou'
+  verify_secondary_slot_resume_preservation
+  [[ -f "$CURRENT_RELEASE" && ! -L "$CURRENT_RELEASE" \
+      && "$(stat -c '%U:%G:%a' "$CURRENT_RELEASE")" == 'root:root:600' ]] \
+    || fail 'release corrente anterior está ausente ou insegura'
+  previous_release="$(<"$CURRENT_RELEASE")"
+  [[ "$previous_release" =~ $RELEASE_PATTERN && "$previous_release" != "$release_id" ]] \
+    || fail 'release anterior não pode coincidir com a sucessora'
+  [[ -f "$FAILED_UPDATE_REARM_RECEIPT" && ! -L "$FAILED_UPDATE_REARM_RECEIPT" \
+      && "$(stat -c '%U:%G:%a' "$FAILED_UPDATE_REARM_RECEIPT")" == 'root:root:600' \
+      && "$(read_field state "$FAILED_UPDATE_REARM_RECEIPT")" == 'armed' ]] \
+    || fail 'recibo do rearme original está ausente ou inseguro'
+  intermediate_release="$(read_field release_id "$FAILED_UPDATE_REARM_RECEIPT")" \
+    || fail 'recibo do rearme original não possui release intermediária única'
+  failed_release="$(read_field failed_release "$FAILED_UPDATE_REARM_RECEIPT")" \
+    || fail 'recibo do rearme original não possui release falha única'
+  [[ "$intermediate_release" =~ $RELEASE_PATTERN \
+      && "$failed_release" =~ $RELEASE_PATTERN \
+      && "$intermediate_release" != "$release_id" \
+      && "$failed_release" != "$release_id" \
+      && "$(read_field previous_release "$FAILED_UPDATE_REARM_RECEIPT")" == "$previous_release" ]] \
+    || fail 'cadeia original não permite backup da sucessora corretiva'
+  [[ -f "$FAILED_UPDATE_RESUME_RECEIPT" && ! -L "$FAILED_UPDATE_RESUME_RECEIPT" \
+      && "$(stat -c '%U:%G:%a' "$FAILED_UPDATE_RESUME_RECEIPT")" == 'root:root:600' \
+      && "$(read_field status "$FAILED_UPDATE_RESUME_RECEIPT")" == 'failed' \
+      && "$(read_field release_id "$FAILED_UPDATE_RESUME_RECEIPT")" == "$intermediate_release" \
+      && "$(read_field previous_release "$FAILED_UPDATE_RESUME_RECEIPT")" == "$previous_release" ]] \
+    || fail 'recibo da falha parcial não corresponde à cadeia sucessora'
+  dispatch_v3_slot_repair_receipt_matches "$intermediate_release" \
+    "$failed_release" "$previous_release" \
+    || fail 'recibo D059 não corresponde ao backup da sucessora'
+  [[ -d "${RELEASE_CACHE}/${release_id}/rendered" \
+      && -f "${RELEASE_CACHE}/${release_id}/rendered/71-dispatch-v3-workloads.yaml" \
+      && ! -L "${RELEASE_CACHE}/${release_id}/rendered" ]] \
+    || fail 'release sucessora não está no cache Dispatch V3 root-owned'
+  ghcr_pull_latest_proof_is_secure \
+    || fail 'ponteiro do recibo GHCR sucessor está ausente ou inseguro'
+  [[ "$(<"$GHCR_PULL_PROOF_LATEST")" == "$release_id" ]] \
+    || fail 'prova GHCR não corresponde à release sucessora'
+  cached_release_images_match "$intermediate_release" "$release_id" \
+    || fail 'release sucessora altera algum digest da cadeia parcial'
+  [[ -f "$DISPATCH_V3_STATE" && ! -L "$DISPATCH_V3_STATE" \
+      && "$(stat -c '%U:%G:%a' "$DISPATCH_V3_STATE")" == 'root:root:600' \
+      && "$(read_field state "$DISPATCH_V3_STATE")" == 'prepared' ]] \
+    || fail 'backup sucessor exige Dispatch V3 preparado e ainda inativo'
+  ! grep -Fxq 'DISPATCH_V3_MODE=active' "$RUNTIME_CONFIG_FILE" \
+    || fail 'backup sucessor recusado com admissão Dispatch V3 ativa'
+  dispatch_v3_state_is_empty \
+    || fail 'backup sucessor recusado: há estado durável V3 ou evento na outbox'
+  verify_data_foundation failed-update >/dev/null
+  verify_runtime_material
+  verify_r2_runtime_credential failed-update >/dev/null
+  app_gate="$(namespace_label "$APP_NAMESPACE" 'platform\.servidor\.local/deployment-gate')"
+  edge_gate="$(namespace_label "$EDGE_NAMESPACE" 'platform\.servidor\.local/deployment-gate')"
+  [[ "${app_gate}:${edge_gate}" == 'passed:passed' ]] \
+    || fail 'backup sucessor exige os dois namespaces no gate passed da release anterior'
+  create_encrypted_database_backup
+  pass "backup lógico cifrado criado para a sucessora corretiva ${release_id}"
 }
 
 export_latest_backup() {
@@ -5575,6 +5644,11 @@ case "${1:-}" in
       || fail 'uso: blindou-deployctl backup-database-for-failed-update RELEASE_ID CONFIRMAÇÃO'
     backup_database_for_failed_update "$2" "$3"
     ;;
+  backup-database-for-failed-update-successor)
+    [[ $# -eq 3 ]] \
+      || fail 'uso: blindou-deployctl backup-database-for-failed-update-successor RELEASE_ID CONFIRMAÇÃO'
+    backup_database_for_failed_update_successor "$2" "$3"
+    ;;
   verify-backup)
     [[ $# -eq 1 ]] || fail 'uso: blindou-deployctl verify-backup'
     verify_latest_backup
@@ -5674,6 +5748,6 @@ case "${1:-}" in
     metrics
     ;;
   *)
-    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-r2-runtime-credential|verify-pagarme-credential|verify-pagarme-plans|verify-marketplaces-runtime|verify-dispatch-v3|diagnose-failed-update RELEASE_ID|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|provision-r2-runtime-credential CONFIRMAÇÃO|provision-dispatch-v3-secrets CONFIRMAÇÃO|repair-dispatch-v3-nats-credentials CONFIRMAÇÃO|repair-dispatch-v3-logical-slot RELEASE_ID CONFIRMAÇÃO|provision-pagarme-credential CONFIRMAÇÃO|rotate-pagarme-webhook-secret CONFIRMAÇÃO|provision-pagarme-plans CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|backup-database-for-failed-update RELEASE_ID CONFIRMAÇÃO|export-latest-backup|provision-runtime-secrets CONFIRMAÇÃO|provision-ui-review-runtime CONFIRMAÇÃO|activate-pagarme-runtime RELEASE_ID CONFIRMAÇÃO|activate-marketplaces-runtime RELEASE_ID CONFIRMAÇÃO|activate-dispatch-v3-runtime RELEASE_ID CONFIRMAÇÃO|confirm-alert-delivery CONFIRMAÇÃO|confirm-offsite-backup BACKUP_ID SHA256 CONFIRMAÇÃO|activate-release-gates RELEASE_ID CONFIRMAÇÃO|validate-release RELEASE_ID|apply RELEASE_ID|recover-failed-update RELEASE_FALHA RELEASE_ANTERIOR CONFIRMAÇÃO|rearm-failed-update RELEASE_ID CONFIRMAÇÃO|resume-failed-update RELEASE_ID CONFIRMAÇÃO|rearm-failed-update-successor RELEASE_ID CONFIRMAÇÃO|resume-failed-update-successor RELEASE_ID CONFIRMAÇÃO|bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO|bootstrap-additional-superadmin RELEASE_ID IDENTIDADE CONFIRMAÇÃO|reset-additional-superadmin-password RELEASE_ID IDENTIDADE CONFIRMAÇÃO|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
+    fail 'uso: blindou-deployctl {status|verify-foundation|verify-edge-connector|verify-cloudflare-saas-token|provision-cloudflare-saas-token CONFIRMAÇÃO|rollback-cloudflare-saas-token CONFIRMAÇÃO|verify-ghcr-pull-credential|verify-r2-runtime-credential|verify-pagarme-credential|verify-pagarme-plans|verify-marketplaces-runtime|verify-dispatch-v3|diagnose-failed-update RELEASE_ID|verify-ghcr-candidate-pull RELEASE_ID|provision-ghcr-pull-credential CONFIRMAÇÃO|provision-r2-runtime-credential CONFIRMAÇÃO|provision-dispatch-v3-secrets CONFIRMAÇÃO|repair-dispatch-v3-nats-credentials CONFIRMAÇÃO|repair-dispatch-v3-logical-slot RELEASE_ID CONFIRMAÇÃO|provision-pagarme-credential CONFIRMAÇÃO|rotate-pagarme-webhook-secret CONFIRMAÇÃO|provision-pagarme-plans CONFIRMAÇÃO|rollback-ghcr-pull-credential CONFIRMAÇÃO|apply-foundation CONFIRMAÇÃO|provision-edge-connector CONFIRMAÇÃO|rollback-edge-connector CONFIRMAÇÃO|rollback-foundation CONFIRMAÇÃO|provision-data CONFIRMAÇÃO|verify-data|rollback-data CONFIRMAÇÃO|backup-database CONFIRMAÇÃO|backup-database-for-failed-update RELEASE_ID CONFIRMAÇÃO|backup-database-for-failed-update-successor RELEASE_ID CONFIRMAÇÃO|export-latest-backup|provision-runtime-secrets CONFIRMAÇÃO|provision-ui-review-runtime CONFIRMAÇÃO|activate-pagarme-runtime RELEASE_ID CONFIRMAÇÃO|activate-marketplaces-runtime RELEASE_ID CONFIRMAÇÃO|activate-dispatch-v3-runtime RELEASE_ID CONFIRMAÇÃO|confirm-alert-delivery CONFIRMAÇÃO|confirm-offsite-backup BACKUP_ID SHA256 CONFIRMAÇÃO|activate-release-gates RELEASE_ID CONFIRMAÇÃO|validate-release RELEASE_ID|apply RELEASE_ID|recover-failed-update RELEASE_FALHA RELEASE_ANTERIOR CONFIRMAÇÃO|rearm-failed-update RELEASE_ID CONFIRMAÇÃO|resume-failed-update RELEASE_ID CONFIRMAÇÃO|rearm-failed-update-successor RELEASE_ID CONFIRMAÇÃO|resume-failed-update-successor RELEASE_ID CONFIRMAÇÃO|bootstrap-superadmin RELEASE_ID CONFIRMAÇÃO|bootstrap-additional-superadmin RELEASE_ID IDENTIDADE CONFIRMAÇÃO|reset-additional-superadmin-password RELEASE_ID IDENTIDADE CONFIRMAÇÃO|rollback RELEASE_ID CONFIRMAÇÃO|metrics}'
     ;;
 esac

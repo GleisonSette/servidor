@@ -2391,3 +2391,18 @@ registro.
   conjunto de fontes usado pelo bootstrap temporário da próxima operação;
 - a assinatura existente do bundle sucessor será verificada novamente contra
   esse contrato antes de qualquer transferência ao servidor.
+
+## 2026-09-07 - Backup fechado da sucessora E5 preparado
+
+Resultado: a lacuna entre a falha parcial e o backup novo exigido pela D060 foi
+fechada no controlador; nenhum host, backup, Secret, workload, migration ou
+admissão foi alterado por este registro.
+
+- o backup normal recusou corretamente o backend parcial e o backup D059
+  recusou corretamente uma release igual à atualização já falha;
+- D061 acrescenta somente um backup CMS cifrado, restrito à cadeia D033, D058,
+  D059 e D060, ao cache/prova GHCR e ao estado V3 vazio e inativo;
+- sudoers requer confirmação literal própria; a operação não aplica release,
+  não cria material Kubernetes e não abre rota de rollback ou ativação;
+- o envelope resultante continua exigindo exportação, hash/tamanho e recibo
+  offsite antes do rearme da sucessora.
