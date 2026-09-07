@@ -435,12 +435,19 @@ def workload_is_healthy(item: dict[str, Any]) -> bool:
         )
     if kind == "StatefulSet":
         desired = _integer(spec.get("replicas", 1))
-        return (
+        updated_and_ready = (
             observed >= generation
             and _integer(status_value.get("updatedReplicas")) == desired
-            and _integer(status_value.get("currentReplicas")) == desired
             and _integer(status_value.get("readyReplicas")) == desired
         )
+        if not updated_and_ready:
+            return False
+        update_strategy = spec.get("updateStrategy", {}).get("type", "RollingUpdate")
+        if update_strategy == "OnDelete":
+            return True
+        if update_strategy == "RollingUpdate":
+            return _integer(status_value.get("currentReplicas")) == desired
+        return False
     if kind in {"ReplicaSet", "ReplicationController"}:
         desired = _integer(spec.get("replicas", 1))
         return (

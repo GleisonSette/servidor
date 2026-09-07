@@ -366,6 +366,14 @@ portátil. A chave continua sendo substituída somente pelo gerador validado e
 sob os gates D060/D061; não há acesso genérico a Secret nem alteração da ordem
 operacional.
 
+Atualização D065 em 2026-09-07: o gate normal do slot passa a distinguir a
+saúde de StatefulSet `RollingUpdate` e `OnDelete`. Ambos exigem geração
+observada, réplicas atualizadas e Ready; apenas `RollingUpdate` exige
+`currentReplicas`, pois em `OnDelete` ele pode descrever a revisão anterior
+depois da substituição explícita do Pod. A correção preserva todos os gates da
+retomada E5, não cria mutation operacional e será instalada antes de repetir a
+verificação normal que precede a continuidade preparada.
+
 Ordem obrigatória da extensão:
 
 1. validar, publicar e instalar o controlador D055 sem alterar o runtime por

@@ -27,6 +27,7 @@ from secondary_slot import (  # noqa: E402
     state_from_unambiguous_runtime,
     textfile_directory_metadata_is_safe,
     workload_is_active,
+    workload_is_healthy,
 )
 
 
@@ -155,6 +156,48 @@ class WorkloadClassificationTests(unittest.TestCase):
             "status": {"observedGeneration": 2, "readyReplicas": 0},
         }
         self.assertFalse(active_workloads_are_healthy([deployment]))
+
+    def test_on_delete_statefulset_accepts_updated_ready_pod(self) -> None:
+        stateful_set = {
+            "kind": "StatefulSet",
+            "metadata": {"generation": 2},
+            "spec": {"replicas": 1, "updateStrategy": {"type": "OnDelete"}},
+            "status": {
+                "observedGeneration": 2,
+                "updatedReplicas": 1,
+                "currentReplicas": 0,
+                "readyReplicas": 1,
+            },
+        }
+        self.assertTrue(workload_is_healthy(stateful_set))
+
+    def test_on_delete_statefulset_requires_updated_ready_pod(self) -> None:
+        stateful_set = {
+            "kind": "StatefulSet",
+            "metadata": {"generation": 2},
+            "spec": {"replicas": 1, "updateStrategy": {"type": "OnDelete"}},
+            "status": {
+                "observedGeneration": 2,
+                "updatedReplicas": 0,
+                "currentReplicas": 1,
+                "readyReplicas": 1,
+            },
+        }
+        self.assertFalse(workload_is_healthy(stateful_set))
+
+    def test_rolling_update_statefulset_requires_current_replica(self) -> None:
+        stateful_set = {
+            "kind": "StatefulSet",
+            "metadata": {"generation": 2},
+            "spec": {"replicas": 1, "updateStrategy": {"type": "RollingUpdate"}},
+            "status": {
+                "observedGeneration": 2,
+                "updatedReplicas": 1,
+                "currentReplicas": 0,
+                "readyReplicas": 1,
+            },
+        }
+        self.assertFalse(workload_is_healthy(stateful_set))
 
     def test_job_does_not_replace_continuous_runtime(self) -> None:
         job = {"kind": "Job", "spec": {}, "status": {"active": 1}}

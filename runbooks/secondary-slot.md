@@ -29,6 +29,13 @@ SaferWPP também exige ao menos um workload de longa duração Ready em cada
 namespace obrigatório. O PostgreSQL exclusivo, seus backups e exporter
 pertencem à fundação persistente do SaferWPP e não entram nessa contagem.
 
+Para StatefulSets ativos, o verificador exige que o controlador tenha observado
+a geração, que todas as réplicas desejadas sejam atualizadas e estejam Ready.
+Em `RollingUpdate`, exige também `currentReplicas` completo. Em `OnDelete`,
+esse último campo representa a revisão anterior até a substituição explícita do
+Pod e não é usado como sinal de indisponibilidade; a geração observada, as
+réplicas atualizadas e `Ready` continuam obrigatórios.
+
 ## Instalação autenticada
 
 Uma janela separada e explicitamente autorizada deve executar, no computador

@@ -2458,3 +2458,18 @@ Base64. A correção permanece offline neste registro.
 - backup D061, cadeia D060, estado V3 inativo/vazio e os demais gates não foram
   flexibilizados; nenhum Secret, migration, admissão ou rollback foi alterado
   por esta preparação.
+
+## 2026-09-07 - Gate OnDelete do slot corrigido offline
+
+Resultado: a causa do último bloqueio de prontidão foi delimitada e corrigida
+no controlador, sem executar alteração no host por este registro.
+
+- o diagnóstico sanitizado confirmou o Debezium V3 atualizado e Ready, com o
+  motor em streaming PostgreSQL;
+- a regra genérica do slot exigia `currentReplicas` para todo StatefulSet e
+  confundia a revisão anterior legítima de `OnDelete` com indisponibilidade;
+- o controlador agora exige geração observada, réplicas atualizadas e Ready em
+  ambas as estratégias, e mantém `currentReplicas` exclusivamente para
+  `RollingUpdate`; estratégia desconhecida falha fechada;
+- a suíte acrescenta casos positivos e negativos para as duas estratégias; a
+  instalação autenticada e a repetição do gate normal permanecem pendentes.

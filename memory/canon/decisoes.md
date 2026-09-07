@@ -1423,3 +1423,22 @@ Isso não flexibiliza o backup D061, que ainda exige ausência do JKS, nem cria
 leitura, escrita ou seleção genérica de Secret. Todos os gates D060, o estado
 V3 inativo e vazio, a prova GHCR e o backup offsite recente continuam
 obrigatórios antes da substituição exata.
+
+## Resolvida D065 - Saúde do slot compatível com StatefulSet OnDelete
+
+Em 2026-09-07, o Pod Debezium da sucessora E5 ficou atualizado e Ready depois
+da substituição explícita prevista pela D062, mas a verificação normal do slot
+o classificou incorretamente como indisponível. A regra genérica exigia
+`currentReplicas` para qualquer StatefulSet, embora esse contador pertença à
+revisão corrente e possa permanecer na revisão anterior em `OnDelete`.
+
+O controlador passa a exigir em todos os StatefulSets ativos a geração
+observada e todas as réplicas desejadas atualizadas e Ready. Para
+`RollingUpdate`, mantém adicionalmente `currentReplicas` igual ao desejado. Em
+`OnDelete`, aceita somente a primeira combinação, pois a atualização do Pod é
+explícita e já é provada pelo template/pod da D063. Estratégia ausente segue o
+default Kubernetes `RollingUpdate`; estratégia desconhecida falha fechada.
+
+Esta correção não altera objetos Blindou, admissão, migrations, Secrets,
+provider, rollback ou ativação do Dispatch V3. Ela apenas torna o gate do slot
+compatível com a semântica do StatefulSet que a D062 preserva.
