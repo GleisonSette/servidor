@@ -1365,3 +1365,7 @@ e outbox V3, dados, material R2 e os dois namespaces no gate `passed`. Só entã
 gera o mesmo dump lógico cifrado CMS, cujo envelope deve ser copiado, conferir
 por hash e confirmado offsite antes de qualquer rearme da sucessora. Não cria
 Secret, migration, workload, admissão, rollback ou rota de backup genérica.
+Até esse backup, a única diferença da verificação estrita é aceitar a ausência
+do `nats-truststore.jks`; todos os demais Secrets, ConfigMap, credenciais NATS
+e controles de runtime permanecem obrigatórios. O JKS é então criado e
+verificado pelo rearme D060 antes de qualquer workload ser reaplicado.

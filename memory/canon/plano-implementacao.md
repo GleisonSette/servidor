@@ -342,7 +342,9 @@ Atualização D061 em 2026-09-07: o backup normal recusa corretamente o backend
 parcial e o backup D059 não pode nomear sua própria candidata intermediária.
 Antes do rearme D060, `backup-database-for-failed-update-successor` exige toda
 a cadeia original e produz apenas o novo envelope CMS a ser confirmado offsite;
-não altera runtime, admission, migration ou workload.
+não altera runtime, admission, migration ou workload. A verificação de baseline
+permite unicamente a ausência temporária do JKS que o próprio rearme criará;
+todos os demais materiais V3 seguem obrigatórios.
 
 Ordem obrigatória da extensão:
 

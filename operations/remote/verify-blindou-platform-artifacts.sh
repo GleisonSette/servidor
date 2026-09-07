@@ -1129,6 +1129,10 @@ grep -Fq 'diagnose-failed-update *' "${REMOTE_DIR}/blindou-deployctl.sudoers" \
 grep -Fq "readonly FAILED_UPDATE_SUCCESSOR_BACKUP_CONFIRMATION='blindou-failed-update-successor-backup'" \
     "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'backup_database_for_failed_update_successor()' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'verify_dispatch_v3_kubernetes_material_before_truststore()' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'verify_runtime_material pre-truststore-successor' \
+    "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'dispatch_v3_slot_repair_receipt_matches "$intermediate_release"' \
     "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'cached_release_images_match "$intermediate_release" "$release_id"' \
@@ -1136,6 +1140,10 @@ grep -Fq "readonly FAILED_UPDATE_SUCCESSOR_BACKUP_CONFIRMATION='blindou-failed-u
   && grep -Fq 'backup sucessor recusado: há estado durável V3 ou evento na outbox' \
     "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'backup fechado da sucessora D060 está incompleto'
+if grep -Fq 'verify_runtime_material failed-update-successor-backup' \
+    "${REMOTE_DIR}/blindou-deployctl"; then
+  fail 'modo interno do truststore da sucessora reteve escopo de backup'
+fi
 grep -Fq 'release anterior não permanece como autoridade corrente' \
   "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'recibo do gate não corresponde à release falha' \

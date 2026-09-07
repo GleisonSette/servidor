@@ -2402,6 +2402,8 @@ admissão foi alterado por este registro.
   recusou corretamente uma release igual à atualização já falha;
 - D061 acrescenta somente um backup CMS cifrado, restrito à cadeia D033, D058,
   D059 e D060, ao cache/prova GHCR e ao estado V3 vazio e inativo;
+- o baseline mantém todos os materiais e credenciais NATS obrigatórios e só
+  aceita a ausência do JKS que o rearme D060 ainda precisa gerar;
 - sudoers requer confirmação literal própria; a operação não aplica release,
   não cria material Kubernetes e não abre rota de rollback ou ativação;
 - o envelope resultante continua exigindo exportação, hash/tamanho e recibo

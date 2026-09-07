@@ -2254,7 +2254,8 @@ backup_database_for_failed_update_successor() {
   dispatch_v3_state_is_empty \
     || fail 'backup sucessor recusado: há estado durável V3 ou evento na outbox'
   verify_data_foundation failed-update >/dev/null
-  verify_runtime_material
+  verify_runtime_material pre-truststore-successor
+  verify_dispatch_v3_nats_credentials
   verify_r2_runtime_credential failed-update >/dev/null
   app_gate="$(namespace_label "$APP_NAMESPACE" 'platform\.servidor\.local/deployment-gate')"
   edge_gate="$(namespace_label "$EDGE_NAMESPACE" 'platform\.servidor\.local/deployment-gate')"
@@ -3137,6 +3138,34 @@ verify_dispatch_v3_kubernetes_material() {
     || fail 'ConfigMap Dispatch V3 diverge do contrato fechado'
 }
 
+verify_dispatch_v3_kubernetes_material_before_truststore() {
+  local truststore_data
+  secret_has_keys "$APP_NAMESPACE" blindou-nats-auth backend-password \
+    debezium-v3-password sender-v3-password authority-v3-password api-v3-password
+  secret_has_keys "$APP_NAMESPACE" blindou-dispatch-sender-v3-nats password ca.crt
+  secret_has_keys "$APP_NAMESPACE" blindou-dispatch-sender-v3-mtls ca.crt tls.crt tls.key
+  secret_has_keys "$APP_NAMESPACE" blindou-dispatch-sender-v3-r2 \
+    r2-account-id r2-bucket r2-access-key-id secret-access-key
+  secret_has_keys "$APP_NAMESPACE" blindou-dispatch-sender-v3 redis-url
+  secret_has_keys "$APP_NAMESPACE" blindou-dispatch-authority-v3 redis-url token-key-id
+  secret_has_keys "$APP_NAMESPACE" blindou-dispatch-authority-v3-database url
+  secret_has_keys "$APP_NAMESPACE" blindou-dispatch-authority-v3-provider token-encryption-key
+  secret_has_keys "$APP_NAMESPACE" blindou-dispatch-authority-v3-mtls ca.crt tls.crt tls.key
+  secret_has_keys "$APP_NAMESPACE" blindou-dispatch-authority-v3-nats password ca.crt
+  secret_has_keys "$APP_NAMESPACE" blindou-debezium-v3 \
+    source-host source-port source-database source-user source-password \
+    offset-jdbc-url offset-user offset-password nats-url nats-user nats-password \
+    database-root.crt database-client.crt database-client.key
+  truststore_data="$(kube -n "$APP_NAMESPACE" get secret blindou-debezium-v3 \
+    -o 'go-template={{index .data "nats-truststore.jks"}}')" \
+    || fail 'Secret Debezium V3 obrigatório ausente'
+  [[ -z "$truststore_data" || "$truststore_data" == '<no value>' ]] \
+    || fail 'baseline da sucessora exige truststore JKS ainda ausente'
+  [[ "$(kube -n "$APP_NAMESPACE" get configmap blindou-dispatch-v3-runtime \
+    -o 'go-template={{len .data}}')" == '3' ]] \
+    || fail 'ConfigMap Dispatch V3 diverge do contrato fechado'
+}
+
 verify_dispatch_v3_nats_credentials() {
   local file key secret output
   while IFS='|' read -r file secret key; do
@@ -3330,6 +3359,10 @@ create_runtime_kubernetes_material() {
 }
 
 verify_runtime_material() {
+  local dispatch_v3_material_mode="${1:-strict}"
+  [[ "$dispatch_v3_material_mode" == 'strict' \
+      || "$dispatch_v3_material_mode" == 'pre-truststore-successor' ]] \
+    || fail 'modo de verificação do material Dispatch V3 inválido'
   runtime_secret_file_is_secure "$RUNTIME_CONFIG_FILE" || fail 'configuração root-only ausente'
   grep -Fxq 'AUTH_REQUIRE_2FA=false' "$RUNTIME_CONFIG_FILE" \
     || fail 'AUTH_REQUIRE_2FA deve permanecer false nesta release'
@@ -3426,7 +3459,11 @@ verify_runtime_material() {
     ML_SESSION_ENCRYPTION_KEY ML_SESSION_ENCRYPTION_PEPPER
   secret_has_keys "$APP_NAMESPACE" blindou-migration-secrets MIGRATION_DATABASE_URL
   if dispatch_v3_file_is_secure "$DISPATCH_V3_PROVIDER_ENDPOINT_FILE"; then
-    verify_dispatch_v3_kubernetes_material
+    if [[ "$dispatch_v3_material_mode" == 'strict' ]]; then
+      verify_dispatch_v3_kubernetes_material
+    else
+      verify_dispatch_v3_kubernetes_material_before_truststore
+    fi
   else
     secret_has_keys "$APP_NAMESPACE" blindou-nats-auth backend-password
   fi
@@ -5136,7 +5173,8 @@ rearm_failed_update_successor() {
   dispatch_v3_state_is_empty \
     || fail 'sucessora recusada: há estado durável V3 ou evento na outbox'
   verify_data_foundation failed-update >/dev/null
-  verify_runtime_material
+  verify_runtime_material pre-truststore-successor
+  verify_dispatch_v3_nats_credentials
   verify_r2_runtime_credential failed-update >/dev/null
   fresh_offsite_backup_is_confirmed \
     || fail 'sucessora exige backup novo e cópia offsite confirmada há no máximo uma hora'
