@@ -2342,3 +2342,6 @@ executada por este registro.
 - a remoção e recriação cobrem exclusivamente
   `blindou_dispatch_v3_outbox_slot` com `pgoutput`, e o recibo root-only passa
   a ser pré-requisito do rearme e da retomada, sem ativar admissões nem rollback.
+- o backup normal conserva a exigência de Blindou Ready; a variante corretiva
+  permanece vinculada à falha conhecida, à candidata e ao recibo D059, sem
+  transformar o atestado D033 em bypass geral.

@@ -1297,3 +1297,11 @@ reaplica o manifesto assinado e pode recriá-lo. Rearme e retomada exigem o
 recibo D059 correspondente. Se qualquer prova, escala ou criação falhar, o
 controlador não ativa admissão nem executa rollback, Secret, migration,
 operação em outro projeto ou reinício automático.
+
+O backup geral conserva a verificação normal do slot, que exige o Blindou
+Ready. Para não transformar a exceção D033 em bypass geral, o controlador cria
+somente `backup-database-for-failed-update RELEASE_ID`, com confirmação própria
+e as mesmas provas de falha, candidata, estado V3 inativo, recibo D059, host,
+dados e gates de namespace. Ele chama a mesma rotina de dump, catálogo e CMS do
+backup normal; não libera a aplicação, não altera a retenção nem evita a
+confirmação offsite posterior.

@@ -273,6 +273,9 @@ retomada: o controlador interrompe apenas o StatefulSet Debezium identificado
 da release falha, prova que não há estado V3 nem evento de outbox e recria o
 slot. Ele não reinicia o Debezium, não libera admissões e exige recibo root-only
 vinculado à candidata corretiva antes do rearme e da retomada.
+O backup geral conserva seu gate normal; somente o backup corretivo fechado,
+vinculado à mesma falha, candidata e recibo D059, pode usar o atestado D033
+enquanto o backend falho ainda não está Ready.
 
 Em 2026-09-06, a primeira entrada protegida foi recusada antes de persistir o
 material: `nounset` expandia o nome do arquivo na mesma declaração local que o

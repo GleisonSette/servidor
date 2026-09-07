@@ -884,6 +884,8 @@ resume_failed_update_function="$(sed -n '/^resume_failed_update()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 rearm_failed_update_function="$(sed -n '/^rearm_failed_update()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
+failed_update_backup_function="$(sed -n '/^backup_database_for_failed_update()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
 slot_repair_function="$(sed -n '/^repair_dispatch_v3_logical_slot()/,/^}/p' \
   "${REMOTE_DIR}/blindou-deployctl")"
 resume_pull_function="$(sed -n '/^verify_ghcr_candidate_pull_for_failed_update_resume()/,/^}/p' \
@@ -917,6 +919,8 @@ grep -Fq 'resume-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
 grep -Fq 'rearm-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'FAILED_UPDATE_REARM_CONFIRMATION' <<<"$rearm_failed_update_function" \
   && grep -Fq 'verify_secondary_slot_resume_preservation' <<<"$rearm_failed_update_function" \
+  && grep -Fq 'verify_data_foundation failed-update >/dev/null' \
+    <<<"$rearm_failed_update_function" \
   && grep -Fq 'verify_latest_backup >/dev/null' <<<"$rearm_failed_update_function" \
   && grep -Fq 'ghcr_pull_latest_proof_is_secure' <<<"$rearm_failed_update_function" \
   && grep -Fq 'dispatch_v3_slot_repair_receipt_matches' \
@@ -925,6 +929,26 @@ grep -Fq 'rearm-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'failed-update-rearm' <<<"$rearm_failed_update_function" \
   && ! grep -Fq 'rollback_release' <<<"$rearm_failed_update_function" \
   || fail 'rearme fechado não vincula falha, backup e preservação do slot'
+backup_database_function="$(sed -n '/^backup_database()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+grep -Fq 'backup-database-for-failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'FAILED_UPDATE_BACKUP_CONFIRMATION' \
+    <<<"$failed_update_backup_function" \
+  && grep -Fq 'verify_secondary_slot_resume_preservation' \
+    <<<"$failed_update_backup_function" \
+  && grep -Fq 'backend não comprova a falha conhecida' \
+    <<<"$failed_update_backup_function" \
+  && grep -Fq 'dispatch_v3_slot_repair_receipt_matches' \
+    <<<"$failed_update_backup_function" \
+  && grep -Fq 'verify_data_foundation failed-update >/dev/null' \
+    <<<"$failed_update_backup_function" \
+  && grep -Fq 'create_encrypted_database_backup' \
+    <<<"$failed_update_backup_function" \
+  && ! grep -Fq 'activate_dispatch_v3_runtime' <<<"$failed_update_backup_function" \
+  && ! grep -Fq 'rollback_release' <<<"$failed_update_backup_function" \
+  && grep -Fq 'verify_data_foundation >/dev/null' <<<"$backup_database_function" \
+  && ! grep -Fq 'failed-update' <<<"$backup_database_function" \
+  || fail 'backup corretivo não está isolado da verificação normal'
 grep -Fq 'repair-dispatch-v3-logical-slot)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'DISPATCH_V3_SLOT_REPAIR_CONFIRMATION' <<<"$slot_repair_function" \
   && grep -Fq 'verify_secondary_slot_resume_preservation' <<<"$slot_repair_function" \
@@ -993,6 +1017,8 @@ grep -Fq 'diagnose-failed-update *' "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   && grep -Fq 'rearm-failed-update * blindou-failed-update-rearm' \
     "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   && grep -Fq 'repair-dispatch-v3-logical-slot * blindou-dispatch-v3-slot-repair' \
+    "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  && grep -Fq 'backup-database-for-failed-update * blindou-failed-update-backup' \
     "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   && grep -Fq 'resume-failed-update * blindou-failed-update-resume' \
     "${REMOTE_DIR}/blindou-deployctl.sudoers" \
