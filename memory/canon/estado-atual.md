@@ -569,8 +569,10 @@ próprio continuam gates bloqueantes. Nenhum estado runtime foi alterado.
   em streaming PostgreSQL, conforme diagnóstico sanitizado anterior.
 - O estado continua `dispatch_v3_state=prepared`, com 14 migrations, material
   de runtime, backup criptografado/offsite, R2 e a prova de pull presentes.
-  Nenhuma admissão nova foi ativada e não houve nova migration, Secret ou
-  rollback nesta confirmação.
+  A primeira ativação fechada não chegou a `active`: o backend recusou o campo
+  R2 de conta ausente, e a D066 está preparada para reconciliar o material
+  existente antes da repetição. Nenhuma admissão nova, migration ou rollback
+  foi ativado por essa tentativa.
 
 ## Estado dos repositórios relacionados
 

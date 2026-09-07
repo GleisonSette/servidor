@@ -1442,3 +1442,18 @@ default Kubernetes `RollingUpdate`; estratégia desconhecida falha fechada.
 Esta correção não altera objetos Blindou, admissão, migrations, Secrets,
 provider, rollback ou ativação do Dispatch V3. Ela apenas torna o gate do slot
 compatível com a semântica do StatefulSet que a D062 preserva.
+
+## Resolvida D066 - Material R2 completo na ativação do Dispatch V3
+
+Em 2026-09-07, a primeira ativação fechada chegou ao banco, Debezium e aos
+workers V3, mas o restart final do backend recusou `DISPATCH_V3_R2_ACCOUNT_ID`.
+O controlador já conhecia a conta e o bucket R2 aprovados e os entregava ao
+sender, porém o Secret comum do backend continha somente as duas chaves de
+acesso com o prefixo do Dispatch V3.
+
+O controlador passa a incluir conta e bucket no material do backend e verifica
+as quatro variáveis `DISPATCH_V3_R2_*` juntas. No estado `prepared`, a ação de
+ativação reconcilia e valida esse material antes de tocar no banco ou aguardar
+workloads. Conta e bucket não são credenciais; as chaves continuam exclusivamente
+nos arquivos root-only e no Secret já delimitado. A ação não pede novo valor,
+não cria nova identidade nem altera migration, UAZAPI, provider ou rollback.

@@ -1206,6 +1206,15 @@ grep -Fq 'provision-dispatch-v3-secrets blindou-dispatch-v3-secrets' \
   && grep -Fq 'activate-dispatch-v3-runtime * blindou-dispatch-v3-active' \
     "${REMOTE_DIR}/blindou-deployctl.sudoers" \
   || fail 'sudoers não limita as operações Dispatch V3'
+for required in \
+  '--from-literal=DISPATCH_V3_R2_ACCOUNT_ID="$R2_ACCOUNT_ID"' \
+  '--from-literal=DISPATCH_V3_R2_BUCKET="$R2_BUCKET"' \
+  'DISPATCH_V3_R2_ACCOUNT_ID DISPATCH_V3_R2_BUCKET' \
+  'create_runtime_kubernetes_material' \
+  'verify_dispatch_v3_kubernetes_material'; do
+  grep -Fq -- "$required" "${REMOTE_DIR}/blindou-deployctl" \
+    || fail "ativação Dispatch V3 não reconcilia ${required}"
+done
 grep -Fq 'DISPATCH_V3_JETSTREAM_SOURCE' \
   "${REMOTE_DIR}/bootstrap-blindou-deployctl.sh" \
   || fail 'bootstrap não instala o provisionador JetStream do Dispatch V3'

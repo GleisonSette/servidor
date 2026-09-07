@@ -538,6 +538,13 @@ duas chaves do Secret estiverem ausentes, ou se o novo ciclo vivo falhar antes
 da ativação. CORS permite somente `GET` e `HEAD` de
 `https://app.blindou.com`; o URL público `r2.dev` permanece desabilitado.
 
+Na ativação do Dispatch V3, esse mesmo Secret recebe também
+`DISPATCH_V3_R2_ACCOUNT_ID` e `DISPATCH_V3_R2_BUCKET`, valores não sensíveis
+mas obrigatórios ao cliente de objetos do backend. A ativação em estado
+`prepared` reconcilia e verifica todo o material Kubernetes antes de qualquer
+rollout; as chaves de acesso continuam vindo exclusivamente dos arquivos
+root-only e não são expostas pelo controlador.
+
 Depois da prova integral da candidata e antes dos gates de release, preparar
 somente as chaves internas e os Secrets técnicos:
 

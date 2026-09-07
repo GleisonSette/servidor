@@ -2378,6 +2378,15 @@ secret_has_keys() {
   done
 }
 
+secret_key_matches_value() {
+  local namespace="$1" secret_name="$2" key="$3" expected="$4" actual
+  actual="$(kube -n "$namespace" get secret "$secret_name" \
+    -o "go-template={{index .data \"${key}\"}}" | base64 -d)" \
+    || fail "Secret obrigatório ausente ou ilegível: ${namespace}/${secret_name}/${key}"
+  [[ "$actual" == "$expected" ]] \
+    || fail "Secret obrigatório diverge do contrato: ${namespace}/${secret_name}/${key}"
+}
+
 runtime_secret_file_is_secure() {
   local path="$1"
   [[ -f "$path" && ! -L "$path" \
@@ -3305,6 +3314,8 @@ create_runtime_kubernetes_material() {
     --from-file=CLOUDFLARE_SAAS_API_TOKEN="$CLOUDFLARE_SAAS_TOKEN_FILE"
     --from-file=R2_ACCESS_KEY_ID="$R2_ACCESS_KEY_FILE"
     --from-file=R2_SECRET_ACCESS_KEY="$R2_SECRET_KEY_FILE"
+    --from-literal=DISPATCH_V3_R2_ACCOUNT_ID="$R2_ACCOUNT_ID"
+    --from-literal=DISPATCH_V3_R2_BUCKET="$R2_BUCKET"
     --from-file=DISPATCH_V3_R2_ACCESS_KEY_ID="$R2_ACCESS_KEY_FILE"
     --from-file=DISPATCH_V3_R2_SECRET_ACCESS_KEY="$R2_SECRET_KEY_FILE"
   )
@@ -3392,7 +3403,12 @@ verify_runtime_material() {
     UAZAPI_TOKEN_ENCRYPTION_KEY NATS_PASSWORD REDIS_PASSWORD \
     METRICS_BEARER_TOKEN CLOUDFLARE_SAAS_API_TOKEN \
     R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY \
+    DISPATCH_V3_R2_ACCOUNT_ID DISPATCH_V3_R2_BUCKET \
     DISPATCH_V3_R2_ACCESS_KEY_ID DISPATCH_V3_R2_SECRET_ACCESS_KEY
+  secret_key_matches_value "$APP_NAMESPACE" blindou-core-secrets \
+    DISPATCH_V3_R2_ACCOUNT_ID "$R2_ACCOUNT_ID"
+  secret_key_matches_value "$APP_NAMESPACE" blindou-core-secrets \
+    DISPATCH_V3_R2_BUCKET "$R2_BUCKET"
   local core_keys
   core_keys="$(kube -n "$APP_NAMESPACE" get secret blindou-core-secrets \
     -o go-template='{{range $key, $value := .data}}{{printf "%s\n" $key}}{{end}}')"
@@ -4631,6 +4647,9 @@ activate_dispatch_v3_runtime() {
   fi
   grep -Fxq 'state=prepared' "$DISPATCH_V3_STATE" \
     || fail 'Dispatch V3 não está no estado preparado'
+  create_runtime_kubernetes_material
+  verify_runtime_material
+  verify_dispatch_v3_kubernetes_material
   activate_dispatch_v3_database
   wait_dispatch_v3_debezium "$release_id" 600s
   for workload in deployment/blindou-dispatch-authority-v3 \

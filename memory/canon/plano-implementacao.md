@@ -375,6 +375,13 @@ retomada E5. O controlador foi instalado autenticadamente e a verificação
 normal passou; o Dispatch V3 permanece preparado e inativo, sem nova mutation,
 migration, Secret ou ativação.
 
+Atualização D066 em 2026-09-07: a primeira ativação alcançou Debezium e os
+workers, mas falhou fechada no restart do backend porque o Secret comum não
+propagava conta e bucket R2 sob os nomes do Dispatch V3. A correção reconcilia
+essas duas configurações não sensíveis com as duas chaves já custodiadas e
+valida o conjunto antes de novo rollout. O estado autoritativo permanece
+`prepared`; nenhuma admissão está ativa até a repetição fechada da ativação.
+
 Ordem obrigatória da extensão:
 
 1. validar, publicar e instalar o controlador D055 sem alterar o runtime por

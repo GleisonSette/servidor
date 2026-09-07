@@ -2489,3 +2489,18 @@ operacional.
 - o status autoritativo mantém 14 migrations, backup criptografado/offsite,
   `dispatch_v3_state=prepared` e material de runtime presente. Não houve
   migration nova, alteração de Secret, rollback ou ativação de admissões.
+
+## 2026-09-07 - Ativação V3 recusada por material R2 incompleto
+
+Resultado: a ativação fechada terminou sem habilitar admissões e preservou o
+estado `prepared`; a correção D066 foi preparada no repositório.
+
+- Debezium e os dois workers V3 ficaram Ready; reinícios transitórios antes do
+  Redis ficar disponível se recuperaram sem intervenção;
+- o backend recusou a configuração ausente
+  `DISPATCH_V3_R2_ACCOUNT_ID`, antes de escrever o recibo `active`;
+- a conta e o bucket R2 já existiam no contrato root-only e no Secret do
+  sender; somente sua projeção no Secret comum do backend estava ausente;
+- a D066 inclui conta, bucket e as duas chaves no mesmo contrato verificado e
+  faz a ativação reconciliar o material antes do rollout. Nenhuma nova
+  credencial, migration, rollback ou admissão foi criada nesta tentativa.
