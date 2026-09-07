@@ -1009,6 +1009,19 @@ grep -Fq "get deployment blindou-backend" "${REMOTE_DIR}/blindou-deployctl" \
     "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'logs "$pod" -c backend --tail=100' "${REMOTE_DIR}/blindou-deployctl" \
   || fail 'diagnóstico da atualização não cobre o backend sem selecionar outro workload'
+grep -Fq 'diagnose_dispatch_v3_workload()' "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'statefulset/blindou-debezium-v3 debezium' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'deployment/blindou-dispatch-authority-v3 authority' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'deployment/blindou-dispatch-sender-v3 sender' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'workload Dispatch V3 fora do diagnóstico fechado' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'logs "$pod" -c "$container" --tail=100' \
+    "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq '| redact_migration_diagnostics' "${REMOTE_DIR}/blindou-deployctl" \
+  || fail 'diagnóstico não cobre os componentes V3 por interface fechada e sanitizada'
 grep -Fq 'automatic|failed-update)' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'ensure_ghcr_pull_secret failed-update' "${REMOTE_DIR}/blindou-deployctl" \
   && grep -Fq 'if [[ "$origin" == '\''automatic'\'' || "$origin" == '\''failed-update'\'' ]]; then' \

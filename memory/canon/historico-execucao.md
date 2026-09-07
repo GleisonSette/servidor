@@ -2351,3 +2351,6 @@ executada por este registro.
 - o aplicador normal conserva seus gates; somente `resume-failed-update`
   propaga a origem fechada pelos checks internos antes de o backend corretivo
   existir, e retorna ao verificador normal depois do rollout.
+- o diagnóstico fechado da atualização passa a observar, além do backend, os
+  três workloads V3 de nomes, containers e seletores fixos, limitando eventos e
+  logs sanitizados sem expor uma interface Kubernetes genérica.
