@@ -123,7 +123,19 @@ if systemctl is-failed --quiet secondary-slot-metrics.service \
     secondary-slot-metrics.timer; then
   fail 'estado failed anterior do slot não pôde ser limpo'
 fi
-/usr/local/sbin/secondary-slotctl verify >/dev/null
+set +e
+preflight_slot_output="$(/usr/local/sbin/secondary-slotctl verify 2>&1)"
+preflight_slot_code="$?"
+set -e
+if [[ "$preflight_slot_code" -eq 0 ]]; then
+  :
+elif [[ "$preflight_slot_code" -eq 1 \
+    && "$preflight_slot_output" == \
+      '[secondary-slotctl] ERRO: Blindou não está Ready em blindou-production' ]]; then
+  printf '%s\n' 'secondary_slot_preflight=blindou-resume-pending-install'
+else
+  fail 'slot secundário não passou no preflight'
+fi
 /usr/local/sbin/blindou-hostctl verify >/dev/null
 blindou_status_passed=false
 for _ in {1..12}; do
