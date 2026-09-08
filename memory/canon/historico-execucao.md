@@ -2590,3 +2590,18 @@ recibo `active`.
 - o diagnóstico fechado posterior confirmou `dispatch_v3_state=prepared`, a
   ausência conjunta dos dois nomes R2 no Secret de núcleo e o backend em
   `CrashLoopBackOff`; nenhuma migration, rollback ou nova ativação foi feita.
+
+## 2026-09-08 - Dispatch V3 ativado pelo fluxo D070
+
+Resultado: depois de o gate normal do slot voltar a passar, a repetição
+expressamente autorizada da ativação fechada concluiu com `state=active` para a
+release `5e35ca7bd81a4a03e8c8e2b566b2d26c08c8af2a`.
+
+- o status anterior confirmou 14 migrations, backup criptografado/offsite,
+  prova GHCR, material R2 e os dois namespaces no gate `passed`;
+- `blindou-deployctl verify-dispatch-v3` aprovou Debezium, autoridade, sender,
+  JetStream, material e recibo ativo da release corrente;
+- `secondary-slotctl verify` aprovou ocupante `none`, geração 2 e zero
+  workloads de APIWPP e SaferWPP;
+- nenhuma D071, migration adicional, rollback, provider ou alteração de
+  isolamento foi criada para concluir a ativação.

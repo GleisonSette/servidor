@@ -560,12 +560,12 @@ erro continuam recusados. A leitura ainda exige slot vazio, sem transição e co
 a admissão íntegra. Depois da reconciliação e do rollout, a verificação normal
 do slot é obrigatória antes de gravar o recibo `active`.
 
-Em 2026-09-07, a execução D070 confirmou integralmente essa combinação, mas
-parou porque uma verificação normal aninhada ainda foi chamada antes de a
-reconciliação do Secret R2 concluir. O sistema ficou em `prepared`, sem recibo
-`active`. Não repita a ativação até uma correção autorizada eliminar somente
-essa dependência circular e preservar a verificação normal após o backend
-ficar Ready.
+Em 2026-09-07, a primeira execução D070 preservou `prepared` sem recibo
+`active`. Em 2026-09-08, o gate normal do slot voltou a passar e a repetição
+expressamente autorizada concluiu pelo caminho normal: `state=active`,
+`verify-dispatch-v3` e a verificação do slot passaram. Não existe D071 nem
+bypass adicional; futuras ativações continuam exigindo a confirmação própria e
+o gate normal antes do recibo final.
 
 Se a ativação recusar essa exceção, não a repetir e não inspecionar Secret,
 ConfigMap ou Kubernetes por acesso genérico. O único diagnóstico permitido é:

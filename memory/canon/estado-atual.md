@@ -556,7 +556,7 @@ próprio continuam gates bloqueantes. Nenhum estado runtime foi alterado.
 - O HDD e a interface de 100 Mb/s servem para validação funcional, não para
   afirmar capacidade de produção ou alta disponibilidade.
 
-## Dispatch V3 preparado e verificado em 2026-09-07
+## Dispatch V3 ativo e verificado em 2026-09-08
 
 - O controlador de slot instalado no commit de plataforma
   `e63df6b5bde20ba6efa662b62e2d6756040b3994` distingue corretamente
@@ -567,31 +567,18 @@ próprio continuam gates bloqueantes. Nenhum estado runtime foi alterado.
 - `blindou-deployctl verify-dispatch-v3` aprovou o Pod Debezium ordinal Ready
   e a release `5e35ca7bd81a4a03e8c8e2b566b2d26c08c8af2a`. O motor Debezium está
   em streaming PostgreSQL, conforme diagnóstico sanitizado anterior.
-- O estado continua `dispatch_v3_state=prepared`, com 14 migrations, material
-  de runtime, backup criptografado/offsite, R2 e a prova de pull presentes.
-  A primeira ativação fechada não chegou a `active`: o backend recusou o campo
-  R2 de conta ausente, e a D066 está preparada para reconciliar o material
-  existente antes da repetição. Nenhuma admissão nova, migration ou rollback
-  foi ativado por essa tentativa.
-- A revisão D068 confirmou o estado parcial preciso: o arquivo de runtime já
-  contém `DISPATCH_V3_MODE=active`, mas não existe recibo `state=active`, os
-  dois campos R2 do Secret comum estão ausentes e o backend não está Ready.
-  A retomada permanece limitada a essa combinação, recompõe o Secret e exige o
-  gate normal do slot antes de persistir qualquer ativação.
-- O controlador D068 foi instalado no commit
-  `436bfebaebc47b9fe836d755f6d6c10e421f384a`. A primeira execução autorizada
-  recusou a exceção antes de escrever material, pois uma das provas internas
-  não retornou elegível. O diagnóstico fechado confirmou o backend com uma
-  réplica atualizada, nenhuma Ready e o erro público de configuração R2; a
-  causa da outra prova ainda não é observável pelo controlador e nenhuma
-  repetição foi feita.
-- A D069 foi instalada no commit
-  `74eccd02c43b586d17d03e2b74c2ba2ada3c0257`. A leitura retornou `true` para
-  release corrente, arquivo de runtime, modo ativo, backend parcial e ausência
-  dos dois nomes R2; somente `dispatch_v3_state_prepared_match=false`. O
-  provisionamento válido cria `prepared` sem campo `release_id`; a D068 exige
-  um campo que esse contrato não produz. A ativação permanece bloqueada até
-  decisão corretiva explícita.
+- O estado autoritativo é `dispatch_v3_state=active`, vinculado à release
+  `5e35ca7bd81a4a03e8c8e2b566b2d26c08c8af2a`. As 14 migrations, o material de
+  runtime, o backup criptografado/offsite, a prova GHCR e o R2 validado
+  permanecem presentes.
+- A ativação autorizada concluiu pelo caminho normal depois que o slot voltou a
+  passar. `blindou-deployctl verify-dispatch-v3` confirmou Debezium, autoridade,
+  sender, JetStream e o recibo `active`; `secondary-slotctl verify` confirmou
+  novamente ocupante `none`, geração 2 e zero workloads dos dois membros.
+- A D070 corrigiu somente o formato canônico do recibo `prepared`; a tentativa
+  inicial permaneceu segura e, quando a saúde normal voltou, a repetição fechada
+  registrou `active`. Não foi criada exceção adicional, D071, migration ou
+  rollback.
 
 ## Estado dos repositórios relacionados
 
