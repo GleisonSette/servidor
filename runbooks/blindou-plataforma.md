@@ -869,6 +869,38 @@ divergência recusa a contenção.
 
 ## Observabilidade
 
+### Incidente de CDC após a ativação do V3
+
+`dispatch_v3_state=active` registra a ativação, não a saúde presente. Se o
+Debezium reiniciar ou `verify-data` recusar o slot, executar o diagnóstico
+fechado `diagnose-failed-update <SHA-do-recibo-de-release>`. Com as migrations
+0013/0014 presentes, ele também emite `dispatch_v3_slot_diagnosis`: motivo de
+invalidação, estado/LSNs/WAL do único slot Blindou, limites de retenção e
+booleanos de presença nas relações V3 e no armazenamento de offsets.
+
+A consulta usa transação `READ ONLY`, snapshot repetível, timeout de dez
+segundos e espera de lock de um segundo. Não lê payload, valor de offset,
+identidade de cliente nem credencial. Falha SQL ou saída vazia é erro, nunca
+prova de ausência. O resultado não é um recibo de reparo: escritores podem
+continuar depois da consulta e as provas devem ser refeitas sob contenção antes
+de qualquer mudança.
+
+O reparo D059 continua restrito ao estado preparado, inativo e vazio. A
+autorização de 2026-09-10 para corrigir e restabelecer V3 ativo não permite
+apagar eventos, offsets ou reativar V1/V2. Slot válido exige investigar o
+conector; slot perdido com dados exige recuperação coordenada e replay. Não
+recriar um slot com outbox não vazia usando `snapshot.mode=no_data`, pois isso
+pularia os eventos anteriores. UAZAPI e Resend permanecem desligados.
+
+Regressão offline, sem banco ou host:
+
+```bash
+bash operations/remote/test-blindou-dispatch-v3-slot-diagnosis.sh
+```
+
+Referência de estados e motivos:
+[PostgreSQL 18 — pg_replication_slots](https://www.postgresql.org/docs/18/view-pg-replication-slots.html).
+
 `blindou-platform-metrics.timer` grava no textfile collector do Node Exporter:
 
 - integridade da fundação Kubernetes;

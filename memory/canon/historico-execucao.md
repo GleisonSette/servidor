@@ -2670,3 +2670,17 @@ intermitente durante o preparo remoto.
   conexão for ambígua, somente a verificação de hash e estado pode ser repetida;
 - nenhuma mutação de runtime, Secret, credencial, banco, K3s ou workload foi
   feita por essa correção.
+
+## 2026-09-10 - Diagnóstico do incidente CDC ativo preparado
+
+O prompt de custódia UAZAPI/Resend parou no gate de preservação antes de ler ou
+gravar o conjunto recebido. A inspeção SSH confirmou PostgreSQL inicialmente
+em recuperação e, depois, aceitando conexões; backend voltou a Ready. Debezium
+permaneceu em CrashLoopBackOff e `verify-data` recusou o slot lógico V3.
+
+O exporter privado confirmou o slot exclusivo presente e inativo, com diferença
+de WAL não numérica. Isso não identifica sozinho o motivo da invalidação.
+O usuário autorizou corrigir e restabelecer V3 sem perda de dados e sem ativar
+UAZAPI/Resend. O diagnóstico fechado passa a consultar estado, motivo, retenção
+e presença de dados/offsets por SQL READ ONLY com timeout. D059 não foi alterada
+nem executada; não houve exclusão de slot, offset ou evento nesta preparação.

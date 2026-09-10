@@ -5025,6 +5025,58 @@ diagnose_dispatch_v3_workload() {
   done < <(kube -n "$APP_NAMESPACE" get pods -l "$selector" -o name)
 }
 
+diagnose_dispatch_v3_logical_slot() {
+  local diagnosis
+  require_root_and_host
+  # Metadados e presença de linhas apenas. Nunca ler payload ou valor de offset.
+  # O snapshot não autoriza reparo: escritores podem continuar depois da leitura.
+  diagnosis="$(postgres_query -d blindou -Atq <<'SQL'
+BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;
+SET LOCAL statement_timeout = '10s';
+SET LOCAL lock_timeout = '1s';
+SET LOCAL idle_in_transaction_session_timeout = '15s';
+SELECT jsonb_build_object(
+  'schema', 1,
+  'observed_at', clock_timestamp(),
+  'postgres_in_recovery', pg_is_in_recovery(),
+  'wal_level', current_setting('wal_level'),
+  'max_slot_wal_keep_size', current_setting('max_slot_wal_keep_size'),
+  'idle_replication_slot_timeout', current_setting('idle_replication_slot_timeout'),
+  'slot', (SELECT jsonb_build_object(
+    'database_matches', database = 'blindou',
+    'slot_type', slot_type,
+    'plugin_matches', plugin = 'pgoutput',
+    'active', active,
+    'restart_lsn', restart_lsn,
+    'confirmed_flush_lsn', confirmed_flush_lsn,
+    'wal_status', wal_status,
+    'safe_wal_size', safe_wal_size,
+    'invalidation_reason', invalidation_reason,
+    'inactive_since', inactive_since)
+    FROM pg_catalog.pg_replication_slots
+    WHERE slot_name = 'blindou_dispatch_v3_outbox_slot'),
+  'rows_present', jsonb_build_object(
+    'owners_v3', EXISTS (SELECT 1 FROM public.dispatch_owner_controls_v3 WHERE engine_version = 3),
+    'payloads', EXISTS (SELECT 1 FROM public.dispatch_owner_payloads_v3),
+    'manifests', EXISTS (SELECT 1 FROM public.dispatch_manifests_v3),
+    'pages', EXISTS (SELECT 1 FROM public.dispatch_manifest_pages_v3),
+    'lanes', EXISTS (SELECT 1 FROM public.dispatch_lanes_v3),
+    'facts', EXISTS (SELECT 1 FROM public.dispatch_delivery_facts_v3),
+    'journal', EXISTS (SELECT 1 FROM public.dispatch_effect_journal_v3),
+    'callbacks', EXISTS (SELECT 1 FROM public.dispatch_callback_inbox_v3),
+    'rollups', EXISTS (SELECT 1 FROM public.dispatch_owner_rollups_v3),
+    'projection', EXISTS (SELECT 1 FROM public.dispatch_projection_dirty_v3),
+    'commands', EXISTS (SELECT 1 FROM public.dispatch_operator_commands_v3),
+    'r2_references', EXISTS (SELECT 1 FROM public.dispatch_r2_references_v3),
+    'outbox', EXISTS (SELECT 1 FROM public.dispatch_outbox_v3),
+    'offsets', EXISTS (SELECT 1 FROM blindou_cdc_state.debezium_offset_storage)))::text;
+ROLLBACK;
+SQL
+  )" || fail 'diagnóstico SQL do slot V3 falhou; nenhuma ausência de dados foi comprovada'
+  [[ -n "$diagnosis" ]] || fail 'diagnóstico SQL do slot V3 retornou vazio'
+  printf 'dispatch_v3_slot_diagnosis=%s\n' "$diagnosis"
+}
+
 diagnose_failed_update() {
   local release_id="$1" pod_ref pod replica_set_ref replica_set
   [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
@@ -5042,6 +5094,9 @@ diagnose_failed_update() {
   fi
   printf 'migration_history_count=%s\n' \
     "$(postgres_query -d blindou -Atqc 'SELECT count(*) FROM public._sqlx_migrations')"
+  if dispatch_v3_expand_migration_applied && dispatch_v3_registry_migration_applied; then
+    diagnose_dispatch_v3_logical_slot
+  fi
   kube -n "$APP_NAMESPACE" get statefulset blindou-nats \
     -o custom-columns='NAME:.metadata.name,GENERATION:.metadata.generation,OBSERVED:.status.observedGeneration,CURRENT:.status.currentReplicas,READY:.status.readyReplicas,UPDATED:.status.updatedReplicas'
   kube -n "$APP_NAMESPACE" get pods -l 'app.kubernetes.io/name=blindou-nats' \

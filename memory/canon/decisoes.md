@@ -1560,3 +1560,23 @@ Esse cofre não autoriza extrair ou reutilizar as credenciais manualmente. A
 materialização futura para o runtime, os efeitos externos, o rollback e a
 ativação de UAZAPI/Resend continuam sendo operações fechadas posteriores, com
 autorização específica e contrato próprio.
+
+## Resolvida D072 - Diagnóstico do slot após ativação do V3
+
+Em 2026-09-10, o usuário autorizou corrigir e restabelecer o Dispatch V3 já
+ativo, preservando os dados e mantendo UAZAPI/Resend desligados. A inspeção
+confirmou Debezium não Ready, recusa do contrato do slot e presença do slot
+inativo no exporter; a causa exata da invalidação ainda não foi exposta pela
+interface instalada. PostgreSQL e backend voltaram a responder sem intervenção.
+
+A primeira alteração acrescenta ao diagnóstico fechado existente os metadados
+do único slot Blindou e booleanos de presença nas relações V3, outbox e offsets.
+A consulta é somente leitura, limitada por timeout e vinculada ao SHA admitido
+pelo diagnóstico. Ela não expõe payload, valor de offset, credencial ou dado de
+cliente e não gera autorização para recriar o slot. Uma falha SQL jamais vira
+prova de ausência.
+
+D059 permanece inalterada: não pode ser aplicada a V3 ativo. A recuperação
+corretiva depende do motivo real e da prova de estado durável, sem descarte de
+eventos, offsets ou retorno a V1/V2. Instalação do diagnóstico é uma etapa da
+correção autorizada; nenhuma ativação de provider é consequência dela.

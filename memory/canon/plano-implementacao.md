@@ -239,6 +239,14 @@ Próxima ação exata, ainda dependente de autorizações próprias:
 
 ## Fase 2E - Primeira release e capacidade do Blindou
 
+Incidente atual, 2026-09-10: o recibo V3 está ativo, mas o Debezium não está
+Ready e o contrato do slot lógico falha. PostgreSQL/API voltaram a responder
+durante a inspeção. A custódia UAZAPI/Resend foi interrompida antes da gravação.
+O usuário autorizou corrigir e restabelecer V3, preservando os dados e sem
+ativar os provedores. A primeira entrega amplia o diagnóstico fechado com
+metadados do slot e presença de estado/outbox/offsets; a recuperação só será
+definida com essas provas. Não considerar a ativação histórica como saúde atual.
+
 Status: a release `11e21b3319c197ef18440e7f494290b298f2db1e` está aplicada
 com 12 migrations, todos os workloads Ready, aplicação e EDGE em `passed`,
 Tunnel e R2 saudáveis e backup `blindou-20260825T092915Z` confirmado offsite.
