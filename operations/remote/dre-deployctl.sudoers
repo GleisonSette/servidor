@@ -17,6 +17,7 @@ apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl verify *
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl configure-edge *
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl provision-accounts *
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl reconcile-accounts *
+apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl authorize-device *
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl backup *
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl restore-drill *
 apiadmin ALL=(root) NOPASSWD: /usr/local/sbin/dre-deployctl cleanup-restore *
