@@ -1580,3 +1580,25 @@ D059 permanece inalterada: não pode ser aplicada a V3 ativo. A recuperação
 corretiva depende do motivo real e da prova de estado durável, sem descarte de
 eventos, offsets ou retorno a V1/V2. Instalação do diagnóstico é uma etapa da
 correção autorizada; nenhuma ativação de provider é consequência dela.
+
+## Resolvida D073 - Recuperação vazia do slot V3 já ativo
+
+O diagnóstico instalado da D072 confirmou em 2026-09-10 `wal_status=lost`,
+`invalidation_reason=wal_removed`, limite de 4 GiB e ausência de linhas nas
+14 relações V3/outbox/offsets. O usuário reiterou a autorização para corrigir e
+restabelecer o V3 ativo, sem perda de dados e sem ativar UAZAPI/Resend.
+
+A operação nova, distinta da D059, conserva release, digests, modo ativo e
+provedores desligados. Exige backup lógico cifrado novo confirmado offsite,
+provas de host/D033/material e journal root-only. Para apenas Debezium, obtém
+locks de escrita nas 14 relações, prova ausência novamente e só aceita remover
+o slot perdido cujo LSN coincide com o observado no journal. Recria o mesmo
+slot mantendo os locks. Estado ou offset presente exige replay e recusa esse
+caminho. Slot ausente só é aceito na retomada com journal seguro; um slot já
+válido não é removido novamente. A conclusão exige V3 verificado e slot ativo.
+
+Não há alteração de dado funcional, schema, Secret, release, configuração de
+provider, retenção de WAL ou semântica de confirmação de offsets. A prevenção
+da recorrência em ociosidade permanece pendente e não é declarada resolvida
+pela simples recriação do slot. As regras de heartbeat/offset da SPEC não são
+substituídas silenciosamente.

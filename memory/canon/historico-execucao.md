@@ -2684,3 +2684,19 @@ O usuário autorizou corrigir e restabelecer V3 sem perda de dados e sem ativar
 UAZAPI/Resend. O diagnóstico fechado passa a consultar estado, motivo, retenção
 e presença de dados/offsets por SQL READ ONLY com timeout. D059 não foi alterada
 nem executada; não houve exclusão de slot, offset ou evento nesta preparação.
+
+## 2026-09-10 - Diagnóstico D072 instalado e recuperação D073 preparada
+
+O commit `df2cb56e2180a1764c74c6aa905755719def415c` passou no gate de
+artefatos, nas quatro provas do diagnóstico e no RAG 13/13. O bootstrap fechado
+instalou e comprovou os hashes, sem push Git. O diagnóstico operacional das
+12:17 locais confirmou slot perdido por `wal_removed`, retenção 4 GiB,
+timeout de slot inativo zero e ausência de linhas nas 14 relações inspecionadas.
+
+A D073 implementa backup corretivo separado e recuperação do slot vazio com
+journal e locks; o teste sintético PostgreSQL 18 reproduziu a remoção de WAL e
+verificou a recusa com dados e offsets em cada relação. Os dados do teste foram
+isolados em workspace descartável de apiadmin sob 1 CPU/512 MiB, sem Docker,
+WSL, Rust, K3s ou credencial operacional. A recuperação produtiva ainda depende
+da instalação, backup offsite e execução fechada; prevenir recorrência em idle
+permanece trabalho separado.

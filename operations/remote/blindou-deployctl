@@ -87,6 +87,7 @@ readonly DISPATCH_V3_STREAM_INCARNATION_FILE="${DISPATCH_V3_SECRET_DIR}/stream-i
 readonly DISPATCH_V3_STATE="${STATE_ROOT}/dispatch-v3.state"
 readonly DISPATCH_V3_NATS_REPAIR_RECEIPT="${STATE_ROOT}/dispatch-v3-nats-repair.state"
 readonly DISPATCH_V3_SLOT_REPAIR_RECEIPT="${STATE_ROOT}/dispatch-v3-slot-repair.state"
+readonly DISPATCH_V3_ACTIVE_SLOT_RECEIPT="${STATE_ROOT}/dispatch-v3-active-slot-recovery.state"
 readonly FAILED_UPDATE_RESUME_RECEIPT="${STATE_ROOT}/failed-update-resume.state"
 readonly FAILED_UPDATE_REARM_RECEIPT="${STATE_ROOT}/failed-update-rearm.state"
 readonly FAILED_UPDATE_SUCCESSOR_REARM_RECEIPT="${STATE_ROOT}/failed-update-successor-rearm.state"
@@ -210,6 +211,7 @@ cleanup() {
       "${DISPATCH_V3_STATE}.tmp"|/var/tmp/blindou-dispatch-v3-*|\
       "${DISPATCH_V3_NATS_REPAIR_RECEIPT}.tmp"|\
       "${DISPATCH_V3_SLOT_REPAIR_RECEIPT}.tmp"|\
+      "${DISPATCH_V3_ACTIVE_SLOT_RECEIPT}.tmp"|\
       "${FAILED_UPDATE_RECOVERY_RECEIPT}.tmp"|\
       "${FAILED_UPDATE_RESUME_RECEIPT}.tmp"|\
       "${FAILED_UPDATE_REARM_RECEIPT}.tmp"|\
@@ -2052,9 +2054,10 @@ verify_data_foundation() {
   local dispatch_v3_slot_state='valid'
   [[ "$origin" == 'operator' || "$origin" == 'failed-update' \
       || "$origin" == 'failed-update-successor' \
-      || "$origin" == 'failed-update-slot-invalidated' ]] \
+      || "$origin" == 'failed-update-slot-invalidated' \
+      || "$origin" == 'active-v3-slot-invalidated' ]] \
     || fail 'origem da verificação de dados inválida'
-  [[ "$origin" != 'failed-update-slot-invalidated' ]] \
+  [[ "$origin" != 'failed-update-slot-invalidated' && "$origin" != 'active-v3-slot-invalidated' ]] \
     || dispatch_v3_slot_state='invalidated'
   require_root_and_host
   local hba_rule_count hba_diagnostic redirector_contract expected_hba_rules=4 login_summary='quatro logins'
@@ -3773,7 +3776,7 @@ provider_staging_preserves_inactive_runtime() {
     || return 1
   local core_keys
   core_keys="$(kube -n "$APP_NAMESPACE" get secret blindou-core-secrets \
-    -o go-template='{{range $key, $value := .data}}{{printf "%s\\n" $key}}{{end}}')" \
+    -o go-template='{{range $key, $value := .data}}{{printf "%s\n" $key}}{{end}}')" \
     || return 1
   ! grep -Fxq UAZAPI_ADMIN_TOKEN <<<"$core_keys" \
     && ! grep -Fxq RESEND_API_KEY <<<"$core_keys"
@@ -4629,6 +4632,192 @@ fresh_offsite_backup_is_confirmed() {
   backup_epoch="$(date -u -d "${backup_timestamp:0:8} ${backup_timestamp:9:2}:${backup_timestamp:11:2}:${backup_timestamp:13:2}" +%s)"
   now_epoch="$(date -u +%s)"
   (( now_epoch - backup_epoch <= 3600 ))
+}
+
+require_active_dispatch_v3_slot_recovery() {
+  local release_id="$1" protected_file
+  [[ "$release_id" =~ $RELEASE_PATTERN ]] || fail 'release_id inválido'
+  require_root_and_host
+  /usr/local/sbin/blindou-hostctl verify >/dev/null \
+    || fail 'contenção temporária do host não passou'
+  verify_secondary_slot_resume_preservation
+  for protected_file in "$CURRENT_RELEASE" "$DISPATCH_V3_STATE" "$RUNTIME_CONFIG_FILE"; do
+    [[ -f "$protected_file" && ! -L "$protected_file" \
+        && "$(stat -c '%U:%G:%a' "$protected_file")" == 'root:root:600' ]] \
+      || fail 'estado protegido da recuperação V3 ausente ou inseguro'
+  done
+  [[ "$(<"$CURRENT_RELEASE")" == "$release_id" \
+      && "$(read_field state "$DISPATCH_V3_STATE")" == active \
+      && "$(read_field release_id "$DISPATCH_V3_STATE")" == "$release_id" ]] \
+    || fail 'recuperação não corresponde à release V3 ativa'
+  grep -Fxq 'DISPATCH_V3_MODE=active' "$RUNTIME_CONFIG_FILE" \
+    || fail 'recuperação exige modo V3 ativo'
+  verify_runtime_material
+  provider_staging_preserves_inactive_runtime
+  verify_dispatch_v3_kubernetes_material
+  verify_dispatch_v3_nats_credentials
+  [[ "$(namespace_label "$APP_NAMESPACE" 'platform\.servidor\.local/deployment-gate')" == passed \
+      && "$(namespace_label "$EDGE_NAMESPACE" 'platform\.servidor\.local/deployment-gate')" == passed ]] \
+    || fail 'gates dos namespaces divergiram'
+  [[ "$(kube -n "$APP_NAMESPACE" get statefulset blindou-debezium-v3 \
+      -o 'jsonpath={.spec.template.metadata.annotations.blindou\.io/release}')" == "$release_id" \
+      && "$(kube -n "$APP_NAMESPACE" get statefulset blindou-debezium-v3 \
+      -o 'jsonpath={.spec.template.spec.containers[?(@.name=="debezium")].image}')" == "$DISPATCH_V3_EXPECTED_DEBEZIUM_IMAGE" ]] \
+    || fail 'identidade ou imagem Debezium divergiu'
+  [[ -f "${RELEASE_CACHE}/${release_id}/rendered/71-dispatch-v3-workloads.yaml" ]] \
+    || fail 'release ativa não possui cache V3'
+}
+
+require_empty_dispatch_v3_state_and_offsets() {
+  dispatch_v3_state_is_empty \
+    || fail 'recuperação vazia recusada: existe estado ou outbox V3; replay é obrigatório'
+  [[ "$(postgres_query -d blindou -Atqc \
+    'SELECT NOT EXISTS (SELECT 1 FROM blindou_cdc_state.debezium_offset_storage)')" == t ]] \
+    || fail 'recuperação vazia recusada: existe offset CDC'
+}
+
+backup_active_dispatch_v3_slot_recovery() {
+  local release_id="$1"
+  [[ "$2" == 'blindou-active-v3-slot-backup' ]] || fail 'confirmação do backup corretivo inválida'
+  require_active_dispatch_v3_slot_recovery "$release_id"
+  verify_data_foundation active-v3-slot-invalidated >/dev/null
+  require_empty_dispatch_v3_state_and_offsets
+  create_encrypted_database_backup
+}
+
+recreate_empty_dispatch_v3_slot_locked() {
+  local original_lsn="$1" allow_missing="$2"
+  [[ "$original_lsn" =~ ^[0-9A-F]+/[0-9A-F]+$ \
+      && ( "$allow_missing" == true || "$allow_missing" == false ) ]] \
+    || fail 'prova original do slot inválida'
+  postgres_query -d blindou -Atq -v original_lsn="$original_lsn" -v allow_missing="$allow_missing" <<'SQL'
+BEGIN;
+SET LOCAL statement_timeout = '30s';
+SET LOCAL lock_timeout = '3s';
+SET LOCAL transaction_timeout = '45s';
+LOCK TABLE public.dispatch_owner_controls_v3, public.dispatch_owner_payloads_v3,
+  public.dispatch_manifests_v3, public.dispatch_manifest_pages_v3,
+  public.dispatch_lanes_v3, public.dispatch_delivery_facts_v3,
+  public.dispatch_effect_journal_v3, public.dispatch_outbox_v3,
+  public.dispatch_callback_inbox_v3, public.dispatch_owner_rollups_v3,
+  public.dispatch_projection_dirty_v3, public.dispatch_operator_commands_v3,
+  public.dispatch_r2_references_v3, blindou_cdc_state.debezium_offset_storage
+  IN SHARE MODE;
+SELECT NOT (
+  EXISTS (SELECT 1 FROM public.dispatch_owner_controls_v3 WHERE engine_version = 3)
+  OR EXISTS (SELECT 1 FROM public.dispatch_owner_payloads_v3)
+  OR EXISTS (SELECT 1 FROM public.dispatch_manifests_v3)
+  OR EXISTS (SELECT 1 FROM public.dispatch_manifest_pages_v3)
+  OR EXISTS (SELECT 1 FROM public.dispatch_lanes_v3)
+  OR EXISTS (SELECT 1 FROM public.dispatch_delivery_facts_v3)
+  OR EXISTS (SELECT 1 FROM public.dispatch_effect_journal_v3)
+  OR EXISTS (SELECT 1 FROM public.dispatch_outbox_v3)
+  OR EXISTS (SELECT 1 FROM public.dispatch_callback_inbox_v3)
+  OR EXISTS (SELECT 1 FROM public.dispatch_owner_rollups_v3)
+  OR EXISTS (SELECT 1 FROM public.dispatch_projection_dirty_v3)
+  OR EXISTS (SELECT 1 FROM public.dispatch_operator_commands_v3)
+  OR EXISTS (SELECT 1 FROM public.dispatch_r2_references_v3)
+  OR EXISTS (SELECT 1 FROM blindou_cdc_state.debezium_offset_storage)
+) AS empty_state \gset
+\if :empty_state
+\else
+  \echo 'ERRO: estado V3 ou offset presente sob lock; nenhum slot removido'
+  DO $guard$ BEGIN RAISE EXCEPTION 'estado V3 ou offset presente; recuperação recusada'; END $guard$;
+\endif
+SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots
+  WHERE slot_name = 'blindou_dispatch_v3_outbox_slot') AS slot_present,
+  EXISTS (SELECT 1 FROM pg_catalog.pg_replication_slots
+    WHERE slot_name = 'blindou_dispatch_v3_outbox_slot' AND database = 'blindou'
+      AND slot_type = 'logical' AND plugin = 'pgoutput' AND NOT active
+      AND invalidation_reason = 'wal_removed' AND wal_status = 'lost'
+      AND confirmed_flush_lsn = :'original_lsn'::pg_lsn) AS original_slot \gset
+\if :slot_present
+  \if :original_slot
+    SELECT pg_drop_replication_slot('blindou_dispatch_v3_outbox_slot');
+  \else
+    \echo 'ERRO: slot não corresponde à prova original; nenhuma remoção'
+    DO $guard$ BEGIN RAISE EXCEPTION 'slot divergente; recuperação recusada'; END $guard$;
+  \endif
+\else
+  \if :allow_missing
+  \else
+    \echo 'ERRO: slot ausente sem journal de recuperação'
+    DO $guard$ BEGIN RAISE EXCEPTION 'slot ausente sem journal; recuperação recusada'; END $guard$;
+  \endif
+\endif
+SELECT slot_name FROM pg_create_logical_replication_slot('blindou_dispatch_v3_outbox_slot', 'pgoutput');
+COMMIT;
+SQL
+}
+
+write_active_dispatch_v3_slot_receipt() {
+  local release_id="$1" original_lsn="$2" state="$3"
+  [[ "$release_id" =~ $RELEASE_PATTERN && "$original_lsn" =~ ^[0-9A-F]+/[0-9A-F]+$ \
+      && ( "$state" == prepared || "$state" == recreated || "$state" == verified ) ]] \
+    || fail 'journal de recuperação V3 inválido'
+  {
+    printf 'schema=1\nrelease_id=%s\noriginal_lsn=%s\nstate=%s\n' "$release_id" "$original_lsn" "$state"
+    printf 'updated_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } >"${DISPATCH_V3_ACTIVE_SLOT_RECEIPT}.tmp"
+  cleanup_paths+=("${DISPATCH_V3_ACTIVE_SLOT_RECEIPT}.tmp")
+  chmod 0600 "${DISPATCH_V3_ACTIVE_SLOT_RECEIPT}.tmp"
+  mv -f -- "${DISPATCH_V3_ACTIVE_SLOT_RECEIPT}.tmp" "$DISPATCH_V3_ACTIVE_SLOT_RECEIPT"
+}
+
+recover_empty_active_dispatch_v3_slot() {
+  local release_id="$1" original_lsn='' allow_missing=false slot_valid=false replicas pods
+  [[ "$2" == 'blindou-active-v3-empty-slot-recovery' ]] || fail 'confirmação da recuperação V3 inválida'
+  require_active_dispatch_v3_slot_recovery "$release_id"
+  fresh_offsite_backup_is_confirmed \
+    || fail 'recuperação V3 exige backup criptografado recente e cópia offsite'
+  if [[ -e "$DISPATCH_V3_ACTIVE_SLOT_RECEIPT" || -L "$DISPATCH_V3_ACTIVE_SLOT_RECEIPT" ]]; then
+    [[ -f "$DISPATCH_V3_ACTIVE_SLOT_RECEIPT" && ! -L "$DISPATCH_V3_ACTIVE_SLOT_RECEIPT" \
+        && "$(stat -c '%U:%G:%a' "$DISPATCH_V3_ACTIVE_SLOT_RECEIPT")" == 'root:root:600' \
+        && "$(read_field schema "$DISPATCH_V3_ACTIVE_SLOT_RECEIPT")" == 1 \
+        && "$(read_field release_id "$DISPATCH_V3_ACTIVE_SLOT_RECEIPT")" == "$release_id" ]] \
+      || fail 'journal de recuperação V3 ausente, inseguro ou de outra release'
+    original_lsn="$(read_field original_lsn "$DISPATCH_V3_ACTIVE_SLOT_RECEIPT")"
+    [[ "$original_lsn" =~ ^[0-9A-F]+/[0-9A-F]+$ ]] || fail 'LSN original do journal inválido'
+    [[ "$(read_field state "$DISPATCH_V3_ACTIVE_SLOT_RECEIPT")" =~ ^(prepared|recreated|verified)$ ]] \
+      || fail 'estado do journal de recuperação V3 inválido'
+    allow_missing=true
+    if (verify_dispatch_v3_database_contract valid >/dev/null 2>&1); then slot_valid=true; fi
+  else
+    verify_data_foundation active-v3-slot-invalidated >/dev/null
+    require_empty_dispatch_v3_state_and_offsets
+    original_lsn="$(postgres_query -d blindou -Atqc \
+      "SELECT confirmed_flush_lsn FROM pg_replication_slots WHERE slot_name='blindou_dispatch_v3_outbox_slot' AND database='blindou' AND plugin='pgoutput' AND slot_type='logical' AND NOT active AND invalidation_reason='wal_removed' AND wal_status='lost'")"
+    write_active_dispatch_v3_slot_receipt "$release_id" "$original_lsn" prepared
+  fi
+  if [[ "$slot_valid" != true ]]; then
+    [[ "$(read_field state "$DISPATCH_V3_ACTIVE_SLOT_RECEIPT")" == prepared ]] \
+      || fail 'novo incidente depois da recriação exige nova análise; slot não será removido'
+    require_empty_dispatch_v3_state_and_offsets
+    replicas="$(kube -n "$APP_NAMESPACE" get statefulset blindou-debezium-v3 -o 'jsonpath={.spec.replicas}')"
+    [[ "$replicas" == 0 || "$replicas" == 1 ]] || fail 'réplicas Debezium divergiram'
+    kube -n "$APP_NAMESPACE" scale statefulset/blindou-debezium-v3 --replicas=0 >/dev/null
+    pods="$(kube -n "$APP_NAMESPACE" get pods -l app.kubernetes.io/name=blindou-debezium-v3 -o name)"
+    if [[ -n "$pods" ]]; then
+      # O ordinal é fixo; esperar o nome exato aceita a remoção já concluída.
+      [[ "$pods" == 'pod/blindou-debezium-v3-0' ]] || fail 'inventário Debezium inesperado'
+      kube -n "$APP_NAMESPACE" wait --for=delete pod/blindou-debezium-v3-0 --timeout=120s >/dev/null
+    fi
+    pods="$(kube -n "$APP_NAMESPACE" get pods -l app.kubernetes.io/name=blindou-debezium-v3 -o name)"
+    [[ -z "$pods" ]] || fail 'Debezium não encerrou; nenhum slot removido'
+    recreate_empty_dispatch_v3_slot_locked "$original_lsn" "$allow_missing" \
+      || fail 'recuperação do slot interrompida; dados preservados e Debezium parado'
+    verify_dispatch_v3_database_contract valid
+    write_active_dispatch_v3_slot_receipt "$release_id" "$original_lsn" recreated
+  fi
+  kube -n "$APP_NAMESPACE" scale statefulset/blindou-debezium-v3 --replicas=1 >/dev/null
+  wait_dispatch_v3_debezium "$release_id" 120s
+  [[ "$(postgres_query -d blindou -Atqc \
+    "SELECT active FROM pg_replication_slots WHERE slot_name='blindou_dispatch_v3_outbox_slot' AND database='blindou' AND invalidation_reason IS NULL")" == t ]] \
+    || fail 'Pod Debezium pronto sem slot ativo; recuperação não concluída'
+  verify_dispatch_v3_runtime
+  provider_staging_preserves_inactive_runtime
+  write_active_dispatch_v3_slot_receipt "$release_id" "$original_lsn" verified
+  pass 'V3 ativo recuperado; slot válido e ativo, dados preservados e provedores externos desligados'
 }
 
 repair_dispatch_v3_logical_slot() {
@@ -6089,6 +6278,14 @@ case "${1:-}" in
     [[ $# -eq 3 ]] \
       || fail 'uso: blindou-deployctl repair-dispatch-v3-logical-slot RELEASE_ID CONFIRMAÇÃO'
     repair_dispatch_v3_logical_slot "$2" "$3"
+    ;;
+  backup-active-dispatch-v3-slot-recovery)
+    [[ $# -eq 3 ]] || fail 'uso: blindou-deployctl backup-active-dispatch-v3-slot-recovery RELEASE_ID CONFIRMAÇÃO'
+    backup_active_dispatch_v3_slot_recovery "$2" "$3"
+    ;;
+  recover-empty-active-dispatch-v3-slot)
+    [[ $# -eq 3 ]] || fail 'uso: blindou-deployctl recover-empty-active-dispatch-v3-slot RELEASE_ID CONFIRMAÇÃO'
+    recover_empty_active_dispatch_v3_slot "$2" "$3"
     ;;
   provision-pagarme-credential)
     [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl provision-pagarme-credential CONFIRMAÇÃO'

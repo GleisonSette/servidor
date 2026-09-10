@@ -901,6 +901,47 @@ bash operations/remote/test-blindou-dispatch-v3-slot-diagnosis.sh
 Referência de estados e motivos:
 [PostgreSQL 18 — pg_replication_slots](https://www.postgresql.org/docs/18/view-pg-replication-slots.html).
 
+### Recuperação V3 ativa sem eventos — D073
+
+Para o incidente confirmado em 2026-09-10, a recuperação separada aceita apenas
+a release corrente ativa, provedores desligados e slot lógico exclusivo perdido
+por `wal_removed`. Não altera a D059 nem muda o modo de dispatch. Primeiro:
+
+```bash
+sudo -n /usr/local/sbin/blindou-deployctl backup-active-dispatch-v3-slot-recovery SHA blindou-active-v3-slot-backup
+sudo -n /usr/local/sbin/blindou-deployctl export-latest-backup
+```
+
+Copiar o envelope cifrado para a estação, conferir SHA-256 e confirmar com a
+operação existente `confirm-offsite-backup`. Somente depois:
+
+```bash
+sudo -n /usr/local/sbin/blindou-deployctl recover-empty-active-dispatch-v3-slot SHA blindou-active-v3-empty-slot-recovery
+```
+
+A operação exige backup offsite com menos de uma hora, preservação D033,
+material V3, gates e identidade/digest do Debezium. Grava journal root-only,
+para apenas o Debezium e bloqueia escrita nas 14 relações V3/offsets por uma
+transação curta. Depois dos locks, repete a prova de ausência; qualquer linha,
+lock ocupado ou slot diferente recusa a remoção. A recriação ocorre na mesma
+sessão que conserva os locks, sem INSERT, DELETE, TRUNCATE ou migração nas
+tabelas. A API não muda para V1/V2; uma escrita concorrente espera o lock ou
+falha pelo timeout normal da aplicação.
+
+O journal permite retomar uma interrupção após a remoção somente com todas as
+mesmas provas; slot válido já recriado não é apagado outra vez. Falha durante
+a recriação deixa Debezium parado; falha na verificação posterior pode deixá-lo
+iniciado, mas não registra recuperação concluída. A conclusão exige Pod Ready, slot válido e
+realmente ativo, verificação V3 normal e provedores ainda desligados. Não há
+rollback do slot nem descarte de offset: se houver dados, usar o replay
+coordenado da SPEC, não esta recuperação vazia.
+
+Esta recuperação não modifica a confirmação de WAL durante ociosidade. Como
+o PostgreSQL é compartilhado e o conector não confirma WAL sem eventos, a
+recorrência continua um risco a resolver separadamente antes de considerar o
+incidente definitivamente encerrado. Não aumentar retenção ilimitadamente nem
+introduzir heartbeat SQL ou avanço manual periódico.
+
 `blindou-platform-metrics.timer` grava no textfile collector do Node Exporter:
 
 - integridade da fundação Kubernetes;
