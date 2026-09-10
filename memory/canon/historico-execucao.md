@@ -2700,3 +2700,28 @@ isolados em workspace descartável de apiadmin sob 1 CPU/512 MiB, sem Docker,
 WSL, Rust, K3s ou credencial operacional. A recuperação produtiva ainda depende
 da instalação, backup offsite e execução fechada; prevenir recorrência em idle
 permanece trabalho separado.
+
+## 2026-09-10 — V3 ativo recuperado, sem ativação dos provedores
+
+O controlador D073 do commit `727fad0ea953a15e7004a0fb0b4e13df954d6f45`
+foi instalado pelo bootstrap fechado e teve os hashes confirmados. O backup
+`blindou-20260910T153554Z`, de 3.620.359 bytes cifrados, passou no catálogo,
+envelope, cópia administrativa e confirmação offsite. SHA-256 do envelope:
+`d795b05a9aa66d6287d27b245eb370cc1aaad7b8ab4c59c47a4b214124fc42ea`.
+
+A operação removeu somente o slot perdido após a prova vazia sob locks e
+recriou-o. A primeira verificação recusou conclusão porque o Pod ficou Ready
+antes do início da replicação. O diagnóstico posterior, às 12:38:48 locais,
+comprovou `active=true`, `wal_status=reserved`, nenhuma invalidação e LSN
+`82/652279F8`; as 14 relações continuavam vazias. A retomada pelo journal
+preservou o slot válido, sem nova remoção, e concluiu a verificação integral
+V3 às 12:39. A release da aplicação permaneceu
+`5e35ca7bd81a4a03e8c8e2b566b2d26c08c8af2a`, com 14 migrations e modo ativo.
+
+Passaram também `/health` e `/ready` públicos (HTTP 200), D033 com slot
+secundário vazio, gates da aplicação/EDGE e prova R2. UAZAPI/Resend continuam
+desligados e sem credenciais preparadas; Pagar.me continua ativo. Não houve
+push, imagem nova, migration, retorno V1/V2, exclusão de dados ou corte para
+`blindou-data`. A retenção continua 4 GiB e o log confirma `lsn.flush.mode=connector`:
+prevenção da recorrência em ociosidade permanece pendente. Recuperação de
+disponibilidade não equivale a teste de envio real nem a conclusão da SPEC.

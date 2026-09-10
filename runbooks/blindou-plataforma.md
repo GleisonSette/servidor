@@ -942,6 +942,15 @@ recorrência continua um risco a resolver separadamente antes de considerar o
 incidente definitivamente encerrado. Não aumentar retenção ilimitadamente nem
 introduzir heartbeat SQL ou avanço manual periódico.
 
+Execução de 2026-09-10: controlador `727fad0`, backup cifrado
+`blindou-20260910T153554Z` confirmado na estação e recuperação integral aprovada
+às 12:39 locais. O Pod ficou Ready antes da conexão de replicação na primeira
+checagem; a operação recusou sucesso. Após diagnóstico comprovar slot ativo,
+a retomada pelo journal concluiu sem nova remoção. A release `5e35ca7...`
+permaneceu ativa, `/health` e `/ready` retornaram HTTP 200 e D033 passou.
+Nenhum dado funcional foi removido; UAZAPI/Resend permanecem desligados.
+Recibo detalhado no histórico canônico, sem declarar prevenção de recorrência.
+
 `blindou-platform-metrics.timer` grava no textfile collector do Node Exporter:
 
 - integridade da fundação Kubernetes;

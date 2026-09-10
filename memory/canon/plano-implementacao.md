@@ -246,9 +246,12 @@ O usuário autorizou corrigir e restabelecer V3, preservando os dados e sem
 ativar os provedores. A primeira entrega amplia o diagnóstico fechado com
 metadados do slot e presença de estado/outbox/offsets; a recuperação só será
 definida com essas provas. D072 instalada confirmou `wal_removed`, slot perdido
-e zero estado/outbox/offsets. D073 prepara backup e recuperação vazia com locks
-e journal; a prevenção de recorrência em ociosidade continua pendente. Não
-considerar a ativação histórica como saúde atual.
+e zero estado/outbox/offsets. D073 foi instalada e executada com backup offsite,
+locks e journal: às 12:39 de 2026-09-10, V3 passou na verificação integral com
+slot válido e ativo, sem perda de dados. A API pública responde HTTP 200 em
+`/health` e `/ready`, e D033 passou. UAZAPI/Resend continuam desligados e sem
+credenciais preparadas. A prevenção de recorrência em ociosidade continua
+pendente; não considerar a recuperação como conclusão da SPEC ou prova de envio.
 
 Status: a release `11e21b3319c197ef18440e7f494290b298f2db1e` está aplicada
 com 12 migrations, todos os workloads Ready, aplicação e EDGE em `passed`,
