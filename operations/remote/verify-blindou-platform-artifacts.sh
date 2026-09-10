@@ -40,8 +40,12 @@ fail() {
 grep -Fq "[ValidateSet('INSTALAR BLINDOU DEPLOYCTL')]" "$DEPLOY_BOOTSTRAP_SCRIPT" \
   && grep -Fq "blindou-platform-bootstrap-deployctl/\$ServerCommit" "$DEPLOY_BOOTSTRAP_SCRIPT" \
   && grep -Fq -- "-ControllerSet DeployController" "$DEPLOY_BOOTSTRAP_SCRIPT" \
+  && grep -Fq '[Security.Cryptography.SHA256]::Create()' "$DEPLOY_BOOTSTRAP_SCRIPT" \
   && grep -Fq "C:\\github\\servidor\\.env" "$SUDO_BOOTSTRAP_MODULE" \
   || fail 'bootstrap do deployctl não fixa confirmação, staging, controlador e cofre'
+if grep -Fq '[Security.Cryptography.SHA256]::HashData' "$DEPLOY_BOOTSTRAP_SCRIPT"; then
+  fail 'bootstrap do deployctl usa API SHA-256 incompatível com Windows PowerShell 5.1'
+fi
 if grep -Eq '(KEY_SERVIDOR=|Write-(Host|Output).*(password|senha))' "$DEPLOY_BOOTSTRAP_SCRIPT"; then
   fail 'orquestrador do deployctl pode materializar ou revelar a senha administrativa'
 fi

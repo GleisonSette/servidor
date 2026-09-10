@@ -50,6 +50,18 @@ function Invoke-CheckedProcess {
     }
 }
 
+function Get-Sha256Hex {
+    param([Parameter(Mandatory = $true)][byte[]]$Bytes)
+
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString($algorithm.ComputeHash($Bytes))).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $algorithm.Dispose()
+    }
+}
+
 foreach ($required in @($identity, $knownHosts)) {
     $item = Get-Item -LiteralPath $required -Force -ErrorAction Stop
     if ($item.PSIsContainer -or
@@ -92,12 +104,8 @@ try {
         ForEach-Object { $_ }) -join "`n"
     $emergencySha256 = (git.exe show "${ServerCommit}:operations/remote/blindou-release-emergencyctl" |
         ForEach-Object { $_ }) -join "`n"
-    $controllerSha256 = [Convert]::ToHexString(
-        [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($controllerSha256 + "`n"))
-    ).ToLowerInvariant()
-    $emergencySha256 = [Convert]::ToHexString(
-        [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($emergencySha256 + "`n"))
-    ).ToLowerInvariant()
+    $controllerSha256 = Get-Sha256Hex -Bytes ([Text.Encoding]::UTF8.GetBytes($controllerSha256 + "`n"))
+    $emergencySha256 = Get-Sha256Hex -Bytes ([Text.Encoding]::UTF8.GetBytes($emergencySha256 + "`n"))
 
     Invoke-CheckedProcess -FilePath 'scp.exe' `
         -ArgumentList ($sshArgs + @($archive, "${server}:$remoteArchive.uploading")) `

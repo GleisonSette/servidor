@@ -2641,3 +2641,16 @@ workspace descartável do servidor físico e aprovado.
 - a frase de pendência da entrada anterior descreve somente a indisponibilidade
   local de PyYAML; não houve Docker ou WSL nesta validação final, nem acesso a
   K3s, banco, cofre, Secret, credencial ou workload.
+
+## 2026-09-10 - Compatibilidade PowerShell do bootstrap D071
+
+Resultado: antes de alterar o host, o bootstrap local recusou corretamente a
+execução porque a API estática `SHA256.HashData` não existe no Windows
+PowerShell 5.1 disponível.
+
+- o cálculo foi substituído por `SHA256.Create().ComputeHash()`, com descarte
+  determinístico do objeto criptográfico e a mesma saída hexadecimal;
+- o verificador de artefatos agora exige o caminho compatível e recusa a API
+  incompatível;
+- a falha ocorreu antes de transportar ou instalar o controlador e não tocou
+  cofre, Secret, credencial, banco, K3s ou workload.
