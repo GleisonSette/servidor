@@ -2843,6 +2843,418 @@ SQL
   pass 'aparelho Android autorizado para o usuário DRE informado'
 }
 
+diagnose_password_reset() {
+  [[ "$#" -eq 3 ]] \
+    || fail 'uso: diagnose-password-reset RELEASE_ID HOUSEHOLD_ID USER_ID'
+  local release_id="$1" household_id="$2" user_id="$3"
+  local postgres_pod raw_output exit_code reset_state resetter_pod_present=false
+  require_cached_release "$release_id"
+  require_schema_two_release "$release_id"
+  for identifier in "$household_id" "$user_id"; do
+    [[ "$identifier" =~ $UUID_PATTERN ]] || fail 'UUID operacional inválido'
+  done
+  [[ "$household_id" != "$user_id" ]] \
+    || fail 'UUIDs operacionais devem ser distintos'
+  verify_cached_release_again "$release_id"
+  verify_foundation
+  [[ "$(current_release_id)" == "$release_id" ]] \
+    || fail 'release solicitada não é a corrente'
+  if kube -n "$NAMESPACE" get pod dre-password-resetter >/dev/null 2>&1; then
+    resetter_pod_present=true
+  fi
+  postgres_pod="$(kube -n "$NAMESPACE" get pods \
+    -l app.kubernetes.io/name=dre-postgres,app.kubernetes.io/component=database \
+    -o json | jq -er 'if (.items | length) == 1 then .items[0].metadata.name else error("pod count") end')" \
+    || fail 'diagnóstico exige exatamente um Pod PostgreSQL'
+  set +e
+  raw_output="$(kube --request-timeout=120s -n "$NAMESPACE" exec -i "$postgres_pod" \
+    --container postgres -- \
+    psql --no-psqlrc --tuples-only --no-align --quiet \
+    -h /var/run/postgresql -U dre_postgres_admin -d dre \
+    --set=ON_ERROR_STOP=1 \
+    --set=VERBOSITY=terse \
+    --set=release_id="$release_id" \
+    --set=household_id="$household_id" \
+    --set=user_id="$user_id" <<'SQL' 2>&1
+BEGIN;
+SET LOCAL ROLE dre_migrator;
+WITH selected AS (
+  SELECT household_id, id AS user_id, login, active, version, password_hash
+  FROM users
+  WHERE household_id = :'household_id'::uuid
+    AND id = :'user_id'::uuid
+)
+SELECT json_build_object(
+  'schema', 1,
+  'release_id', :'release_id',
+  'session_user', session_user,
+  'current_role', current_role,
+  'user_rows', (SELECT count(*)::int FROM selected),
+  'login', (SELECT login FROM selected),
+  'active', COALESCE((SELECT active FROM selected), false),
+  'version', COALESCE((SELECT version FROM selected), 0),
+  'password_hash_argon2id', COALESCE((SELECT password_hash LIKE '$argon2id$%' FROM selected), false),
+  'active_sessions', (
+    SELECT count(*)::int FROM sessions
+    WHERE household_id = :'household_id'::uuid
+      AND user_id = :'user_id'::uuid
+      AND revoked_at IS NULL
+  ),
+  'active_refresh_tokens', (
+    SELECT count(*)::int FROM session_refresh_tokens
+    WHERE household_id = :'household_id'::uuid
+      AND session_id IN (
+        SELECT id FROM sessions
+        WHERE household_id = :'household_id'::uuid
+          AND user_id = :'user_id'::uuid
+      )
+      AND revoked_at IS NULL
+  ),
+  'audit_password_resets', (
+    SELECT count(*)::int FROM audit_log
+    WHERE household_id = :'household_id'::uuid
+      AND actor_kind = 'SYSTEM'
+      AND actor_user_id IS NULL
+      AND action = 'UPDATED'
+      AND resource_type = 'USER'
+      AND resource_id = :'user_id'::uuid
+      AND changed_fields = ARRAY['password', 'sessions']::text[]
+  ),
+  'privileges', json_build_object(
+    'users_select', has_table_privilege(current_role, 'public.users', 'SELECT'),
+    'sessions_select', has_table_privilege(current_role, 'public.sessions', 'SELECT'),
+    'session_refresh_tokens_select', has_table_privilege(current_role, 'public.session_refresh_tokens', 'SELECT'),
+    'audit_log_select', has_table_privilege(current_role, 'public.audit_log', 'SELECT')
+  )
+)::text;
+ROLLBACK;
+SQL
+  )"
+  exit_code="$?"
+  set -e
+  reset_state="$(printf '%s' "$raw_output" | sanitize_diagnostic_output | tail -c 16384)"
+  [[ "$exit_code" -eq 0 ]] || fail 'não foi possível diagnosticar o reset da senha DRE'
+  printf '%s\n' "$reset_state" | jq -e '
+    .schema == 1
+    and .release_id == "'"$release_id"'"
+    and .session_user == "dre_postgres_admin"
+    and .current_role == "dre_migrator"
+    and .user_rows == 1
+    and .login == "gleison"
+    and .active == true
+    and .password_hash_argon2id == true
+    and .privileges.users_select == true
+    and .privileges.sessions_select == true
+    and .privileges.session_refresh_tokens_select == true
+    and .privileges.audit_log_select == true
+  ' >/dev/null || fail 'diagnóstico do reset de senha DRE diverge do contrato fechado'
+  printf '%s\n' "$reset_state" | jq -c \
+    --argjson resetter_pod_present "$resetter_pod_present" \
+    '. + {
+      status:"passed",
+      resetter_pod_present:$resetter_pod_present,
+      reset_observed:(.version >= 2 and .active_sessions == 0 and .active_refresh_tokens == 0 and .audit_password_resets >= 1)
+    }'
+}
+
+reset_password() {
+  [[ "$#" -eq 4 ]] \
+    || fail 'uso: reset-password RELEASE_ID OPERATION_ID HOUSEHOLD_ID USER_ID'
+  local release_id="$1" operation_id="$2" household_id="$3" user_id="$4"
+  local protected_before secrets_before receipt rust_image resetter_pod=dre-password-resetter
+  local postgres_pod raw_output exit_code reset_state preflight_state password_input
+  IFS= read -r password_input || fail 'senha DRE não recebida por stdin'
+  [[ -n "$password_input" && "${#password_input}" -le 1024 ]] \
+    || fail 'senha DRE vazia ou acima do limite operacional'
+  [[ "$password_input" != *$'\r'* && "$password_input" != *$'\n'* ]] \
+    || fail 'senha DRE contém quebra de linha'
+  require_cached_release "$release_id"
+  require_schema_two_release "$release_id"
+  require_operation_id "$operation_id"
+  for identifier in "$household_id" "$user_id"; do
+    [[ "$identifier" =~ $UUID_PATTERN ]] || fail 'UUID operacional inválido'
+  done
+  [[ "$household_id" != "$user_id" ]] \
+    || fail 'UUIDs operacionais devem ser distintos'
+  require_new_receipt password "$operation_id"
+  verify_cached_release_again "$release_id"
+  verify_foundation
+  verify_release_secret_inventory "$release_id"
+  [[ "$(current_release_id)" == "$release_id" ]] \
+    || fail 'release solicitada não é a corrente'
+  verify_runtime_core "$release_id"
+  verify_protected_projects
+  acquire_controller_lock
+  acquire_shared_maintenance_locks
+  protected_before="$(protected_fingerprint)"
+  secrets_before="$(secret_inventory_fingerprint)"
+  postgres_pod="$(kube -n "$NAMESPACE" get pods \
+    -l app.kubernetes.io/name=dre-postgres,app.kubernetes.io/component=database \
+    -o json | jq -er 'if (.items | length) == 1 then .items[0].metadata.name else error("pod count") end')" \
+    || fail 'reset exige exatamente um Pod PostgreSQL'
+  set +e
+  raw_output="$(kube --request-timeout=120s -n "$NAMESPACE" exec -i "$postgres_pod" \
+    --container postgres -- \
+    psql --no-psqlrc --tuples-only --no-align --quiet \
+    -h /var/run/postgresql -U dre_postgres_admin -d dre \
+    --set=ON_ERROR_STOP=1 \
+    --set=VERBOSITY=terse \
+    --set=release_id="$release_id" \
+    --set=household_id="$household_id" \
+    --set=user_id="$user_id" <<'SQL' 2>&1
+BEGIN;
+SET LOCAL ROLE dre_migrator;
+WITH selected AS (
+  SELECT id, login, active
+  FROM users
+  WHERE household_id = :'household_id'::uuid
+    AND id = :'user_id'::uuid
+)
+SELECT json_build_object(
+  'schema', 1,
+  'release_id', :'release_id',
+  'session_user', session_user,
+  'current_role', current_role,
+  'user_rows', (SELECT count(*)::int FROM selected),
+  'login', (SELECT login FROM selected),
+  'active', COALESCE((SELECT active FROM selected), false),
+  'privileges', json_build_object(
+    'users_select', has_table_privilege(current_role, 'public.users', 'SELECT')
+  )
+)::text;
+ROLLBACK;
+SQL
+  )"
+  exit_code="$?"
+  set -e
+  preflight_state="$(printf '%s' "$raw_output" | sanitize_diagnostic_output | tail -c 16384)"
+  [[ "$exit_code" -eq 0 ]] || fail 'não foi possível validar a conta antes do reset da senha DRE'
+  printf '%s\n' "$preflight_state" | jq -e '
+    .schema == 1
+    and .release_id == "'"$release_id"'"
+    and .session_user == "dre_postgres_admin"
+    and .current_role == "dre_migrator"
+    and .user_rows == 1
+    and .login == "gleison"
+    and .active == true
+    and .privileges.users_select == true
+  ' >/dev/null || fail 'reset de senha autorizado somente para a conta Gleison esperada'
+  receipt="${RECEIPT_ROOT}/password-${operation_id}.json"
+  jq -cn \
+    --arg release_id "$release_id" \
+    --arg operation_id "$operation_id" \
+    --arg started_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{schema:1,status:"started",release_id:$release_id,operation_id:$operation_id,mode:"reset-password",started_at_utc:$started_at_utc}' \
+    | atomic_write "$receipt" 0600
+  reset_password_failed() {
+    local code="$1" release_id="$2" operation_id="$3" receipt="$4" pod="$5"
+    local cleanup=passed
+    set +e
+    kube -n "$NAMESPACE" delete pod "$pod" --ignore-not-found \
+      --wait=true --timeout=60s >/dev/null 2>&1 || cleanup=failed
+    if [[ "$cleanup" == failed ]]; then
+      kube label namespace "$NAMESPACE" \
+        platform.servidor.local/deployment-gate=password-reset-cleanup-failed \
+        --overwrite >/dev/null 2>&1 || true
+    fi
+    jq -cn \
+      --arg release_id "$release_id" \
+      --arg operation_id "$operation_id" \
+      --arg cleanup "$cleanup" \
+      --arg failed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{schema:1,status:"failed",release_id:$release_id,operation_id:$operation_id,mode:"reset-password",database_mutated:"unknown",resetter_cleanup:$cleanup,failed_at_utc:$failed_at_utc}' \
+      | atomic_write "$receipt" 0600 || true
+    audit_event reset-password failed "$release_id" "$operation_id"
+    exit "$code"
+  }
+  register_exit_trap reset_password_failed \
+    "$release_id" "$operation_id" "$receipt" "$resetter_pod"
+  if kube -n "$NAMESPACE" get pod "$resetter_pod" >/dev/null 2>&1; then
+    fail 'Pod administrativo efêmero preexistente'
+  fi
+  rust_image="$(release_rust_image "$release_id")"
+  jq -cn --arg image "$rust_image" '{
+    apiVersion:"v1",kind:"Pod",
+    metadata:{
+      name:"dre-password-resetter",namespace:"dre-production",
+      labels:{
+        "app.kubernetes.io/name":"dre-password-resetter",
+        "app.kubernetes.io/component":"admin",
+        "app.kubernetes.io/part-of":"dre-familiar",
+        "app.kubernetes.io/managed-by":"dre-deployctl"
+      }
+    },
+    spec:{
+      restartPolicy:"Never",activeDeadlineSeconds:300,terminationGracePeriodSeconds:1,
+      serviceAccountName:"dre-admin",automountServiceAccountToken:false,
+      enableServiceLinks:false,imagePullSecrets:[{name:"dre-registry-pull"}],
+      securityContext:{
+        runAsNonRoot:true,runAsUser:65532,runAsGroup:65532,fsGroup:65532,
+        fsGroupChangePolicy:"OnRootMismatch",seccompProfile:{type:"RuntimeDefault"}
+      },
+      containers:[{
+        name:"resetter",image:$image,imagePullPolicy:"IfNotPresent",
+        command:["/bin/sleep"],args:["300"],
+        env:[
+          {name:"DRE_DATABASE_URL_FILE",value:"/var/run/secrets/dre/database-url"},
+          {name:"DRE_DATABASE_MAX_CONNECTIONS",value:"2"},
+          {name:"RUST_LOG",value:"info"}
+        ],
+        resources:{
+          requests:{cpu:"50m",memory:"96Mi"},
+          limits:{cpu:"500m",memory:"256Mi"}
+        },
+        securityContext:{
+          allowPrivilegeEscalation:false,readOnlyRootFilesystem:true,
+          capabilities:{drop:["ALL"]}
+        },
+        volumeMounts:[
+          {name:"postgres-admin",mountPath:"/var/run/secrets/dre/database-url",subPath:"database-url",readOnly:true},
+          {name:"temporary",mountPath:"/tmp"}
+        ]
+      }],
+      volumes:[
+        {name:"postgres-admin",secret:{secretName:"dre-postgres-admin",defaultMode:288,items:[{key:"database-url",path:"database-url"}]}},
+        {name:"temporary",emptyDir:{sizeLimit:"32Mi"}}
+      ]
+    }
+  }' | kube apply --server-side --field-manager=dre-deployctl -f - >/dev/null
+  kube -n "$NAMESPACE" wait --for=condition=Ready \
+    "pod/${resetter_pod}" --timeout=120s >/dev/null
+  kube -n "$NAMESPACE" get pod "$resetter_pod" -o json \
+    | jq -e --arg image "$rust_image" '
+        .spec.serviceAccountName == "dre-admin"
+        and .spec.automountServiceAccountToken == false
+        and .spec.activeDeadlineSeconds == 300
+        and (.spec.containers | length) == 1
+        and .spec.containers[0].image == $image
+        and .spec.containers[0].command == ["/bin/sleep"]
+        and .spec.containers[0].args == ["300"]
+        and (.spec.volumes[] | select(.name == "postgres-admin")
+          | .secret.secretName == "dre-postgres-admin")
+      ' >/dev/null || fail 'Pod administrativo efêmero divergiu do contrato'
+  printf '%s\n' "$password_input" | kube --request-timeout=120s -n "$NAMESPACE" exec -i "$resetter_pod" \
+    --container resetter -- \
+    /app/dre-admin-cli reset-password \
+    --household-id "$household_id" \
+    --user-id "$user_id" \
+    --password-stdin >/dev/null
+  password_input=''
+  kube -n "$NAMESPACE" delete pod "$resetter_pod" \
+    --wait=true --timeout=60s >/dev/null
+  if kube -n "$NAMESPACE" get pod "$resetter_pod" >/dev/null 2>&1; then
+    fail 'Pod administrativo efêmero permaneceu após o reset da senha'
+  fi
+  postgres_pod="$(kube -n "$NAMESPACE" get pods \
+    -l app.kubernetes.io/name=dre-postgres,app.kubernetes.io/component=database \
+    -o json | jq -er 'if (.items | length) == 1 then .items[0].metadata.name else error("pod count") end')" \
+    || fail 'reset exige exatamente um Pod PostgreSQL'
+  set +e
+  raw_output="$(kube --request-timeout=120s -n "$NAMESPACE" exec -i "$postgres_pod" \
+    --container postgres -- \
+    psql --no-psqlrc --tuples-only --no-align --quiet \
+    -h /var/run/postgresql -U dre_postgres_admin -d dre \
+    --set=ON_ERROR_STOP=1 \
+    --set=VERBOSITY=terse \
+    --set=release_id="$release_id" \
+    --set=household_id="$household_id" \
+    --set=user_id="$user_id" <<'SQL' 2>&1
+BEGIN;
+SET LOCAL ROLE dre_migrator;
+WITH selected AS (
+  SELECT household_id, id AS user_id, login, active, version, password_hash
+  FROM users
+  WHERE household_id = :'household_id'::uuid
+    AND id = :'user_id'::uuid
+)
+SELECT json_build_object(
+  'schema', 1,
+  'release_id', :'release_id',
+  'session_user', session_user,
+  'current_role', current_role,
+  'user_rows', (SELECT count(*)::int FROM selected),
+  'login', (SELECT login FROM selected),
+  'active', COALESCE((SELECT active FROM selected), false),
+  'version', COALESCE((SELECT version FROM selected), 0),
+  'password_hash_argon2id', COALESCE((SELECT password_hash LIKE '$argon2id$%' FROM selected), false),
+  'active_sessions', (
+    SELECT count(*)::int FROM sessions
+    WHERE household_id = :'household_id'::uuid
+      AND user_id = :'user_id'::uuid
+      AND revoked_at IS NULL
+  ),
+  'active_refresh_tokens', (
+    SELECT count(*)::int FROM session_refresh_tokens
+    WHERE household_id = :'household_id'::uuid
+      AND session_id IN (
+        SELECT id FROM sessions
+        WHERE household_id = :'household_id'::uuid
+          AND user_id = :'user_id'::uuid
+      )
+      AND revoked_at IS NULL
+  ),
+  'audit_password_resets', (
+    SELECT count(*)::int FROM audit_log
+    WHERE household_id = :'household_id'::uuid
+      AND actor_kind = 'SYSTEM'
+      AND actor_user_id IS NULL
+      AND action = 'UPDATED'
+      AND resource_type = 'USER'
+      AND resource_id = :'user_id'::uuid
+      AND changed_fields = ARRAY['password', 'sessions']::text[]
+  ),
+  'privileges', json_build_object(
+    'users_select', has_table_privilege(current_role, 'public.users', 'SELECT'),
+    'sessions_select', has_table_privilege(current_role, 'public.sessions', 'SELECT'),
+    'session_refresh_tokens_select', has_table_privilege(current_role, 'public.session_refresh_tokens', 'SELECT'),
+    'audit_log_select', has_table_privilege(current_role, 'public.audit_log', 'SELECT')
+  )
+)::text;
+ROLLBACK;
+SQL
+  )"
+  exit_code="$?"
+  set -e
+  reset_state="$(printf '%s' "$raw_output" | sanitize_diagnostic_output | tail -c 16384)"
+  [[ "$exit_code" -eq 0 ]] || fail 'não foi possível verificar o reset da senha DRE'
+  printf '%s\n' "$reset_state" | jq -e '
+    .schema == 1
+    and .release_id == "'"$release_id"'"
+    and .session_user == "dre_postgres_admin"
+    and .current_role == "dre_migrator"
+    and .user_rows == 1
+    and .login == "gleison"
+    and .active == true
+    and .version >= 2
+    and .password_hash_argon2id == true
+    and .active_sessions == 0
+    and .active_refresh_tokens == 0
+    and .audit_password_resets >= 1
+    and .privileges.users_select == true
+    and .privileges.sessions_select == true
+    and .privileges.session_refresh_tokens_select == true
+    and .privileges.audit_log_select == true
+  ' >/dev/null || fail 'reset da senha DRE diverge do contrato fechado'
+  verify_runtime_core "$release_id"
+  [[ "$(secret_inventory_fingerprint)" == "$secrets_before" ]] \
+    || fail 'Secrets mudaram durante o reset da senha DRE'
+  [[ "$(protected_fingerprint)" == "$protected_before" ]] \
+    || fail 'recurso protegido mudou durante o reset da senha DRE'
+  release_shared_maintenance_locks
+  verify_protected_projects
+  jq -cn \
+    --arg release_id "$release_id" \
+    --arg operation_id "$operation_id" \
+    --arg household_id "$household_id" \
+    --arg user_id "$user_id" \
+    --arg completed_at_utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{schema:1,status:"passed",release_id:$release_id,operation_id:$operation_id,household_id:$household_id,user_id:$user_id,login:"gleison",database_mutated:true,financial_mutated:false,sessions_revoked:true,completed_at_utc:$completed_at_utc}' \
+    | atomic_write "$receipt" 0600
+  trap - EXIT
+  audit_event reset-password passed "$release_id" "$operation_id"
+  pass 'senha do usuário Gleison redefinida e sessões antigas revogadas'
+}
+
 backup_database() {
   [[ "$#" -eq 2 ]] || fail 'uso: backup {full|diff} OPERATION_ID'
   local backup_type="$1" operation_id="$2" release_id info stop
@@ -3579,7 +3991,7 @@ status() {
 
 contract() {
   [[ "$#" -eq 0 ]] || fail 'uso: contract'
-  jq -cn '{schema:2,controller:"dre-deployctl",namespace:"dre-production",edge_namespace:"dre-edge",validation_namespace:"dre-validation",restore_namespace:"dre-restore-drill",lifecycle:"always-active",secondary_slot_member:false,permanent_containers:["api","worker","postgres"],edge_connector:"cloudflared-isolated",images:"digest-only",release_signature:"ed25519",release_schemas:{import:[1,2],deploy:[2],rollback:[1,2]},migration_count:9,validation:{required_before_plan:true,disposable:true,preserve_on_failure:true,cleanup_on_success:true,restarts:["api","worker","postgres"]},postgres_upgrade:{requires_current_backup_after_plan:true,only_postgres_digest_change:true,rollback:true},first_deploy_recovery:{requires_failed_receipt:true,requires_validation:true,preserves_pvc:true,applies_migrations:false},secret_input_schema:1,bridge_token_source:"orchestrator-stdin",edge_token_source:"orchestrator-stdin",read_only:["contract","status","diagnose-validation","diagnose-production","diagnose-accounts"],mutations:["import-release","initialize-secrets","validate-release","cleanup-validation","recover-first-deploy","plan","deploy","upgrade-postgres","configure-edge","provision-accounts","reconcile-accounts","authorize-device","backup","restore-drill","cleanup-restore"],generic_shell:false,generic_kubectl:false}'
+  jq -cn '{schema:2,controller:"dre-deployctl",namespace:"dre-production",edge_namespace:"dre-edge",validation_namespace:"dre-validation",restore_namespace:"dre-restore-drill",lifecycle:"always-active",secondary_slot_member:false,permanent_containers:["api","worker","postgres"],edge_connector:"cloudflared-isolated",images:"digest-only",release_signature:"ed25519",release_schemas:{import:[1,2],deploy:[2],rollback:[1,2]},migration_count:9,validation:{required_before_plan:true,disposable:true,preserve_on_failure:true,cleanup_on_success:true,restarts:["api","worker","postgres"]},postgres_upgrade:{requires_current_backup_after_plan:true,only_postgres_digest_change:true,rollback:true},first_deploy_recovery:{requires_failed_receipt:true,requires_validation:true,preserves_pvc:true,applies_migrations:false},secret_input_schema:1,bridge_token_source:"orchestrator-stdin",edge_token_source:"orchestrator-stdin",read_only:["contract","status","diagnose-validation","diagnose-production","diagnose-accounts","diagnose-password-reset"],mutations:["import-release","initialize-secrets","validate-release","cleanup-validation","recover-first-deploy","plan","deploy","upgrade-postgres","configure-edge","provision-accounts","reconcile-accounts","authorize-device","reset-password","backup","restore-drill","cleanup-restore"],generic_shell:false,generic_kubectl:false}'
 }
 
 main() {
@@ -3596,6 +4008,7 @@ main() {
     diagnose-production) diagnose_production "$@" ;;
     diagnose-validation) diagnose_validation "$@" ;;
     diagnose-accounts) diagnose_accounts "$@" ;;
+    diagnose-password-reset) diagnose_password_reset "$@" ;;
     import-release) import_release "$@" ;;
     initialize-secrets) initialize_secrets "$@" ;;
     validate-release) validate_release_disposable "$@" ;;
@@ -3609,6 +4022,7 @@ main() {
     provision-accounts) provision_accounts "$@" ;;
     reconcile-accounts) reconcile_accounts "$@" ;;
     authorize-device) authorize_device "$@" ;;
+    reset-password) reset_password "$@" ;;
     backup) backup_database "$@" ;;
     restore-drill) restore_drill "$@" ;;
     cleanup-restore) cleanup_restore "$@" ;;

@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-indice-canonico
   source_path: memory/canon/index.md
   generated_from: decisão do usuário e auditoria do servidor em 2026-08-15
-  updated_at: 2026-08-31
+  updated_at: 2026-09-10
   status: canonical
 
 ## Regra de entrada
@@ -35,8 +35,10 @@ corpus por padrão.
 - PostgreSQL 18.6, pgBackRest 2.59 e K3s v1.36.2 estão saudáveis; audit log do
   Kubernetes está ativo e há backup consistente do cluster com checksum.
 - Blindou possui runtime implantado. O slot APIWPP/SaferWPP está sem ocupante;
-  DRE possui fundação, Secrets e release validada, mas produção continua sem
-  runtime. Pixel e SaferWPP permanecem sem runtime.
+  DRE possui fundação, Secrets, release ativa, PostgreSQL/PVC dedicados, edge
+  HTTPS, Pages configurado, contas reconciliadas, aparelho Android atual
+  autorizado e senha de `gleison` redefinida. Pixel e SaferWPP permanecem sem
+  runtime.
 - Os cinco projetos possuem fronteiras documentadas. APIWPP, Blindou e DRE têm
   controladores próprios instalados; Pixel e SaferWPP falham fechados para
   alterações.
@@ -63,14 +65,15 @@ corpus por padrão.
   Trivy 0.70.0 com recibo D064; `foundation`, dados, K3s e I2 permanecem fora
   do escopo.
 - D029 definiu o DRE fora do slot, e D030 autorizou seu helper de bootstrap
-  fechado. Fundação, controlador schema 2, identidade, cinco Secrets sem FCM,
-  timers, alertas e métricas estão instalados. A release assinada
-  `dre-20260831T202100Z-f6b06765ff61` passou em `dre-validation`: nove
-  migrations, acessos, bootstrap, E2E e reinícios dos três componentes foram
-  aprovados, e namespace/PVC/PV temporários foram removidos. Produção continua
-  `release=none`, `gate=secrets-only`, sem PVC ou workload. D032 mantém a
-  coordenação do token da ponte; migration/deploy, backup/restore de produção,
-  HTTPS, contas, dispositivos e saldo inicial continuam gates independentes.
+  fechado. A release `dre-20260902T173345Z-a191f86039c1` está ativa em
+  `dre-production` com gate `passed`, API, worker, PostgreSQL e PVC dedicados
+  Ready; `dre-edge` está `connector-only` Ready para
+  `https://dre-api.fitdock.com.br`, e o Pages `dre-familiar` usa
+  `DRE_API_ORIGIN`. As contas `gleison`/`aline` foram reconciliadas sem dado
+  financeiro; em 2026-09-10, o aparelho Android atual foi autorizado para
+  `gleison` e a senha de `gleison` foi redefinida por `reset-password` com
+  sessões antigas revogadas. FCM, saldo inicial auditado e dados financeiros
+  reais continuam pendentes.
 - D036 está executada: `make release-check` e `make e2e` passaram no executor
   rootless sintético do servidor, sem daemon ou acesso ao K3s, e os recursos
   efêmeros foram descartados.

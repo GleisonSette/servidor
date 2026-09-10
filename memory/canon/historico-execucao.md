@@ -2183,3 +2183,37 @@ Resultado: concluído no escopo DRE, sem alterar Blindou.
 - Permanecem pendentes antes de uso real: instalação do APK definitivo no
   aparelho, autorização do dispositivo, FCM, saldo inicial auditado e dados
   financeiros reais.
+
+## 2026-09-10 - Reset protegido da senha DRE concluído
+
+Resultado: DRE permaneceu saudável; o aparelho Android atual ficou autorizado
+para `gleison`; a senha de `gleison` foi redefinida sem segredo em argumento,
+log ou Git.
+
+- O controlador DRE foi primeiro instalado com a operação `reset-password`, mas
+  a tentativa inicial retornou erro remoto antes de confirmar mutação. O
+  diagnóstico fechado posterior confirmou que ela não havia alterado a senha:
+  `version=1`, zero auditoria de reset, zero sessão ativa e nenhum Pod
+  `dre-password-resetter` pendurado.
+- O controlador foi corrigido para ler a senha logo no início de
+  `reset-password` por `stdin` e repassá-la por `stdin` ao `dre-admin-cli`,
+  eliminando a espera implícita de entrada durante preflights longos. Também foi
+  adicionada a leitura fechada `diagnose-password-reset`.
+- O bundle
+  `29a542bb371b95cb9e5a9fe4e7d105499afb15e92755ad9e3279ec74a94c2910` foi
+  transportado para
+  `/home/apiadmin/dre-controller-bootstrap-4902604dad96-20260910T141045Z`,
+  conferido com owner `apiadmin:apiadmin`, modo `0600` e SHA-256 esperado, e
+  instalado com backup root-only
+  `/var/backups/servidor-local/dre-controller-bootstrap/20260910T141618Z`.
+- A operação `20260910T142420Z-82ccc836b7d0` redefiniu a senha de `gleison` e
+  revogou sessões antigas. O diagnóstico posterior confirmou `version=2`, hash
+  Argon2id, zero sessão ativa, zero refresh token ativo, uma auditoria
+  `USER/UPDATED` de reset e ausência do Pod efêmero.
+- O DRE continuou em `dre-production` com release
+  `dre-20260902T173345Z-a191f86039c1`, gate `passed`, PVC `Bound`, API, worker
+  e PostgreSQL Ready; `dre-edge` permaneceu `connector-only` Ready e
+  `dre-validation` ausente. A API pública respondeu HTTP 200 em `/health/live`
+  e `/health/ready`.
+- Os arquivos temporários locais de senha foram apagados e a verificação local
+  confirmou ausência do arquivo em texto e do arquivo DPAPI.

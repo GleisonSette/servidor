@@ -4,14 +4,14 @@ metadata:
   canon_id: canon-estado-atual
   source_path: memory/canon/estado-atual.md
   generated_from: auditoria SSH, runtime K3s, Prometheus e repositórios locais
-  updated_at: 2026-09-06
+  updated_at: 2026-09-10
   status: canonical
 
 ## Escopo e data da evidência
 
 Este canon reúne o estado atual do host: versões, portas, capacidade, backups,
 workloads e serviços. A última auditoria de capacidade ocorreu em 2026-08-26 e
-a última operação DRE foi observada em 2026-09-06. O DRE possui fundação,
+a última operação DRE foi observada em 2026-09-10. O DRE possui fundação,
 Secrets, PostgreSQL/PVC dedicados e a release
 `dre-20260902T173345Z-a191f86039c1` ativa, com API, worker e PostgreSQL Ready.
 O backup completo externo e o restore descartável passaram. A reconciliação
@@ -25,9 +25,11 @@ e transição pendente ausente. O edge Cloudflare foi ativado na operação
 HTTP 200 em `/health/live` e `/health/ready`. O Pages `dre-familiar` recebeu
 `DRE_API_ORIGIN`, implantou o commit DRE `6b90023` no deployment
 `29c2142b-6c05-4a33-9e17-eb77f3552ce2` com status `success` e respondeu 401
-esperado em `/api/v1/me` e `/events` sem sessão. Instalação do APK definitivo
-em aparelho, FCM, dispositivo autorizado, saldo inicial e dados financeiros
-reais permanecem pendentes.
+esperado em `/api/v1/me` e `/events` sem sessão. Em 2026-09-10, o aparelho
+Android atual foi autorizado para `gleison` e a senha de `gleison` foi
+redefinida pela operação `20260910T142420Z-82ccc836b7d0`, com hash Argon2id,
+sessões antigas revogadas e zero dado financeiro alterado. FCM, saldo inicial
+auditado e dados financeiros reais permanecem pendentes.
 
 ## DRE ativo e backup completo observado em 2026-09-02
 
@@ -200,8 +202,22 @@ reais permanecem pendentes.
   `/health/live` e `/health/ready` responderam HTTP 200; Pages produção
   `/api/v1/me` e `/events` responderam HTTP 401 sem sessão, comprovando ponte
   ativa e autenticação exigida. A chave Android definitiva já existe protegida
-  fora do Git. Instalação do APK definitivo em aparelho, FCM, dispositivo
-  autorizado, saldo inicial e dados financeiros reais continuam ausentes.
+  fora do Git.
+- Em 2026-09-10, o controlador DRE foi renovado pelo bundle SHA-256
+  `29a542bb371b95cb9e5a9fe4e7d105499afb15e92755ad9e3279ec74a94c2910`,
+  transportado para
+  `/home/apiadmin/dre-controller-bootstrap-4902604dad96-20260910T141045Z` e
+  instalado com backup
+  `/var/backups/servidor-local/dre-controller-bootstrap/20260910T141618Z`.
+  A interface fechada passou a aceitar `diagnose-password-reset` e
+  `reset-password`; a senha é lida no início da operação por `stdin`, nunca por
+  argumento, log ou Git.
+- A operação `20260910T142420Z-82ccc836b7d0` redefiniu a senha de `gleison` e
+  revogou sessões antigas. O diagnóstico posterior retornou `version=2`,
+  `password_hash_argon2id=true`, zero sessão ativa, zero refresh token ativo,
+  uma auditoria de reset e `resetter_pod_present=false`. A checagem pública da
+  API continuou com HTTP 200 em `/health/live` e `/health/ready`, e os arquivos
+  temporários locais de senha estavam ausentes.
 
 ## PostgreSQL dedicado Blindou I1 autorizado em 2026-08-29
 

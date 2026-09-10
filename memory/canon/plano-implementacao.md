@@ -422,17 +422,16 @@ Aceite manual:
 ## Fase 3B - DRE familiar independente
 
 Status: rollout persistente, backup completo, restore descartável,
-reconciliação formal das contas, edge Cloudflare, rota HTTPS e
-`DRE_API_ORIGIN` concluídos. A release `dre-20260902T173345Z-a191f86039c1`
-está ativa com nove migrations, API, worker, PostgreSQL e PVC dedicados
-saudáveis. A operação `20260906T160642Z-17e9a94b52b5` reconciliou
-`gleison`/`aline` sem criar dado financeiro, e a operação
-`20260906T164449Z-e7b71ea76649` deixou `dre-edge` em `connector-only` Ready.
-`https://dre-api.fitdock.com.br` respondeu HTTP 200 em `/health/live` e
-`/health/ready`; o Pages `dre-familiar` implantou o commit DRE `6b90023` com
-status `success` e a ponte respondeu 401 esperado em `/api/v1/me` e `/events`
-sem sessão. Instalação do APK definitivo em aparelho, FCM, dispositivo
-autorizado, saldo inicial e dados financeiros reais continuam fora do escopo.
+reconciliação formal das contas, edge Cloudflare, rota HTTPS,
+`DRE_API_ORIGIN`, autorização do aparelho Android atual e reset protegido da
+senha de `gleison` concluídos. A release
+`dre-20260902T173345Z-a191f86039c1` está ativa com nove migrations, API,
+worker, PostgreSQL e PVC dedicados saudáveis. A operação
+`20260906T160642Z-17e9a94b52b5` reconciliou `gleison`/`aline` sem criar dado
+financeiro, a operação `20260906T164449Z-e7b71ea76649` deixou `dre-edge` em
+`connector-only` Ready, e a operação `20260910T142420Z-82ccc836b7d0`
+redefiniu a senha de `gleison`, revogando sessões antigas. FCM, saldo inicial
+auditado e dados financeiros reais continuam fora do escopo.
 
 Ordem obrigatória:
 
@@ -484,11 +483,21 @@ Ordem obrigatória:
    instalado com backup
    `/var/backups/servidor-local/dre-controller-bootstrap/20260906T164338Z`;
 13. concluído em 2026-09-06: o Cloudflare Tunnel `dre-production-local` ficou
-   saudável, o DNS `dre-api.fitdock.com.br` foi criado, `dre-edge` ficou Ready,
-   `DRE_API_ORIGIN` foi salvo no Pages e o deployment
-   `29c2142b-6c05-4a33-9e17-eb77f3552ce2` terminou em `success`. FCM, saldo
-   inicial, dispositivo Android autorizado e dados financeiros reais permanecem
-   fora desta operação.
+    saudável, o DNS `dre-api.fitdock.com.br` foi criado, `dre-edge` ficou Ready,
+    `DRE_API_ORIGIN` foi salvo no Pages e o deployment
+    `29c2142b-6c05-4a33-9e17-eb77f3552ce2` terminou em `success`. FCM, saldo
+    inicial, dispositivo Android autorizado e dados financeiros reais permaneciam
+    fora desta operação;
+14. concluído em 2026-09-10: o aparelho Android atual foi autorizado para
+    `gleison` e o controlador DRE recebeu as operações fechadas
+    `diagnose-password-reset` e `reset-password`, instaladas pelo bundle
+    `29a542bb371b95cb9e5a9fe4e7d105499afb15e92755ad9e3279ec74a94c2910`, com
+    backup
+    `/var/backups/servidor-local/dre-controller-bootstrap/20260910T141618Z`.
+    A senha de `gleison` foi redefinida por `stdin`, sem argumento, log ou Git,
+    na operação `20260910T142420Z-82ccc836b7d0`. O diagnóstico confirmou
+    `version=2`, hash Argon2id, sessões e refresh tokens ativos zerados, auditoria
+    de reset e ausência do Pod efêmero.
 
 Aceite automatizado offline:
 
