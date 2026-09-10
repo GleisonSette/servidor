@@ -699,7 +699,42 @@ Em 2026-08-24, a secret key foi validada e guardada em
 sete planos live passaram na verificação autenticada. Em 2026-08-25, a release
 compatível `ab15a31` foi implantada após backup, a migration `0009` vinculou o
 catálogo e a ativação fechada materializou somente o par Pagar.me no runtime.
-UAZAPI e Resend continuam ausentes.
+UAZAPI e Resend continuam ausentes do runtime.
+
+### Preparação inativa de UAZAPI e Resend
+
+Quando o domínio remetente já estiver verificado na Resend e o controlador
+atualizado estiver instalado, a custódia das credenciais dos dois provedores é
+uma operação separada da ativação:
+
+```powershell
+.\operations\Invoke-BlindouProviderCredentialStaging.ps1
+```
+
+O orquestrador solicita em campos protegidos o endpoint HTTPS da UAZAPI, o
+token administrativo, a chave `re_` da Resend e o remetente verificado. Ele
+transmite os quatro valores somente por `stdin` ao comando fechado
+`stage-provider-credentials`; não os grava na estação, no Git, em argumento,
+em log ou no Kubernetes. O controlador valida formato e guarda o conjunto
+atômico em `/etc/blindou/provider-staging`, com diretório `root:root 0700` e
+arquivos `root:root 0600`.
+
+Antes e depois da escrita, o controlador exige `UAZAPI_ENABLED=false`,
+`EMAIL_PROVIDER=disabled`, ausência de `UAZAPI_ADMIN_TOKEN` e
+`RESEND_API_KEY` do cofre de runtime e ausência das duas chaves do Secret
+`blindou-core-secrets`. Repetir o conjunto idêntico é idempotente; qualquer
+valor diferente falha fechado e requer uma operação de rotação própria. A
+verificação sem revelar valores é:
+
+```bash
+sudo -n /usr/local/sbin/blindou-deployctl verify-staged-provider-credentials
+```
+
+Essa preparação não faz chamada autenticada a UAZAPI ou Resend, não envia
+e-mail, não cria ConfigMap ou Secret Kubernetes, não altera workload, não
+configura Alertmanager e não ativa provider. A futura materialização no runtime
+e a ativação de cada provider permanecem operações distintas, com autorização,
+contrato de rollback e validação próprios.
 
 Essa etapa não altera `production.env`, ConfigMap, Secret Kubernetes ou
 workload. Depois de atualizar o controlador e antes de publicar a candidata,

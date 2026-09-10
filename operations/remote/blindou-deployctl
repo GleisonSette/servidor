@@ -72,6 +72,11 @@ readonly GHCR_PULL_PROOF_ROOT="${STATE_ROOT}/ghcr-pull-proofs"
 readonly GHCR_PULL_PROOF_LATEST="${STATE_ROOT}/ghcr-pull-proof-latest"
 readonly RUNTIME_SECRET_DIR="${DATA_ROOT}/runtime"
 readonly RUNTIME_CONFIG_FILE="${RUNTIME_SECRET_DIR}/production.env"
+readonly PROVIDER_STAGING_SECRET_DIR="${DATA_ROOT}/provider-staging"
+readonly PROVIDER_STAGING_UAZAPI_BASE_URL_FILE="${PROVIDER_STAGING_SECRET_DIR}/uazapi-base-url"
+readonly PROVIDER_STAGING_UAZAPI_ADMIN_TOKEN_FILE="${PROVIDER_STAGING_SECRET_DIR}/uazapi-admin-token"
+readonly PROVIDER_STAGING_RESEND_API_KEY_FILE="${PROVIDER_STAGING_SECRET_DIR}/resend-api-key"
+readonly PROVIDER_STAGING_EMAIL_FROM_FILE="${PROVIDER_STAGING_SECRET_DIR}/email-from"
 readonly NATS_PKI_DIR="${DATA_ROOT}/nats-pki"
 readonly DISPATCH_V3_SECRET_DIR="${DATA_ROOT}/dispatch-v3"
 readonly DISPATCH_V3_RESOLVER_PKI_DIR="${DISPATCH_V3_SECRET_DIR}/resolver-pki"
@@ -112,6 +117,7 @@ readonly FAILED_UPDATE_BACKUP_CONFIRMATION='blindou-failed-update-backup'
 readonly FAILED_UPDATE_SUCCESSOR_BACKUP_CONFIRMATION='blindou-failed-update-successor-backup'
 readonly ROLLBACK_CONFIRMATION='blindou-signed-rollback'
 readonly RUNTIME_SECRETS_CONFIRMATION='blindou-runtime-secrets'
+readonly PROVIDER_STAGING_CONFIRMATION='blindou-provider-credentials-staging'
 readonly UI_REVIEW_RUNTIME_CONFIRMATION='blindou-ui-review-runtime'
 readonly ALERT_DELIVERY_CONFIRMATION='blindou-alert-delivered'
 readonly OFFSITE_BACKUP_CONFIRMATION='blindou-offsite-backup'
@@ -198,6 +204,7 @@ cleanup() {
       /etc/prometheus/rules/blindou-platform.yml.tmp|\
       /etc/default/prometheus-alertmanager.tmp|\
       "${RUNTIME_SECRET_DIR}"/*.tmp|\
+      "${PROVIDER_STAGING_SECRET_DIR}".tmp.*|\
       "${DISPATCH_V3_SECRET_DIR}"/*.tmp|"${DISPATCH_V3_RESOLVER_PKI_DIR}"/*.tmp|\
       "${DISPATCH_V3_RESOLVER_PKI_DIR}"/*.csr|"${DISPATCH_V3_RESOLVER_PKI_DIR}"/*.ext|\
       "${DISPATCH_V3_STATE}.tmp"|/var/tmp/blindou-dispatch-v3-*|\
@@ -3709,6 +3716,158 @@ provision_ui_review_runtime() {
   pass 'núcleo preparado para revisão da UI; UAZAPI, Resend, Pagar.me e alertas externos permanecem ausentes'
 }
 
+uazapi_base_url_is_valid() {
+  local value="$1"
+  [[ "$value" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[^[:space:]\"\\?#]*)?$ ]]
+}
+
+uazapi_admin_token_is_valid() {
+  local value="$1"
+  [[ "$value" =~ ^[^[:space:][:cntrl:]]{16,2048}$ ]]
+}
+
+resend_api_key_is_valid() {
+  local value="$1"
+  [[ "$value" =~ ^re_[A-Za-z0-9_-]{16,512}$ ]]
+}
+
+email_from_is_valid() {
+  local value="$1"
+  [[ "$value" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$ && "$value" != *.invalid ]]
+}
+
+provider_staging_files_are_secure() {
+  [[ -d "$PROVIDER_STAGING_SECRET_DIR" && ! -L "$PROVIDER_STAGING_SECRET_DIR" \
+      && "$(stat -c '%U:%G:%a' "$PROVIDER_STAGING_SECRET_DIR")" == 'root:root:700' ]] \
+    || return 1
+  local provider_file
+  for provider_file in \
+    "$PROVIDER_STAGING_UAZAPI_BASE_URL_FILE" \
+    "$PROVIDER_STAGING_UAZAPI_ADMIN_TOKEN_FILE" \
+    "$PROVIDER_STAGING_RESEND_API_KEY_FILE" \
+    "$PROVIDER_STAGING_EMAIL_FROM_FILE"; do
+    runtime_secret_file_is_secure "$provider_file" \
+      && [[ "$(wc -l <"$provider_file")" == '1' ]] \
+      || return 1
+  done
+  local uazapi_base_url uazapi_admin_token resend_api_key email_from valid=0
+  IFS= read -r uazapi_base_url <"$PROVIDER_STAGING_UAZAPI_BASE_URL_FILE" || return 1
+  IFS= read -r uazapi_admin_token <"$PROVIDER_STAGING_UAZAPI_ADMIN_TOKEN_FILE" || return 1
+  IFS= read -r resend_api_key <"$PROVIDER_STAGING_RESEND_API_KEY_FILE" || return 1
+  IFS= read -r email_from <"$PROVIDER_STAGING_EMAIL_FROM_FILE" || return 1
+  if uazapi_base_url_is_valid "$uazapi_base_url" \
+      && uazapi_admin_token_is_valid "$uazapi_admin_token" \
+      && resend_api_key_is_valid "$resend_api_key" \
+      && email_from_is_valid "$email_from"; then
+    valid=1
+  fi
+  unset uazapi_base_url uazapi_admin_token resend_api_key email_from
+  (( valid == 1 ))
+}
+
+provider_staging_preserves_inactive_runtime() {
+  grep -Fxq 'UAZAPI_ENABLED=false' "$RUNTIME_CONFIG_FILE" \
+    && grep -Fxq 'EMAIL_PROVIDER=disabled' "$RUNTIME_CONFIG_FILE" \
+    && [[ ! -e "${RUNTIME_SECRET_DIR}/UAZAPI_ADMIN_TOKEN" \
+      && ! -e "${RUNTIME_SECRET_DIR}/RESEND_API_KEY" ]] \
+    || return 1
+  local core_keys
+  core_keys="$(kube -n "$APP_NAMESPACE" get secret blindou-core-secrets \
+    -o go-template='{{range $key, $value := .data}}{{printf "%s\\n" $key}}{{end}}')" \
+    || return 1
+  ! grep -Fxq UAZAPI_ADMIN_TOKEN <<<"$core_keys" \
+    && ! grep -Fxq RESEND_API_KEY <<<"$core_keys"
+}
+
+verify_staged_provider_credentials() {
+  require_platform_preconditions
+  verify_runtime_material
+  provider_staging_files_are_secure \
+    || fail 'cofre de preparação dos provedores está ausente ou inseguro'
+  provider_staging_preserves_inactive_runtime \
+    || fail 'cofre de preparação exige UAZAPI e Resend ausentes do runtime e do Kubernetes'
+  pass 'credenciais UAZAPI e Resend preparadas fora do runtime; provedores permanecem inativos'
+}
+
+stage_provider_credentials() {
+  [[ "${1:-}" == "$PROVIDER_STAGING_CONFIRMATION" ]] \
+    || fail "confirmação exigida: ${PROVIDER_STAGING_CONFIRMATION}"
+  [[ ! -t 0 ]] || fail 'credenciais dos provedores devem chegar por stdin não interativo'
+  require_platform_preconditions
+  verify_runtime_material
+  provider_staging_preserves_inactive_runtime \
+    || fail 'preparação recusada: UAZAPI ou Resend já alcança o runtime ou Kubernetes'
+
+  local schema uazapi_url_b64 uazapi_token_b64 resend_key_b64 email_from_b64 extra
+  IFS= read -r schema || fail 'payload de preparação ausente'
+  IFS= read -r uazapi_url_b64 || fail 'UAZAPI_BASE_URL ausente'
+  IFS= read -r uazapi_token_b64 || fail 'UAZAPI_ADMIN_TOKEN ausente'
+  IFS= read -r resend_key_b64 || fail 'RESEND_API_KEY ausente'
+  IFS= read -r email_from_b64 || fail 'EMAIL_FROM_EMAIL ausente'
+  [[ "$schema" == 'schema=1' ]] || fail 'schema do payload de preparação inválido'
+  local encoded
+  for encoded in "$uazapi_url_b64" "$uazapi_token_b64" "$resend_key_b64" "$email_from_b64"; do
+    [[ "$encoded" =~ ^[A-Za-z0-9+/=]{4,8192}$ ]] \
+      || fail 'campo base64 inválido no payload de preparação'
+  done
+  if IFS= read -r extra; then
+    fail 'payload de preparação contém campo adicional'
+  fi
+
+  local uazapi_base_url uazapi_admin_token resend_api_key email_from
+  uazapi_base_url="$(printf '%s' "$uazapi_url_b64" | base64 -d)" \
+    || fail 'UAZAPI_BASE_URL inválida'
+  uazapi_admin_token="$(printf '%s' "$uazapi_token_b64" | base64 -d)" \
+    || fail 'UAZAPI_ADMIN_TOKEN inválido'
+  resend_api_key="$(printf '%s' "$resend_key_b64" | base64 -d)" \
+    || fail 'RESEND_API_KEY inválida'
+  email_from="$(printf '%s' "$email_from_b64" | base64 -d)" \
+    || fail 'EMAIL_FROM_EMAIL inválido'
+  uazapi_base_url_is_valid "$uazapi_base_url" \
+    || fail 'UAZAPI_BASE_URL deve ser HTTPS sem credenciais embutidas'
+  uazapi_admin_token_is_valid "$uazapi_admin_token" \
+    || fail 'UAZAPI_ADMIN_TOKEN possui formato inválido'
+  resend_api_key_is_valid "$resend_api_key" \
+    || fail 'RESEND_API_KEY possui formato inválido'
+  email_from_is_valid "$email_from" \
+    || fail 'EMAIL_FROM_EMAIL possui formato inválido'
+
+  if [[ -e "$PROVIDER_STAGING_SECRET_DIR" || -L "$PROVIDER_STAGING_SECRET_DIR" ]]; then
+    provider_staging_files_are_secure \
+      || fail 'cofre de preparação existente está inseguro'
+    local existing_uazapi_base_url existing_uazapi_admin_token existing_resend_api_key existing_email_from
+    IFS= read -r existing_uazapi_base_url <"$PROVIDER_STAGING_UAZAPI_BASE_URL_FILE"
+    IFS= read -r existing_uazapi_admin_token <"$PROVIDER_STAGING_UAZAPI_ADMIN_TOKEN_FILE"
+    IFS= read -r existing_resend_api_key <"$PROVIDER_STAGING_RESEND_API_KEY_FILE"
+    IFS= read -r existing_email_from <"$PROVIDER_STAGING_EMAIL_FROM_FILE"
+    [[ "$existing_uazapi_base_url" == "$uazapi_base_url" \
+        && "$existing_uazapi_admin_token" == "$uazapi_admin_token" \
+        && "$existing_resend_api_key" == "$resend_api_key" \
+        && "$existing_email_from" == "$email_from" ]] \
+      || fail 'cofre de preparação já possui credenciais diferentes; rotação exige operação própria'
+    unset uazapi_base_url uazapi_admin_token resend_api_key email_from \
+      existing_uazapi_base_url existing_uazapi_admin_token existing_resend_api_key existing_email_from
+    verify_staged_provider_credentials
+    pass 'credenciais dos provedores já estavam preparadas e permanecem fora do runtime'
+    return
+  fi
+
+  local temporary_secret_dir
+  temporary_secret_dir="$(mktemp -d "${PROVIDER_STAGING_SECRET_DIR}.tmp.XXXXXX")"
+  cleanup_paths+=("$temporary_secret_dir")
+  install -d -o root -g root -m 0700 "$temporary_secret_dir"
+  printf '%s\n' "$uazapi_base_url" >"${temporary_secret_dir}/uazapi-base-url"
+  printf '%s\n' "$uazapi_admin_token" >"${temporary_secret_dir}/uazapi-admin-token"
+  printf '%s\n' "$resend_api_key" >"${temporary_secret_dir}/resend-api-key"
+  printf '%s\n' "$email_from" >"${temporary_secret_dir}/email-from"
+  chown root:root "${temporary_secret_dir}"/*
+  chmod 0600 "${temporary_secret_dir}"/*
+  unset uazapi_base_url uazapi_admin_token resend_api_key email_from
+  mv -- "$temporary_secret_dir" "$PROVIDER_STAGING_SECRET_DIR"
+  verify_staged_provider_credentials
+  pass 'credenciais UAZAPI e Resend preparadas no cofre root-only; runtime e Kubernetes continuam inativos'
+}
+
 provision_runtime_secrets() {
   [[ "${1:-}" == "$RUNTIME_SECRETS_CONFIRMATION" ]] \
     || fail "confirmação exigida: ${RUNTIME_SECRETS_CONFIRMATION}"
@@ -5763,6 +5922,11 @@ show_status() {
   else
     printf 'marketplaces_runtime_state=inactive\n'
   fi
+  if provider_staging_files_are_secure; then
+    printf 'provider_credential_staging_state=prepared_inactive\n'
+  else
+    printf 'provider_credential_staging_state=absent_or_insecure\n'
+  fi
   if [[ -f "$DISPATCH_V3_STATE" && ! -L "$DISPATCH_V3_STATE" \
       && "$(stat -c '%U:%G:%a' "$DISPATCH_V3_STATE")" == 'root:root:600' ]]; then
     printf 'dispatch_v3_state=%s\n' "$(sed -n 's/^state=//p' "$DISPATCH_V3_STATE")"
@@ -5948,6 +6112,14 @@ case "${1:-}" in
   provision-runtime-secrets)
     [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl provision-runtime-secrets CONFIRMAÇÃO'
     provision_runtime_secrets "$2"
+    ;;
+  stage-provider-credentials)
+    [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl stage-provider-credentials CONFIRMAÇÃO'
+    stage_provider_credentials "$2"
+    ;;
+  verify-staged-provider-credentials)
+    [[ $# -eq 1 ]] || fail 'uso: blindou-deployctl verify-staged-provider-credentials'
+    verify_staged_provider_credentials
     ;;
   provision-ui-review-runtime)
     [[ $# -eq 2 ]] || fail 'uso: blindou-deployctl provision-ui-review-runtime CONFIRMAÇÃO'

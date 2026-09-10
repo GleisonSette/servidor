@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-decisoes
   source_path: memory/canon/decisoes.md
   generated_from: decisões do usuário e limites observados do laboratório
-  updated_at: 2026-09-07
+updated_at: 2026-09-10
   status: canonical
 
 ## Resolvida D001 - Projetos admitidos pela plataforma
@@ -1538,3 +1538,25 @@ registrou `state=active` e passou na verificação fechada do Dispatch V3 e do
 slot. Não foi criado bypass adicional nem uma D071: a D033 continua limitada à
 combinação parcial já comprovada e a verificação normal permanece obrigatória
 antes do recibo final.
+
+## Resolvida D071 - Custódia inativa separada para UAZAPI e Resend
+
+Em 2026-09-10, o usuário autorizou que o endpoint e o token administrativo da
+UAZAPI, a chave API da Resend e o remetente verificado sejam guardados antes da
+ativação dos provedores. A regra anterior permanece: com
+`UAZAPI_ENABLED=false` ou `EMAIL_PROVIDER=disabled`, os dois tokens não podem
+existir no cofre de runtime nem no Secret Kubernetes comum.
+
+O controlador passa a aceitar exclusivamente o conjunto completo por `stdin`
+não interativo, sob confirmação literal, e a gravá-lo atomicamente no cofre
+root-only separado `/etc/blindou/provider-staging`. O diretório é `0700`, cada
+arquivo é `0600`, valores divergentes são recusados e a verificação prova tanto
+as permissões do cofre quanto a ausência dos dois tokens e dos dois providers
+do runtime/Kubernetes. A operação não executa chamada autenticada, envio de
+e-mail, ConfigMap, Secret Kubernetes, workload, Alertmanager, migration ou
+ativação.
+
+Esse cofre não autoriza extrair ou reutilizar as credenciais manualmente. A
+materialização futura para o runtime, os efeitos externos, o rollback e a
+ativação de UAZAPI/Resend continuam sendo operações fechadas posteriores, com
+autorização específica e contrato próprio.

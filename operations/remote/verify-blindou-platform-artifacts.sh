@@ -13,6 +13,7 @@ readonly ADDITIONAL_SUPERADMIN_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-Blin
 readonly R2_RUNTIME_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouR2RuntimeCredential.ps1"
 readonly DISPATCH_V3_SECRETS_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouDispatchV3Secrets.ps1"
 readonly PAGARME_CREDENTIAL_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouPagarmeCredential.ps1"
+readonly PROVIDER_STAGING_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouProviderCredentialStaging.ps1"
 readonly PAGARME_ACTIVATION_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouPagarmeActivation.ps1"
 readonly PAGARME_PLANS_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouPagarmePlans.ps1"
 readonly MARKETPLACES_ACTIVATION_SCRIPT="${REPOSITORY_ROOT}/operations/Invoke-BlindouMarketplacesActivation.ps1"
@@ -62,6 +63,18 @@ grep -Fq 'path="${RECEIPT_ROOT}/${name}.state"' "${REMOTE_DIR}/blindou-datactl" 
   || fail 'orquestrador fechado da credencial R2 ausente ou simbólico'
 [[ -f "$PAGARME_CREDENTIAL_SCRIPT" && ! -L "$PAGARME_CREDENTIAL_SCRIPT" ]] \
   || fail 'orquestrador fechado da credencial Pagar.me ausente ou simbólico'
+[[ -f "$PROVIDER_STAGING_SCRIPT" && ! -L "$PROVIDER_STAGING_SCRIPT" ]] \
+  || fail 'orquestrador fechado da preparação UAZAPI/Resend ausente ou simbólico'
+grep -Fq 'stage-provider-credentials blindou-provider-credentials-staging' \
+  "$PROVIDER_STAGING_SCRIPT" \
+  && grep -Fq 'verify-staged-provider-credentials' "$PROVIDER_STAGING_SCRIPT" \
+  && grep -Fq '[Security.SecureString]' "$PROVIDER_STAGING_SCRIPT" \
+  && grep -Fq '[switch]$SelfTest' "$PROVIDER_STAGING_SCRIPT" \
+  || fail 'orquestrador da preparação UAZAPI/Resend não fecha entrada, verificação e self-test'
+if grep -Eq '(Set-Clipboard|KEY_SERVIDOR=|Write-(Host|Output).*\$(uazapiToken|resendKey))' \
+    "$PROVIDER_STAGING_SCRIPT"; then
+  fail 'orquestrador da preparação UAZAPI/Resend pode materializar ou revelar credencial'
+fi
 [[ -f "$PAGARME_ACTIVATION_SCRIPT" && ! -L "$PAGARME_ACTIVATION_SCRIPT" ]] \
   || fail 'orquestrador fechado da ativação Pagar.me ausente ou simbólico'
 [[ -f "$PAGARME_PLANS_SCRIPT" && ! -L "$PAGARME_PLANS_SCRIPT" ]] \
@@ -1313,6 +1326,25 @@ grep -Fq 'PAGARME_PLAN_PROVISIONER_SOURCE' \
   "${REMOTE_DIR}/bootstrap-blindou-deployctl.sh" \
   && grep -Fq 'blindou-pagarme-plans.py' "$PAGARME_CREDENTIAL_SCRIPT" \
   || fail 'bootstrap Pagar.me não transporta e instala o provisionador fechado de planos'
+provider_staging_function="$(sed -n '/^stage_provider_credentials()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+provider_staging_verifier="$(sed -n '/^verify_staged_provider_credentials()/,/^}/p' \
+  "${REMOTE_DIR}/blindou-deployctl")"
+grep -Fq "readonly PROVIDER_STAGING_SECRET_DIR=\"\${DATA_ROOT}/provider-staging\"" \
+  "${REMOTE_DIR}/blindou-deployctl" \
+  && grep -Fq 'stage-provider-credentials blindou-provider-credentials-staging' \
+    "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  && grep -Fq 'verify-staged-provider-credentials' \
+    "${REMOTE_DIR}/blindou-deployctl.sudoers" \
+  && grep -Fq 'provider_staging_preserves_inactive_runtime' <<<"$provider_staging_function" \
+  && grep -Fq 'provider_staging_files_are_secure' <<<"$provider_staging_function" \
+  && grep -Fq 'payload de preparação contém campo adicional' <<<"$provider_staging_function" \
+  && grep -Fq 'cofre de preparação já possui credenciais diferentes' <<<"$provider_staging_function" \
+  && ! grep -Fq 'create_runtime_kubernetes_material' <<<"$provider_staging_function" \
+  && ! grep -Fq 'write_runtime_config' <<<"$provider_staging_function" \
+  && grep -Fq 'provider_staging_preserves_inactive_runtime' <<<"$provider_staging_verifier" \
+  && grep -Fq 'verify_runtime_material' <<<"$provider_staging_verifier" \
+  || fail 'cofre separado UAZAPI/Resend não preserva a inatividade verificável'
 grep -Fq 'bootstrap-superadmin * blindou-bootstrap-superadmin' \
   "${REMOTE_DIR}/blindou-deployctl.sudoers" || fail 'sudoers não libera o bootstrap fechado'
 grep -Fq "readonly GHCR_PULL_VERIFIER='/usr/local/lib/blindou-platform/blindou-ghcr-pull-verify.py'" \

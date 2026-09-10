@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-historico-execucao
   source_path: memory/canon/historico-execucao.md
   generated_from: auditorias e implementações autorizadas no laboratório
-  updated_at: 2026-09-07
+updated_at: 2026-09-10
   status: canonical
 
 ## Regra de registro
@@ -2605,3 +2605,39 @@ release `5e35ca7bd81a4a03e8c8e2b566b2d26c08c8af2a`.
   workloads de APIWPP e SaferWPP;
 - nenhuma D071, migration adicional, rollback, provider ou alteração de
   isolamento foi criada para concluir a ativação.
+
+## 2026-09-10 - Cofre inativo UAZAPI/Resend preparado offline
+
+Resultado: a D071 foi implementada e validada somente no repositório da
+plataforma; nenhum controlador foi instalado no host e nenhuma credencial foi
+recebida nesta execução.
+
+- o novo comando fechado recebe por `stdin` o endpoint UAZAPI, token
+  administrativo, chave Resend e remetente, sob confirmação literal e sem
+  permitir campo adicional;
+- o conjunto é gravado somente em `/etc/blindou/provider-staging`, de forma
+  atômica, root-only e idempotente para valores exatamente iguais; divergência
+  recusa a escrita e exige rotação futura própria;
+- a verificação exige explicitamente UAZAPI e Resend desabilitados, os tokens
+  ausentes de `/etc/blindou/runtime` e ausentes do Secret Kubernetes comum;
+- o orquestrador PowerShell usa campos protegidos, host key estrita e `stdin`;
+  ele não cria arquivo local, não mostra valor, não chama provider e não inicia
+  workload;
+- a sintaxe Bash foi aprovada no workspace descartável do servidor físico e o
+  self-test do orquestrador PowerShell passou; o gate integral de artefatos
+  permanece pendente porque o interpretador Python disponível no ambiente Bash
+  local não possui PyYAML. Nenhuma dependência foi instalada e nenhum workload,
+  cofre, Secret ou credencial foi tocado.
+
+## 2026-09-10 - Correção da evidência de validação D071
+
+Resultado: o gate integral de artefatos foi executado posteriormente no
+workspace descartável do servidor físico e aprovado.
+
+- `verify-blindou-platform-artifacts.sh` aprovou as regressões JetStream e JKS,
+  as doze provas Python dos contratos de pull e os contratos de dados;
+- o workspace temporário contendo apenas `operations/` e `platform/` foi
+  removido e sua ausência foi confirmada por SSH estrito;
+- a frase de pendência da entrada anterior descreve somente a indisponibilidade
+  local de PyYAML; não houve Docker ou WSL nesta validação final, nem acesso a
+  K3s, banco, cofre, Secret, credencial ou workload.

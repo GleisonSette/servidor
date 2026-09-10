@@ -4,7 +4,7 @@ metadata:
   canon_id: canon-plano-implementacao
   source_path: memory/canon/plano-implementacao.md
   generated_from: plano aprovado pelo usuário em 2026-08-15
-  updated_at: 2026-09-07
+updated_at: 2026-09-10
   status: canonical
 
 ## Regra de continuidade
@@ -425,6 +425,13 @@ normal e registrou `state=active` para a release
 `5e35ca7bd81a4a03e8c8e2b566b2d26c08c8af2a`. A verificação fechada do Dispatch
 V3 e a do slot passaram depois da ativação. Nenhuma D071, migration adicional,
 rollback, provider ou nova exceção de gate foi criada.
+
+Em 2026-09-10, a D071 foi preparada offline para separar a custódia dos
+provedores UAZAPI/Resend da sua ativação. O futuro cofre root-only
+`/etc/blindou/provider-staging` aceita somente a entrada protegida completa e
+mantém `UAZAPI_ENABLED=false`, `EMAIL_PROVIDER=disabled` e os dois tokens fora
+do runtime/Kubernetes. Nenhum controlador foi instalado, Secret foi criado,
+provider foi validado ou workload foi reiniciado por essa preparação.
 
 Ordem obrigatória da extensão:
 
