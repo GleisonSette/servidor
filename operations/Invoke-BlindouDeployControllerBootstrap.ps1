@@ -36,6 +36,8 @@ $archivePaths = @(
     'platform/blindou',
     'platform/base/service-exposure-policy.yaml'
 )
+$sshReconnectionAttempts = 3
+$sshReconnectionDelaySeconds = 35
 
 function Invoke-CheckedProcess {
     param(
@@ -47,6 +49,27 @@ function Invoke-CheckedProcess {
     & $FilePath @ArgumentList
     if ($LASTEXITCODE -ne 0) {
         throw "$FailureMessage Código de saída: $LASTEXITCODE."
+    }
+}
+
+function Invoke-RetryableSshWithReconnect {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('idempotent-staging', 'read-only-verification')]
+        [string]$OperationKind,
+        [Parameter(Mandatory = $true)][string[]]$ArgumentList,
+        [Parameter(Mandatory = $true)][string]$FailureMessage
+    )
+
+    for ($attempt = 1; $attempt -le $sshReconnectionAttempts; $attempt++) {
+        & ssh.exe @ArgumentList
+        if ($LASTEXITCODE -eq 0) {
+            return
+        }
+        if ($LASTEXITCODE -ne 255 -or $attempt -eq $sshReconnectionAttempts) {
+            throw "$FailureMessage Código de saída: $LASTEXITCODE."
+        }
+        Start-Sleep -Seconds $sshReconnectionDelaySeconds
     }
 }
 
@@ -113,15 +136,25 @@ try {
     $prepare = @"
 set -eu
 test "`$(hostname)" = apiwpp
-test "`$(sha256sum '$remoteArchive.uploading' | cut -d' ' -f1)" = '$archiveSha256'
-mv -f -- '$remoteArchive.uploading' '$remoteArchive'
+if test -f '$remoteArchive.uploading'; then
+  test "`$(sha256sum '$remoteArchive.uploading' | cut -d' ' -f1)" = '$archiveSha256'
+fi
+if test -f '$remoteArchive'; then
+  test "`$(sha256sum '$remoteArchive' | cut -d' ' -f1)" = '$archiveSha256'
+else
+  mv -- '$remoteArchive.uploading' '$remoteArchive'
+fi
+rm -f -- '$remoteArchive.uploading'
+test "`$(sha256sum '$remoteArchive' | cut -d' ' -f1)" = '$archiveSha256'
 install -d -m 0700 '$remoteRoot'
 tar --extract --gzip --file '$remoteArchive' --directory '$remoteRoot'
 chmod 0755 '$remoteRoot/operations/remote/bootstrap-blindou-deployctl.sh'
 "@
-    Invoke-CheckedProcess -FilePath 'ssh.exe' `
+    Invoke-RetryableSshWithReconnect -OperationKind 'idempotent-staging' `
         -ArgumentList ($sshArgs + @($server, $prepare)) `
         -FailureMessage 'O staging remoto do controlador divergiu.'
+
+    Start-Sleep -Seconds $sshReconnectionDelaySeconds
 
     Import-Module (Join-Path $PSScriptRoot 'Blindou.SudoBootstrap.psm1') -Force
     $bootstrapBusy = $false
@@ -157,7 +190,7 @@ else
 fi
 printf 'blindou_deployctl_files=passed bootstrap_busy=%s\n' '$bootstrapBusy'
 "@
-    Invoke-CheckedProcess -FilePath 'ssh.exe' `
+    Invoke-RetryableSshWithReconnect -OperationKind 'read-only-verification' `
         -ArgumentList ($sshArgs + @($server, $postInstall)) `
         -FailureMessage 'A verificação posterior dos arquivos instalados falhou.'
     Write-Output "blindou_deployctl_bootstrap=passed commit=$ServerCommit archive_sha256=$archiveSha256 busy=$bootstrapBusy"

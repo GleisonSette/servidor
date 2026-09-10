@@ -2654,3 +2654,19 @@ PowerShell 5.1 disponível.
   incompatível;
 - a falha ocorreu antes de transportar ou instalar o controlador e não tocou
   cofre, Secret, credencial, banco, K3s ou workload.
+
+## 2026-09-10 - Reconexão limitada no bootstrap D071
+
+Resultado: a conectividade SSH administrativa foi confirmada com identidade e
+host key fixadas, mas a sequência SCP seguida de SSH imediato sofreu timeout
+intermitente durante o preparo remoto.
+
+- o preparo idempotente e a verificação posterior passam a repetir no máximo
+  três vezes somente para o código SSH transitório `255`, com espera de 35
+  segundos;
+- o archive final é validado por SHA-256 tanto após a transferência quanto em
+  uma retomada, impedindo fonte parcial ou divergente;
+- o bootstrap autenticado que instala o controlador continua sem retry: se sua
+  conexão for ambígua, somente a verificação de hash e estado pode ser repetida;
+- nenhuma mutação de runtime, Secret, credencial, banco, K3s ou workload foi
+  feita por essa correção.

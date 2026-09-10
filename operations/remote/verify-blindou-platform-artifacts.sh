@@ -41,11 +41,19 @@ grep -Fq "[ValidateSet('INSTALAR BLINDOU DEPLOYCTL')]" "$DEPLOY_BOOTSTRAP_SCRIPT
   && grep -Fq "blindou-platform-bootstrap-deployctl/\$ServerCommit" "$DEPLOY_BOOTSTRAP_SCRIPT" \
   && grep -Fq -- "-ControllerSet DeployController" "$DEPLOY_BOOTSTRAP_SCRIPT" \
   && grep -Fq '[Security.Cryptography.SHA256]::Create()' "$DEPLOY_BOOTSTRAP_SCRIPT" \
+  && grep -Fq 'function Invoke-RetryableSshWithReconnect' "$DEPLOY_BOOTSTRAP_SCRIPT" \
+  && grep -Fq -- "-OperationKind 'idempotent-staging'" "$DEPLOY_BOOTSTRAP_SCRIPT" \
+  && grep -Fq -- "-OperationKind 'read-only-verification'" "$DEPLOY_BOOTSTRAP_SCRIPT" \
+  && grep -Fq "if (\$LASTEXITCODE -ne 255 -or \$attempt -eq \$sshReconnectionAttempts)" "$DEPLOY_BOOTSTRAP_SCRIPT" \
+  && grep -Fq "Start-Sleep -Seconds \$sshReconnectionDelaySeconds" "$DEPLOY_BOOTSTRAP_SCRIPT" \
   && grep -Fq "C:\\github\\servidor\\.env" "$SUDO_BOOTSTRAP_MODULE" \
   || fail 'bootstrap do deployctl não fixa confirmação, staging, controlador e cofre'
 if grep -Fq '[Security.Cryptography.SHA256]::HashData' "$DEPLOY_BOOTSTRAP_SCRIPT"; then
   fail 'bootstrap do deployctl usa API SHA-256 incompatível com Windows PowerShell 5.1'
 fi
+[[ "$(grep -Fc 'Invoke-RetryableSshWithReconnect -OperationKind' \
+  "$DEPLOY_BOOTSTRAP_SCRIPT")" == '2' ]] \
+  || fail 'bootstrap do deployctl não separa retry de leitura da instalação autenticada'
 if grep -Eq '(KEY_SERVIDOR=|Write-(Host|Output).*(password|senha))' "$DEPLOY_BOOTSTRAP_SCRIPT"; then
   fail 'orquestrador do deployctl pode materializar ou revelar a senha administrativa'
 fi
