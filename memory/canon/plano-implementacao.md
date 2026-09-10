@@ -253,6 +253,12 @@ slot válido e ativo, sem perda de dados. A API pública responde HTTP 200 em
 credenciais preparadas. A prevenção de recorrência em ociosidade continua
 pendente; não considerar a recuperação como conclusão da SPEC ou prova de envio.
 
+Continuação autorizada D074: preparar o upgrade forward-only da D085 do
+Blindou, mantendo providers OFF. A comparação offline dos bundles e suas
+negativas estão implementadas; controlador mutável, imagens comprovadas,
+orçamento medido, backup novo/offsite, migration manual `0015` e prova viva
+continuam pendentes. Não usar `apply` de primeira ativação nem reset de slot.
+
 Status: a release `11e21b3319c197ef18440e7f494290b298f2db1e` está aplicada
 com 12 migrations, todos os workloads Ready, aplicação e EDGE em `passed`,
 Tunnel e R2 saudáveis e backup `blindou-20260825T092915Z` confirmado offsite.

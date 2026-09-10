@@ -429,6 +429,7 @@ source = Path(sys.argv[1]).read_text(encoding="utf-8")
 compile(source, sys.argv[1], "exec")
 PY
 "$python_command" "${REMOTE_DIR}/test-blindou-ghcr-pull-verify.py"
+"$python_command" "${REMOTE_DIR}/test-blindou-dispatch-v3-heartbeat-contract.py"
 "$python_command" "${REMOTE_DIR}/verify-blindou-data-artifacts.py" "$REPOSITORY_ROOT"
 "$python_command" - "$REPOSITORY_ROOT" <<'PY'
 from pathlib import Path

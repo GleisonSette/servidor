@@ -2725,3 +2725,17 @@ push, imagem nova, migration, retorno V1/V2, exclusão de dados ou corte para
 `blindou-data`. A retenção continua 4 GiB e o log confirma `lsn.flush.mode=connector`:
 prevenção da recorrência em ociosidade permanece pendente. Recuperação de
 disponibilidade não equivale a teste de envio real nem a conclusão da SPEC.
+
+## 2026-09-10 — Comparação fechada do upgrade de heartbeat preparada
+
+Foi implementada a comparação offline D074 dos bundles de release já
+assinados, limitada às propriedades D085 e às imagens novas backend/CDC.
+Seis testes determinísticos, com negativas por propriedade e por manifesto,
+passaram sem rede, banco ou container. Instalação, operação mutável, migration
+e rollout permanecem pendentes.
+
+Às 14:28:56 locais, a leitura fechada da produção confirmou a mesma release
+`5e35ca7bd81a4a03e8c8e2b566b2d26c08c8af2a`, 14 migrations, slot ativo,
+`wal_status=reserved`, nenhuma invalidação e todas as presenças de estado,
+outbox e offsets falsas. `safe_wal_size=3939531584`; o cursor ainda conserva
+o LSN `82/652279F8`. Isso confirma disponibilidade, não a proteção em idle.

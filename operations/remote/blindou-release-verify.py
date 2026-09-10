@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -91,9 +92,168 @@ ALLOWED_SECRET_NAMES = {
 }
 GHCR_PULL_SECRET = "blindou-ghcr-pull"
 
+# D085 do Blindou: esta allowlist descreve somente a transição do heartbeat.
+# O restante da configuração, inclusive TLS, offsets e PubAck, deve ser idêntico.
+HEARTBEAT_PROPERTIES = {
+    "debezium.source.table.include.list": "public.dispatch_outbox_v3,blindou_cdc_state.dispatch_v3_heartbeat",
+    "debezium.source.heartbeat.interval.ms": "60000",
+    "debezium.source.heartbeat.action.query": "SELECT blindou_cdc_state.pulse_dispatch_v3_heartbeat()",
+    "debezium.source.lsn.flush.mode": "connector",
+    "debezium.source.database.query.timeout.ms": "5000",
+    "debezium.transforms": "ackCdcHeartbeat,outbox,dropNullScheduleHeaders",
+    "debezium.transforms.ackCdcHeartbeat.type": "io.blindou.dispatch.v3.AcknowledgeCdcHeartbeat",
+    "debezium.predicates": "isCdcHeartbeat",
+    "debezium.predicates.isCdcHeartbeat.type": "org.apache.kafka.connect.transforms.predicates.TopicNameMatches",
+    "debezium.predicates.isCdcHeartbeat.pattern": "^(__debezium-heartbeat[.]blindou_dispatch_v3|blindou_dispatch_v3[.]blindou_cdc_state[.]dispatch_v3_heartbeat)$",
+    "debezium.transforms.outbox.predicate": "isCdcHeartbeat",
+    "debezium.transforms.outbox.negate": "true",
+    "debezium.transforms.dropNullScheduleHeaders.predicate": "isCdcHeartbeat",
+    "debezium.transforms.dropNullScheduleHeaders.negate": "true",
+}
+
 
 def fail(message: str) -> None:
     raise SystemExit(f"[blindou-release-verify] ERRO: {message}")
+
+
+def heartbeat_properties(text: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, separator, value = line.partition("=")
+        if not separator or key in result or key != key.strip():
+            fail("propriedades CDC ausentes, duplicadas ou ambíguas")
+        result[key] = value
+    return result
+
+
+def validate_heartbeat_config(previous: str, candidate: str) -> None:
+    old = heartbeat_properties(previous)
+    new = heartbeat_properties(candidate)
+    baseline = {
+        "debezium.source.table.include.list": "public.dispatch_outbox_v3",
+        "debezium.source.heartbeat.interval.ms": "0",
+        "debezium.transforms": "outbox,dropNullScheduleHeaders",
+    }
+    if any(old.get(key) != value for key, value in baseline.items()):
+        fail("baseline CDC não corresponde à transição D085")
+    if any(key in old for key in HEARTBEAT_PROPERTIES.keys() - baseline.keys()):
+        fail("baseline CDC já contém parte da D085")
+    if new != {**old, **HEARTBEAT_PROPERTIES}:
+        fail("configuração CDC altera contrato fora da D085")
+
+
+def normalize_heartbeat_release(document: dict[str, Any], release_id: str,
+                                backend_image: str, debezium_image: str) -> dict[str, Any]:
+    """Normaliza apenas identidades de release/imagem; não normaliza segurança."""
+    result = copy.deepcopy(document)
+    kind = result.get("kind")
+    name = result.get("metadata", {}).get("name")
+    if kind == "Job":
+        if name != f"blindou-migrate-{release_id[:12]}":
+            fail("Job fora da migration assinada")
+        result["metadata"]["name"] = "blindou-migrate-RELEASE"
+    if kind in {"Deployment", "StatefulSet", "Job"}:
+        template = result["spec"]["template"]
+        for field in ("labels", "annotations"):
+            metadata = template["metadata"].get(field, {})
+            if "blindou.io/release" in metadata:
+                if metadata["blindou.io/release"] != release_id:
+                    fail("anotação não corresponde à release")
+                metadata["blindou.io/release"] = "RELEASE"
+        for container in template["spec"]["containers"]:
+            image = container.get("image")
+            if image == backend_image:
+                container["image"] = "BACKEND"
+            elif image == debezium_image:
+                if (kind, name) != ("StatefulSet", "blindou-debezium-v3"):
+                    fail("imagem CDC fora do workload exclusivo")
+                container["image"] = "DEBEZIUM"
+            for variable in container.get("env", []):
+                if variable.get("name") == "APP_RELEASE_ID":
+                    if variable.get("value") != release_id:
+                        fail("APP_RELEASE_ID não corresponde à release")
+                    variable["value"] = "RELEASE"
+    return result
+
+
+def validate_heartbeat_transition(previous: list[dict[str, Any]],
+                                  candidate: list[dict[str, Any]],
+                                  previous_release: str, candidate_release: str,
+                                  previous_backend: str, candidate_backend: str,
+                                  previous_debezium: str, candidate_debezium: str) -> None:
+    """Comparação adicional dos dois bundles já assinados, sem escrita ou K3s."""
+    if (not RELEASE_RE.fullmatch(previous_release)
+            or not RELEASE_RE.fullmatch(candidate_release)
+            or previous_release == candidate_release):
+        fail("par de releases D085 inválido")
+    images = (previous_backend, candidate_backend, previous_debezium, candidate_debezium)
+    if any(not IMAGE_RE.fullmatch(value) for value in images) or len(set(images)) != 4:
+        fail("D085 exige imagens imutáveis novas de backend e CDC")
+
+    def inventory(documents, release_id, backend, debezium):
+        indexed = {}
+        for document in documents:
+            normalized = normalize_heartbeat_release(document, release_id, backend, debezium)
+            key = (normalized.get("kind"), normalized.get("metadata", {}).get("namespace"),
+                   normalized.get("metadata", {}).get("name"))
+            if key in indexed:
+                fail("recurso duplicado no bundle D085")
+            indexed[key] = normalized
+        return indexed
+
+    old = inventory(previous, previous_release, previous_backend, previous_debezium)
+    new = inventory(candidate, candidate_release, candidate_backend, candidate_debezium)
+    config_key = ("ConfigMap", "blindou-production", "blindou-debezium-v3-config")
+    if old.keys() != new.keys() or config_key not in old:
+        fail("inventário D085 alterou recursos")
+    old_config = old[config_key].get("data", {})
+    new_config = new[config_key].get("data", {})
+    if set(old_config) != {"application.properties"} or set(new_config) != set(old_config):
+        fail("ConfigMap CDC contém chaves inesperadas")
+    validate_heartbeat_config(old_config["application.properties"], new_config["application.properties"])
+    new_config["application.properties"] = old_config["application.properties"]
+    if old != new:
+        fail("D085 altera manifesto fora de release, backend, CDC e heartbeat")
+
+
+def validate_heartbeat_bundles(previous_directory: Path, candidate_directory: Path,
+                               previous_release: str, candidate_release: str,
+                               previous_backend: str, candidate_backend: str,
+                               previous_debezium: str, candidate_debezium: str) -> None:
+    """Lê somente caches extraídos e verificados pelo controlador root-only."""
+    def inventory(directory: Path) -> dict[str, Path]:
+        if directory.is_symlink() or not directory.is_dir():
+            fail("cache D085 ausente ou simbólico")
+        paths = {}
+        for path in directory.rglob("*"):
+            if path.is_symlink():
+                fail("cache D085 contém link simbólico")
+            if path.is_file():
+                if path.stat().st_size > 2 * 1024 * 1024:
+                    fail("arquivo D085 excede o contrato do bundle")
+                paths[path.relative_to(directory).as_posix()] = path
+        if len(paths) > 96 or not REQUIRED_FILES.issubset(paths):
+            fail("cache D085 tem inventário incompleto ou excessivo")
+        workers = {name for name in paths if name.startswith("workers/") and name.endswith(".yaml")}
+        if len(workers) != EXPECTED_WORKER_COUNT or set(paths) != REQUIRED_FILES | workers:
+            fail("cache D085 possui arquivo fora do contrato")
+        return paths
+
+    previous_paths = inventory(previous_directory)
+    candidate_paths = inventory(candidate_directory)
+    if previous_paths.keys() != candidate_paths.keys():
+        fail("arquivos dos bundles D085 divergiram")
+    for name in ("dispatch-v3/streams.json", "dispatch-v3/consumers.json"):
+        if previous_paths[name].read_bytes() != candidate_paths[name].read_bytes():
+            fail("D085 altera streams ou consumers")
+    validate_heartbeat_transition(
+        load_documents(path for path in previous_paths.values() if path.suffix == ".yaml"),
+        load_documents(path for path in candidate_paths.values() if path.suffix == ".yaml"),
+        previous_release, candidate_release, previous_backend, candidate_backend,
+        previous_debezium, candidate_debezium)
 
 
 def sha256_file(path: Path) -> str:

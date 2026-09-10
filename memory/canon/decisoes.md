@@ -1602,3 +1602,26 @@ provider, retenção de WAL ou semântica de confirmação de offsets. A preven�
 da recorrência em ociosidade permanece pendente e não é declarada resolvida
 pela simples recriação do slot. As regras de heartbeat/offset da SPEC não são
 substituídas silenciosamente.
+
+## Resolvida D074 - Proteção do WAL ocioso e atualização V3 forward-only
+
+Em 2026-09-10, o usuário autorizou a D085 do Blindou: heartbeat técnico SQL
+nativo do Debezium, migration aditiva `0015`, alteração manual da mesma
+publication, nova imagem privada CDC e backend/migrator, com build, publicação
+e implantação controlada. A D086 autorizou apenas a correção Netty da candidata.
+Docker/WSL e compilação Rust na estação permanecem proibidos; UAZAPI/Resend OFF.
+
+A transição deve preservar slot, offsets, outbox, modo V3 ativo e autoridade
+PostgreSQL. Não pode usar o aplicador de primeira ativação, restaurar a API
+anterior, remover/recriar/avançar slot ou ampliar pools, privilégios e retenção.
+Exige candidata assinada, prova de pull, backup novo confirmado offsite,
+migration iniciada manualmente, contagem real de conexões dentro da SPEC e
+prova viva de progresso em ociosidade. Publicar imagens não conclui esses gates.
+
+A preparação offline acrescenta ao verificador de releases a comparação dos
+dois bundles: somente identidades de release, imagens backend/CDC e as
+propriedades exatas do heartbeat podem mudar. TLS, PubAck, offsets, recursos,
+réplicas, volumes, outros digests e inventário devem permanecer iguais.
+Os testes negativos rejeitam alterações fora dessa fronteira. A operação
+mutável e a instalação no host ainda estão pendentes; a D073 histórica não
+certifica esta proteção nem pode ser reutilizada para apagar offsets.

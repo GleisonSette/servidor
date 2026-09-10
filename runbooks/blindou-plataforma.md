@@ -970,6 +970,25 @@ Como o controlador usa lock exclusivo, uma auditoria manual concorrente pode
 fazer um ciclo do coletor falhar fechado em zero; o ciclo seguinte deve voltar
 a um sem intervenção. Persistência em zero exige investigação.
 
+## Upgrade do heartbeat V3 — D074, preparação offline
+
+A D085 do Blindou autoriza heartbeat técnico de 60 segundos e migration
+aditiva `0015`, mantendo o V3 ativo e UAZAPI/Resend desligados. A operação
+forward-only ainda está em preparação; não executar `apply` da primeira
+ativação nem reutilizar a recuperação vazia de slot como atalho.
+
+`blindou-release-verify.py` compara os bundles assinados anterior/candidato.
+Somente release, imagens backend/CDC e propriedades exatas da D085 podem
+mudar; TLS, offset, PubAck, réplicas, volumes, recursos e outros digests são
+preservados. O gate offline executa as negativas em
+`test-blindou-dispatch-v3-heartbeat-contract.py`.
+
+Antes da operação: imagem CDC comprovada em laboratório, backend/migrator
+com 15 migrations, assinaturas, prova de pull, orçamento real de conexões,
+backup novo/offsite e controlador fechado instalado. A migration operacional
+será iniciada manualmente pelo operador, nunca por workflow. Em falha,
+preservar dados, cursor e recibo parcial; não voltar a V1/V2 nem ligar providers.
+
 ## Verificação final desta etapa
 
 ```bash
